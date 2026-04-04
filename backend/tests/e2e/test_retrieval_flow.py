@@ -48,6 +48,7 @@ async def test_dense_search_returns_results(
 @pytest.mark.asyncio
 async def test_bm25_search_returns_results(
     es_client: ElasticsearchClient,
+    embedding_provider: OllamaEmbeddingProvider,
     sample_document_content: str,
     test_settings,
     clean_es_index,
@@ -60,12 +61,13 @@ async def test_bm25_search_returns_results(
     chunks = chunker.chunk(sample_document_content, document_id=doc_id, source="test.txt")
 
     for chunk in chunks[:3]:
+        embedding = await embedding_provider.embed(chunk.content)
         chunk_doc = {
             "chunk_id": str(uuid.uuid4()),
             "document_id": chunk.document_id,
             "chunk_level": chunk.level,
             "content": chunk.content,
-            "content_vector": [0.0] * test_settings.EMBEDDING_DIMS,
+            "content_vector": embedding,
             "source": chunk.source or "",
         }
         await es_client.index_chunk(chunk_doc)

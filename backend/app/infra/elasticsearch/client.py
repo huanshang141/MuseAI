@@ -64,9 +64,9 @@ class ElasticsearchClient:
                 }
             }
 
-            result = await self.client.indices.create(index=index_name, body=mapping)
+            await self.client.indices.create(index=index_name, body=mapping)
             logger.info(f"Created ES index: {index_name}")
-            return cast(dict[str, Any], result)
+            return {"status": "created"}
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to create index {index_name}: {repr(e)}")
             raise RetrievalError(f"Failed to create index: {type(e).__name__}")

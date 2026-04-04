@@ -58,7 +58,7 @@ async def test_elasticsearch_index_creation(
     index_name = f"{test_settings.ELASTICSEARCH_INDEX}_e2e_test"
     result = await es_client.create_index(index_name=index_name, dims=test_settings.EMBEDDING_DIMS)
 
-    assert result["status"] in ["already_exists", "acknowledged"], "Index should be created or already exist"
+    assert result["status"] in ["already_exists", "created"], "Index should be created or already exist"
 
 
 @pytest.mark.asyncio
@@ -88,6 +88,7 @@ async def test_elasticsearch_index_and_search_chunk(
     }
 
     await es_client.index_chunk(chunk_doc)
+    await es_client.client.indices.refresh(index=f"{test_settings.ELASTICSEARCH_INDEX}_e2e_test")
 
     results = await es_client.search_dense(embedding, top_k=1)
 
@@ -127,6 +128,8 @@ async def test_full_ingestion_pipeline(
             "source": chunk.source or "",
         }
         await es_client.index_chunk(chunk_doc)
+
+    await es_client.client.indices.refresh(index=f"{test_settings.ELASTICSEARCH_INDEX}_e2e_test")
 
     query_embedding = embeddings[0]
     results = await es_client.search_dense(query_embedding, top_k=3)

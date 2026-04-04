@@ -50,7 +50,7 @@ async def test_create_index_new(mock_es_client: Any) -> None:
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
     result = await client.create_index(index_name="museai_chunks_v1", dims=1536)
 
-    assert result == {"acknowledged": True}
+    assert result == {"status": "created"}
     mock_es_client.indices.exists.assert_called_once()
     mock_es_client.indices.create.assert_called_once()
 

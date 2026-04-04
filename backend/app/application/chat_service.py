@@ -88,6 +88,42 @@ async def ask_question(session: AsyncSession, session_id: str, message: str) -> 
     }
 
 
+async def ask_question_with_rag(
+    session: AsyncSession,
+    session_id: str,
+    message: str,
+    rag_agent: Any,
+) -> dict[str, Any] | None:
+    chat_session = await get_session_by_id(session, session_id)
+    if chat_session is None:
+        return None
+
+    await add_message(session, session_id, "user", message)
+
+    trace_id = str(uuid.uuid4())
+
+    result = await rag_agent.run(message)
+    answer = result.get("answer", "No answer generated")
+
+    sources = []
+    for doc in result.get("documents", []):
+        sources.append(
+            {
+                "chunk_id": doc.metadata.get("chunk_id"),
+                "content": doc.page_content[:200] if doc.page_content else "",
+                "score": doc.metadata.get("rrf_score"),
+            }
+        )
+
+    await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
+
+    return {
+        "answer": answer,
+        "trace_id": trace_id,
+        "sources": sources,
+    }
+
+
 async def ask_question_stream(
     session: AsyncSession,
     session_id: str,
@@ -123,3 +159,51 @@ async def ask_question_stream(
         yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': str(e)})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': str(e)})}\n\n"
+
+
+async def ask_question_stream_with_rag(
+    session: AsyncSession,
+    session_id: str,
+    message: str,
+    rag_agent: Any,
+    llm_provider: LLMProvider,
+) -> AsyncGenerator[str, None]:
+    chat_session = await get_session_by_id(session, session_id)
+    if chat_session is None:
+        yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
+        return
+
+    trace_id = str(uuid.uuid4())
+
+    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
+
+    try:
+        result = await rag_agent.run(message)
+
+        doc_count = len(result.get("documents", []))
+        retrieval_score = result.get("retrieval_score", 0)
+
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': f'检索完成，找到 {doc_count} 个相关文档'})}\n\n"
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': f'检索评分: {retrieval_score:.2f}'})}\n\n"
+
+        answer = result.get("answer", "")
+
+        for chunk in [answer[i : i + 50] for i in range(0, len(answer), 50)]:
+            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+
+        await add_message(session, session_id, "user", message)
+        await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
+        await session.commit()
+
+        sources = []
+        for doc in result.get("documents", []):
+            sources.append(
+                {
+                    "chunk_id": doc.metadata.get("chunk_id"),
+                    "score": doc.metadata.get("rrf_score"),
+                }
+            )
+
+        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': str(e)})}\n\n"

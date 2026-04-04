@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.chat_service import (
     ask_question,
     ask_question_stream,
+    ask_question_stream_with_rag,
     create_session,
     delete_session,
     get_messages_by_session,
@@ -89,6 +90,12 @@ def get_llm_provider() -> OpenAICompatibleProvider:
         settings = get_settings()
         _llm_provider = OpenAICompatibleProvider.from_settings(settings)
     return _llm_provider
+
+
+def get_rag_agent():
+    from app.main import get_rag_agent as _get_rag_agent
+
+    return _get_rag_agent()
 
 
 @router.post("/sessions", response_model=SessionResponse)
@@ -175,9 +182,12 @@ async def ask_stream_endpoint(
         raise HTTPException(status_code=404, detail="Session not found")
 
     llm_provider = get_llm_provider()
+    rag_agent = get_rag_agent()
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for event in ask_question_stream(session, ask_request.session_id, ask_request.message, llm_provider):
+        async for event in ask_question_stream_with_rag(
+            session, ask_request.session_id, ask_request.message, rag_agent, llm_provider
+        ):
             if await request.is_disconnected():
                 break
             yield event

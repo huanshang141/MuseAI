@@ -34,7 +34,6 @@ class MultiTurnStateMachine:
         self._query: str | None = None
         self._retrieval_score: float | None = None
         self._transformations: list[str] = []
-        self._answer: str | None = None
 
     def process(self, query: str) -> None:
         self._query = query
@@ -69,6 +68,10 @@ class MultiTurnStateMachine:
         retrieval_score: float,
         generated_answer: str,
     ) -> MultiTurnResult:
+        self.current_state = State.START
+        self.attempts = 0
+        self._transformations = []
+
         self.process(query)
 
         while self.current_state != State.GENERATE:

@@ -193,3 +193,23 @@ def test_multiple_retrieval_attempts_in_run():
     )
     assert result.attempts == 2
     assert result.transformations == ["placeholder", "placeholder"]
+
+
+def test_run_resets_state_between_calls():
+    state_machine = MultiTurnStateMachine(score_threshold=0.7, max_attempts=3)
+
+    result1 = state_machine.run(
+        query="First query",
+        retrieval_score=0.5,
+        generated_answer="First answer",
+    )
+    assert result1.attempts == 3
+
+    result2 = state_machine.run(
+        query="Second query",
+        retrieval_score=0.8,
+        generated_answer="Second answer",
+    )
+    assert result2.attempts == 0
+    assert result2.transformations == []
+    assert result2.query == "Second query"

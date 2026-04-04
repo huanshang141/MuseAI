@@ -2,6 +2,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import asynccontextmanager
+
 from app.main import app
 
 
@@ -15,21 +16,7 @@ async def test_health_endpoint():
     assert data["status"] == "ok"
 
 
-@pytest.mark.asyncio
-async def test_ready_endpoint_database_not_initialized():
-    with patch("app.infra.postgres.database._engine", None):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/ready")
-        assert response.status_code == 503
-        data = response.json()
-        assert data["database"] == "not_initialized"
-        assert data["elasticsearch"] == "not_configured"
-        assert data["redis"] == "not_configured"
-
-
-@pytest.mark.asyncio
-async def test_ready_endpoint_database_healthy():
+def _healthy_engine() -> MagicMock:
     mock_conn = MagicMock()
     mock_conn.execute = AsyncMock(return_value=None)
 
@@ -39,37 +26,162 @@ async def test_ready_endpoint_database_healthy():
 
     mock_engine = MagicMock()
     mock_engine.connect = mock_connect
-
-    with patch("app.infra.postgres.database._engine", mock_engine):
-        from app.api.health import ready
-        from fastapi import Response
-
-        response = Response()
-        result = await ready(response)
-
-        assert result["database"] == "healthy"
-        assert result["elasticsearch"] == "not_configured"
-        assert result["redis"] == "not_configured"
-        assert response.status_code == 200
+    return mock_engine
 
 
-@pytest.mark.asyncio
-async def test_ready_endpoint_database_unhealthy():
-    mock_engine = MagicMock()
-
+def _unhealthy_engine() -> MagicMock:
     @asynccontextmanager
     async def mock_connect():
         raise Exception("Connection refused")
         yield
 
+    mock_engine = MagicMock()
     mock_engine.connect = mock_connect
+    return mock_engine
 
-    with patch("app.infra.postgres.database._engine", mock_engine):
-        from app.api.health import ready
-        from fastapi import Response
 
-        response = Response()
-        result = await ready(response)
+class _MockESClient:
+    def __init__(self, *, healthy: bool = True, error: Exception | None = None):
+        self._healthy = healthy
+        self._error = error
 
-        assert result["database"] == "unhealthy"
-        assert response.status_code == 503
+    async def health_check(self) -> bool:
+        if self._error:
+            raise self._error
+        return self._healthy
+
+
+class _MockRedisClient:
+    def __init__(
+        self,
+        *,
+        healthy: bool = True,
+        error: Exception | None = None,
+        close_error: Exception | None = None,
+    ):
+        self._healthy = healthy
+        self._error = error
+        self._close_error = close_error
+        self.closed = False
+
+    async def ping(self) -> bool:
+        if self._error:
+            raise self._error
+        return self._healthy
+
+    async def aclose(self) -> None:
+        if self._close_error:
+            raise self._close_error
+        self.closed = True
+
+
+async def _call_ready() -> tuple[int, dict]:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/ready")
+    return response.status_code, response.json()
+
+
+@pytest.mark.asyncio
+async def test_ready_all_healthy_returns_200():
+    redis_client = _MockRedisClient(healthy=True)
+    with (
+        patch("app.infra.postgres.database._engine", _healthy_engine()),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=True)),
+        patch("app.api.health.redis_from_url", return_value=redis_client),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 200
+    assert data == {"database": "healthy", "elasticsearch": "healthy", "redis": "healthy"}
+    assert redis_client.closed is True
+
+
+@pytest.mark.asyncio
+async def test_ready_returns_503_when_elasticsearch_unhealthy():
+    with (
+        patch("app.infra.postgres.database._engine", _healthy_engine()),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=False)),
+        patch("app.api.health.redis_from_url", return_value=_MockRedisClient(healthy=True)),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 503
+    assert data["database"] == "healthy"
+    assert data["elasticsearch"] == "unhealthy"
+    assert data["redis"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_ready_returns_503_when_redis_unhealthy():
+    with (
+        patch("app.infra.postgres.database._engine", _healthy_engine()),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=True)),
+        patch("app.api.health.redis_from_url", return_value=_MockRedisClient(healthy=False)),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 503
+    assert data["database"] == "healthy"
+    assert data["elasticsearch"] == "healthy"
+    assert data["redis"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "engine,status",
+    [
+        (None, "not_initialized"),
+        (_unhealthy_engine(), "unhealthy"),
+    ],
+)
+async def test_ready_returns_503_when_database_not_ready(engine, status):
+    with (
+        patch("app.infra.postgres.database._engine", engine),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=True)),
+        patch("app.api.health.redis_from_url", return_value=_MockRedisClient(healthy=True)),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 503
+    assert data["database"] == status
+    assert data["elasticsearch"] == "healthy"
+    assert data["redis"] == "healthy"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "es_error,redis_error,expected_es,expected_redis",
+    [
+        (Exception("es boom"), None, "unhealthy", "healthy"),
+        (None, Exception("redis boom"), "healthy", "unhealthy"),
+    ],
+)
+async def test_ready_handles_probe_exceptions(es_error, redis_error, expected_es, expected_redis):
+    with (
+        patch("app.infra.postgres.database._engine", _healthy_engine()),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=True, error=es_error)),
+        patch("app.api.health.redis_from_url", return_value=_MockRedisClient(healthy=True, error=redis_error)),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 503
+    assert data["database"] == "healthy"
+    assert data["elasticsearch"] == expected_es
+    assert data["redis"] == expected_redis
+
+
+@pytest.mark.asyncio
+async def test_ready_returns_503_when_redis_close_raises_after_healthy_ping():
+    redis_client = _MockRedisClient(healthy=True, close_error=Exception("close boom"))
+    with (
+        patch("app.infra.postgres.database._engine", _healthy_engine()),
+        patch("app.main.get_es_client", return_value=_MockESClient(healthy=True)),
+        patch("app.api.health.redis_from_url", return_value=redis_client),
+    ):
+        status_code, data = await _call_ready()
+
+    assert status_code == 503
+    assert data["database"] == "healthy"
+    assert data["elasticsearch"] == "healthy"
+    assert data["redis"] == "unhealthy"

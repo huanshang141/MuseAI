@@ -68,8 +68,12 @@ onMounted(fetchDocuments)
               {{ statusMap[doc.status]?.text || doc.status }}
             </el-tag>
             <el-button-group size="small">
-              <el-button @click="handleViewStatus(doc)" :icon="View" />
-              <el-button @click="handleDelete(doc)" :icon="Delete" type="danger" />
+              <el-tooltip content="查看状态" placement="top">
+                <el-button @click="handleViewStatus(doc)" :icon="View" />
+              </el-tooltip>
+              <el-tooltip content="删除文档" placement="top">
+                <el-button @click="handleDelete(doc)" :icon="Delete" type="danger" />
+              </el-tooltip>
             </el-button-group>
           </div>
         </div>

@@ -6,7 +6,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
+from app.infra.providers.llm import LLMProvider
 
 MOCK_USER_ID = "user-001"
 
@@ -90,7 +92,7 @@ async def ask_question_stream(
     session: AsyncSession,
     session_id: str,
     message: str,
-    llm_provider: Any,
+    llm_provider: LLMProvider,
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id)
     if chat_session is None:
@@ -100,10 +102,6 @@ async def ask_question_stream(
     trace_id = str(uuid.uuid4())
 
     yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
-
-    await add_message(session, session_id, "user", message)
-    await session.commit()
-
     yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '检索完成'})}\n\n"
 
     messages = [{"role": "user", "content": message}]
@@ -116,9 +114,12 @@ async def ask_question_stream(
             chunks.append(chunk)
             yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
 
+        await add_message(session, session_id, "user", message)
         await add_message(session, session_id, "assistant", full_content, trace_id=trace_id)
         await session.commit()
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'chunks': chunks})}\n\n"
-    except Exception as e:
+    except LLMError as e:
         yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': str(e)})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': str(e)})}\n\n"

@@ -15,7 +15,13 @@ class OllamaEmbeddingProvider:
         self.model = model
         self.dims = dims
         self.timeout = timeout
-        self.client = httpx.AsyncClient(timeout=timeout)
+        self.client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+
+    async def __aenter__(self) -> "OllamaEmbeddingProvider":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
 
     async def close(self) -> None:
         await self.client.aclose()
@@ -38,5 +44,12 @@ class OllamaEmbeddingProvider:
             async with semaphore:
                 return await self.embed(text)
 
-        embeddings = await asyncio.gather(*[embed_with_semaphore(text) for text in texts])
-        return list(embeddings)
+        results = await asyncio.gather(*[embed_with_semaphore(text) for text in texts], return_exceptions=True)
+
+        embeddings = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                raise RuntimeError(f"Failed to embed text at index {i}: {result}")
+            embeddings.append(result)
+
+        return embeddings

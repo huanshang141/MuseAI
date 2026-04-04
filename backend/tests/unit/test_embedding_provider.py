@@ -18,11 +18,11 @@ class MockAsyncClient:
     def __init__(self, response_data=None):
         self._response_data = response_data
         self.post_count = 0
-    
+
     async def post(self, *args, **kwargs):
         self.post_count += 1
         return MockResponse(self._response_data)
-    
+
     async def aclose(self):
         pass
 
@@ -69,7 +69,7 @@ async def test_embed_dimension_validation():
         mock_client_class.return_value = mock_client
 
         provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768)
-        
+
         with pytest.raises(ValueError, match="Embedding dimension mismatch: expected 768, got 512"):
             await provider.embed("test text")
 
@@ -82,10 +82,7 @@ async def test_timeout_parameter():
         mock_client_class.return_value = mock_client
 
         provider = OllamaEmbeddingProvider(
-            base_url="http://localhost:11434",
-            model="qwen3-embedding:8b",
-            dims=768,
-            timeout=30.0
+            base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768, timeout=30.0
         )
 
         assert provider.timeout == 30.0
@@ -97,10 +94,10 @@ async def test_close_method():
     mock_client = MagicMock()
     mock_client.aclose = MagicMock(return_value=None)
     mock_client.aclose.return_value = None
-    
+
     async def mock_aclose():
         pass
-    
+
     mock_client.aclose = mock_aclose
 
     with patch("app.infra.providers.embedding.httpx.AsyncClient") as mock_client_class:
@@ -108,3 +105,57 @@ async def test_close_method():
 
         provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768)
         await provider.close()
+
+
+@pytest.mark.asyncio
+async def test_context_manager():
+    response_data = {"embedding": [0.1] * 768}
+    mock_client = MockAsyncClient(response_data)
+    close_called = False
+
+    async def mock_aclose():
+        nonlocal close_called
+        close_called = True
+
+    mock_client.aclose = mock_aclose
+
+    with patch("app.infra.providers.embedding.httpx.AsyncClient") as mock_client_class:
+        mock_client_class.return_value = mock_client
+
+        async with OllamaEmbeddingProvider(
+            base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768
+        ) as provider:
+            embedding = await provider.embed("test text")
+            assert len(embedding) == 768
+
+        assert close_called
+
+
+@pytest.mark.asyncio
+async def test_embed_batch_partial_failure():
+    call_count = 0
+
+    async def post_with_failure(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise Exception("Simulated failure")
+        return MockResponse({"embedding": [0.1] * 768})
+
+    mock_client = MagicMock()
+    mock_client.post = post_with_failure
+    mock_client.aclose = MagicMock(return_value=None)
+
+    async def mock_aclose():
+        pass
+
+    mock_client.aclose = mock_aclose
+
+    with patch("app.infra.providers.embedding.httpx.AsyncClient") as mock_client_class:
+        mock_client_class.return_value = mock_client
+
+        provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768)
+        texts = ["text 1", "text 2", "text 3"]
+
+        with pytest.raises(RuntimeError, match="Failed to embed text at index 1"):
+            await provider.embed_batch(texts)

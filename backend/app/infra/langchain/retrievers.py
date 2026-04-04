@@ -19,9 +19,9 @@ class RRFRetriever(BaseRetriever):
     rrf_k: int = 60
 
     def _get_relevant_documents(self, query: str) -> List[Document]:
-        import asyncio
-
-        return asyncio.run(self._aget_relevant_documents(query))
+        raise NotImplementedError(
+            "Sync retrieval not supported in async context. Use _aget_relevant_documents instead."
+        )
 
     async def _aget_relevant_documents(self, query: str) -> List[Document]:
         query_vector = await self.embeddings.aembed_query(query)

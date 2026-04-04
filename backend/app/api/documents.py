@@ -1,5 +1,6 @@
+import asyncio
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.infra.postgres.database import get_session_maker, get_session
@@ -11,6 +12,7 @@ from app.application.document_service import (
     delete_document,
 )
 from app.config.settings import get_settings
+from app.application.ingestion_service import IngestionService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -58,8 +60,50 @@ SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
+def get_ingestion_service() -> IngestionService:
+    from app.main import get_ingestion_service as _get_ingestion_service
+
+    return _get_ingestion_service()
+
+
+def get_es_client():
+    from app.main import get_es_client as _get_es_client
+
+    return _get_es_client()
+
+
+def get_embeddings():
+    from app.main import get_embeddings as _get_embeddings
+
+    return _get_embeddings()
+
+
+async def process_document_background(document_id: str, content: str, filename: str):
+    from app.main import get_ingestion_service
+
+    ingestion_service = get_ingestion_service()
+    settings = get_settings()
+    session_maker = get_session_maker(settings.DATABASE_URL)
+
+    async with get_session(session_maker) as session:
+        try:
+            await ingestion_service.process_document(
+                session=session,
+                document_id=document_id,
+                content=content,
+                source=filename,
+            )
+            await session.commit()
+        except Exception as e:
+            print(f"Failed to process document {document_id}: {e}")
+
+
 @router.post("/upload", response_model=DocumentResponse)
-async def upload_document(session: SessionDep, file: UploadFile = File(...)) -> DocumentResponse:
+async def upload_document(
+    session: SessionDep,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+) -> DocumentResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
@@ -71,6 +115,18 @@ async def upload_document(session: SessionDep, file: UploadFile = File(...)) -> 
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
     document = await create_document(session, file.filename, file_size)
+    await session.commit()
+
+    try:
+        text_content = content.decode("utf-8")
+        background_tasks.add_task(
+            process_document_background,
+            document.id,
+            text_content,
+            file.filename,
+        )
+    except UnicodeDecodeError:
+        pass
 
     return DocumentResponse(
         id=document.id,

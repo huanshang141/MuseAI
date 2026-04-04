@@ -5,8 +5,13 @@ import { api } from '../../api/index.js'
 const healthStatus = ref('unknown')
 
 async function checkHealth() {
-  const result = await api.health()
-  healthStatus.value = result.ok ? 'healthy' : 'unhealthy'
+  healthStatus.value = 'checking'
+  try {
+    const result = await api.health()
+    healthStatus.value = result.ok ? 'healthy' : 'unhealthy'
+  } catch (error) {
+    healthStatus.value = 'error'
+  }
 }
 
 onMounted(checkHealth)
@@ -19,8 +24,11 @@ onMounted(checkHealth)
       <span>MuseAI - 博物馆展品问答助手</span>
     </div>
     <div style="display: flex; align-items: center; gap: 12px;">
-      <el-tag :type="healthStatus === 'healthy' ? 'success' : 'danger'" size="small">
-        {{ healthStatus === 'healthy' ? '服务正常' : '服务异常' }}
+      <el-tag 
+        :type="healthStatus === 'healthy' ? 'success' : healthStatus === 'checking' ? 'info' : 'danger'" 
+        size="small"
+      >
+        {{ healthStatus === 'healthy' ? '服务正常' : healthStatus === 'checking' ? '检测中...' : '服务异常' }}
       </el-tag>
     </div>
   </div>

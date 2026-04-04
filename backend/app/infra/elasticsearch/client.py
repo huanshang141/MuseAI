@@ -16,8 +16,8 @@ class ElasticsearchClient:
     ) -> None:
         await self.close()
 
-    async def create_index(self, dims: int = 768) -> dict[str, Any]:
-        if await self.client.indices.exists(index=self.index_name):
+    async def create_index(self, index_name: str, dims: int = 768) -> dict[str, Any]:
+        if await self.client.indices.exists(index=index_name):
             return {"status": "already_exists"}
 
         mapping = {
@@ -39,7 +39,7 @@ class ElasticsearchClient:
             }
         }
 
-        result = await self.client.indices.create(index=self.index_name, body=mapping)
+        result = await self.client.indices.create(index=index_name, body=mapping)
         return cast(dict[str, Any], result)
 
     async def index_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:

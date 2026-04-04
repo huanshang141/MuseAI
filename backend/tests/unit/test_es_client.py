@@ -40,7 +40,7 @@ def mock_es_client() -> Any:
 @pytest.mark.asyncio
 async def test_create_index_new(mock_es_client: Any) -> None:
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    result = await client.create_index(dims=768)
+    result = await client.create_index(index_name="museai_chunks_v1", dims=768)
 
     assert result == {"acknowledged": True}
     mock_es_client.indices.exists.assert_called_once()
@@ -52,7 +52,7 @@ async def test_create_index_already_exists(mock_es_client: Any) -> None:
     mock_es_client.indices.exists.return_value = True
 
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    result = await client.create_index(dims=768)
+    result = await client.create_index(index_name="museai_chunks_v1", dims=768)
 
     assert result == {"status": "already_exists"}
     mock_es_client.indices.exists.assert_called_once()
@@ -62,7 +62,7 @@ async def test_create_index_already_exists(mock_es_client: Any) -> None:
 @pytest.mark.asyncio
 async def test_create_index_custom_dims(mock_es_client: Any) -> None:
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    await client.create_index(dims=1536)
+    await client.create_index(index_name="museai_chunks_v1", dims=1536)
 
     call_args = mock_es_client.indices.create.call_args
     mapping = call_args.kwargs["body"]

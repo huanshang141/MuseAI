@@ -4,14 +4,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.config.settings import get_settings
+from app.infra.postgres.database import init_database, close_database
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     print(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
+    init_database(settings.DATABASE_URL)
     yield
     print("Shutting down")
+    await close_database()
 
 
 app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)

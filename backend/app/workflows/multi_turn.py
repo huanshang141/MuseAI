@@ -50,16 +50,15 @@ class MultiTurnStateMachine:
 
         if self._retrieval_score >= self.score_threshold:
             self.current_state = State.GENERATE
-        else:
+        elif self.attempts < self.max_attempts:
             self.current_state = State.TRANSFORM
             self.attempts += 1
+        else:
+            self.current_state = State.GENERATE
 
     def apply_transform(self) -> None:
         self._transformations.append("placeholder")
-        if self.attempts >= self.max_attempts:
-            self.current_state = State.GENERATE
-        else:
-            self.current_state = State.RETRIEVE
+        self.current_state = State.RETRIEVE
 
     def transform_query(self, query: str) -> str:
         return query

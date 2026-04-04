@@ -59,6 +59,7 @@ def test_transform_retries_retrieve():
 def test_max_attempts_forces_generate_on_low_quality():
     state_machine = MultiTurnStateMachine(score_threshold=0.7, max_attempts=3)
     state_machine.process(query="What is machine learning?")
+
     state_machine.set_retrieval_score(0.5)
     state_machine.evaluate()
     assert state_machine.attempts == 1
@@ -73,6 +74,9 @@ def test_max_attempts_forces_generate_on_low_quality():
     state_machine.evaluate()
     assert state_machine.attempts == 3
     state_machine.apply_transform()
+
+    state_machine.set_retrieval_score(0.5)
+    state_machine.evaluate()
     assert state_machine.current_state == State.GENERATE
 
 

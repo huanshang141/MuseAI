@@ -14,8 +14,10 @@ async def init_database(database_url: str) -> async_sessionmaker[AsyncSession]:
         if _engine is not None:
             await _engine.dispose()
 
-        _engine = create_async_engine(database_url, echo=False)
-        _session_maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        new_engine = create_async_engine(database_url, echo=False)
+        new_maker = async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
+        _engine = new_engine
+        _session_maker = new_maker
         return _session_maker
 
 
@@ -36,8 +38,10 @@ def get_session_maker(database_url: str) -> async_sessionmaker[AsyncSession]:
     """
     global _engine, _session_maker
     if _session_maker is None:
-        _engine = create_async_engine(database_url, echo=False)
-        _session_maker = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+        new_engine = create_async_engine(database_url, echo=False)
+        new_maker = async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
+        _engine = new_engine
+        _session_maker = new_maker
     return cast(async_sessionmaker[AsyncSession], _session_maker)
 
 

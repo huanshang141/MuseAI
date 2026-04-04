@@ -1,11 +1,9 @@
 <script setup>
-import { ref } from 'vue'
 import { useDocuments } from '../../composables/useDocuments.js'
 import { ElMessage } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 
 const { uploadDocument } = useDocuments()
-const uploadRef = ref(null)
 
 async function handleUpload(options) {
   const result = await uploadDocument(options.file)
@@ -24,9 +22,9 @@ function handleExceed() {
 <template>
   <div style="padding: 16px;">
     <el-upload
-      ref="uploadRef"
       :auto-upload="true"
       :show-file-list="false"
+      :limit="1"
       :on-exceed="handleExceed"
       :http-request="handleUpload"
       accept=".txt,.md,.pdf"

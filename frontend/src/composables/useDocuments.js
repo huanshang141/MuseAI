@@ -1,10 +1,10 @@
 import { ref } from 'vue'
 import { api } from '../api/index.js'
 
-export function useDocuments() {
-  const documents = ref([])
-  const loading = ref(false)
+const documents = ref([])
+const loading = ref(false)
 
+export function useDocuments() {
   async function fetchDocuments() {
     loading.value = true
     const result = await api.documents.list()

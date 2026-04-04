@@ -1,5 +1,4 @@
 import uuid
-import asyncio
 
 import pytest
 
@@ -36,7 +35,7 @@ async def test_dense_search_returns_results(
         }
         await es_client.index_chunk(chunk_doc)
 
-    await asyncio.sleep(1)
+    await es_client.client.indices.refresh(index=index_name)
 
     query_text = "青铜器"
     query_embedding = await embedding_provider.embed(query_text)
@@ -71,7 +70,7 @@ async def test_bm25_search_returns_results(
         }
         await es_client.index_chunk(chunk_doc)
 
-    await asyncio.sleep(1)
+    await es_client.client.indices.refresh(index=index_name)
 
     query_text = "瓷器"
     results = await es_client.search_bm25(query_text, top_k=5)
@@ -106,7 +105,7 @@ async def test_rrf_fusion_combines_results(
         }
         await es_client.index_chunk(chunk_doc)
 
-    await asyncio.sleep(1)
+    await es_client.client.indices.refresh(index=index_name)
 
     query_text = "玉器"
     query_embedding = await embedding_provider.embed(query_text)
@@ -152,7 +151,7 @@ async def test_full_retrieval_pipeline(
         }
         await es_client.index_chunk(chunk_doc)
 
-    await asyncio.sleep(1)
+    await es_client.client.indices.refresh(index=index_name)
 
     query_text = "书画艺术"
     query_embedding = await embedding_provider.embed(query_text)

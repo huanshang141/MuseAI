@@ -7,6 +7,7 @@ defineProps({
 })
 
 function formatTime(isoString) {
+  if (!isoString) return ''
   return new Date(isoString).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 </script>

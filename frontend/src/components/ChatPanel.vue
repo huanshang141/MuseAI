@@ -1,111 +1,34 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
-import { api } from '../api/index.js'
+import { useChat } from '../composables/useChat.js'
 
-const sessions = ref([])
-const currentSession = ref(null)
-const messages = ref([])
+const {
+  sessions,
+  currentSession,
+  messages,
+  loading,
+  streamingContent,
+  thinkingStatus,
+  fetchSessions,
+  createSession,
+  selectSession,
+  deleteSession,
+  sendMessage,
+} = useChat()
+
 const inputMessage = ref('')
-const loading = ref({ sessions: false, messages: false, send: false })
-const streamingContent = ref('')
-const thinkingStatus = ref('')
 const messagesContainer = ref(null)
 
-async function loadSessions() {
-  loading.value.sessions = true
-  const result = await api.chat.listSessions()
-  loading.value.sessions = false
-  if (result.ok) {
-    sessions.value = result.data
-  }
-}
-
-async function createSession() {
+async function handleCreateSession() {
   const title = `会话 ${new Date().toLocaleString('zh-CN')}`
-  const result = await api.chat.createSession(title)
-  if (result.ok) {
-    sessions.value.unshift(result.data)
-    selectSession(result.data)
-  }
+  await createSession(title)
 }
 
-async function selectSession(session) {
-  currentSession.value = session
-  await loadMessages()
-}
-
-async function loadMessages() {
-  if (!currentSession.value) return
-  loading.value.messages = true
-  const result = await api.chat.getMessages(currentSession.value.id)
-  loading.value.messages = false
-  if (result.ok) {
-    messages.value = result.data
-    scrollToBottom()
-  }
-}
-
-async function deleteSession(sessionId) {
-  const result = await api.chat.deleteSession(sessionId)
-  if (result.ok) {
-    sessions.value = sessions.value.filter(s => s.id !== sessionId)
-    if (currentSession.value?.id === sessionId) {
-      currentSession.value = null
-      messages.value = []
-    }
-  }
-}
-
-async function sendMessage() {
-  if (!inputMessage.value.trim() || !currentSession.value) return
-  
+async function handleSendMessage() {
+  if (!inputMessage.value.trim() || loading.value.send) return
   const userMessage = inputMessage.value.trim()
   inputMessage.value = ''
-  
-  messages.value.push({
-    role: 'user',
-    content: userMessage,
-    created_at: new Date().toISOString(),
-  })
-  scrollToBottom()
-  
-  loading.value.send = true
-  streamingContent.value = ''
-  thinkingStatus.value = ''
-  
-  try {
-    let fullContent = ''
-    for await (const event of api.chat.askStream(currentSession.value.id, userMessage)) {
-      if (event.type === 'thinking') {
-        thinkingStatus.value = event.content
-        scrollToBottom()
-      } else if (event.type === 'chunk') {
-        fullContent += event.content
-        streamingContent.value = fullContent
-        thinkingStatus.value = ''
-        scrollToBottom()
-      } else if (event.type === 'done') {
-        messages.value.push({
-          role: 'assistant',
-          content: fullContent,
-          trace_id: event.trace_id,
-          sources: event.chunks,
-          created_at: new Date().toISOString(),
-        })
-        streamingContent.value = ''
-        thinkingStatus.value = ''
-      }
-    }
-  } catch (e) {
-    console.error('Stream error:', e)
-    messages.value.push({
-      role: 'assistant',
-      content: `错误: ${e.message}`,
-      created_at: new Date().toISOString(),
-    })
-  }
-  
-  loading.value.send = false
+  await sendMessage(userMessage)
   scrollToBottom()
 }
 
@@ -117,14 +40,14 @@ function scrollToBottom() {
   })
 }
 
-onMounted(loadSessions)
+onMounted(fetchSessions)
 </script>
 
 <template>
   <div style="display: flex; height: 600px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
     <div style="width: 250px; border-right: 1px solid #ddd; display: flex; flex-direction: column; background: #fafafa;">
       <div style="padding: 12px; border-bottom: 1px solid #eee;">
-        <button @click="createSession" style="width: 100%; padding: 10px; cursor: pointer; background: #4a90d9; color: white; border: none; border-radius: 4px; font-size: 14px;">
+        <button @click="handleCreateSession" style="width: 100%; padding: 10px; cursor: pointer; background: #4a90d9; color: white; border: none; border-radius: 4px; font-size: 14px;">
           + 新建会话
         </button>
       </div>
@@ -222,13 +145,13 @@ onMounted(loadSessions)
           <div style="display: flex; gap: 8px;">
             <input 
               v-model="inputMessage"
-              @keyup.enter="sendMessage"
+              @keyup.enter="handleSendMessage"
               placeholder="输入消息..."
               :disabled="loading.send"
               style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
             />
             <button 
-              @click="sendMessage"
+              @click="handleSendMessage"
               :disabled="loading.send || !inputMessage.trim()"
               style="padding: 10px 20px; cursor: pointer; background: #4a90d9; color: white; border: none; border-radius: 4px; font-size: 14px; opacity: (loading.send || !inputMessage.trim()) ? 0.6 : 1;"
             >

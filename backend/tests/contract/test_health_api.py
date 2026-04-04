@@ -55,12 +55,21 @@ async def test_ready_endpoint_database_healthy():
 
 @pytest.mark.asyncio
 async def test_ready_endpoint_database_unhealthy():
-    with patch("app.infra.postgres.database._engine", None):
+    mock_engine = MagicMock()
+
+    @asynccontextmanager
+    async def mock_connect():
+        raise Exception("Connection refused")
+        yield
+
+    mock_engine.connect = mock_connect
+
+    with patch("app.infra.postgres.database._engine", mock_engine):
         from app.api.health import ready
         from fastapi import Response
 
         response = Response()
         result = await ready(response)
 
-        assert result["database"] == "not_initialized"
+        assert result["database"] == "unhealthy"
         assert response.status_code == 503

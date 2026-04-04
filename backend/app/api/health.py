@@ -1,5 +1,9 @@
+import logging
+
 from fastapi import APIRouter, Response
 from sqlalchemy import text
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 
@@ -22,10 +26,12 @@ async def ready(response: Response) -> dict:
                 await conn.execute(text("SELECT 1"))
             checks["database"] = "healthy"
         else:
+            logger.warning("Database engine not initialized")
             checks["database"] = "not_initialized"
             all_healthy = False
     except Exception as e:
-        checks["database"] = f"unhealthy: {str(e)}"
+        logger.error(f"Database health check failed: {e}")
+        checks["database"] = "unhealthy"
         all_healthy = False
 
     checks["elasticsearch"] = "not_configured"

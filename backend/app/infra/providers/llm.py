@@ -1,6 +1,8 @@
 import asyncio
+import logging
 import time
 from collections.abc import AsyncGenerator
+from types import TracebackType
 from typing import Any, Protocol, Self
 
 from openai import APIError, AsyncOpenAI
@@ -8,6 +10,8 @@ from pydantic import BaseModel
 
 from app.config.settings import Settings
 from app.domain.exceptions import LLMError
+
+logger = logging.getLogger(__name__)
 
 
 class LLMResponse(BaseModel):
@@ -47,6 +51,20 @@ class OpenAICompatibleProvider:
             model=settings.LLM_MODEL,
         )
 
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        await self.client.close()
+
     async def generate(self, messages: list[dict[str, Any]]) -> LLMResponse:
         start_time = time.time()
         last_error: APIError | None = None
@@ -58,6 +76,9 @@ class OpenAICompatibleProvider:
 
                 content = response.choices[0].message.content or ""
                 usage = response.usage
+
+                if usage is None:
+                    logger.warning("LLM response usage is None, defaulting token counts to 0")
 
                 return LLMResponse(
                     content=content,
@@ -74,19 +95,11 @@ class OpenAICompatibleProvider:
         raise LLMError(str(last_error)) from last_error
 
     async def generate_stream(self, messages: list[dict[str, Any]]) -> AsyncGenerator[str, None]:
-        last_error: APIError | None = None
-
-        for attempt in range(self.max_retries):
-            try:
-                stream = await self.client.chat.completions.create(model=self.model, messages=messages, stream=True)  # type: ignore[arg-type]
-                async for chunk in stream:  # type: ignore[union-attr]
-                    content = chunk.choices[0].delta.content
-                    if content is not None:
-                        yield content
-                return
-            except APIError as e:
-                last_error = e
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay * (2**attempt))
-
-        raise LLMError(str(last_error)) from last_error
+        try:
+            stream = await self.client.chat.completions.create(model=self.model, messages=messages, stream=True)  # type: ignore[arg-type]
+            async for chunk in stream:  # type: ignore[union-attr]
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+        except APIError as e:
+            raise LLMError(str(e)) from e

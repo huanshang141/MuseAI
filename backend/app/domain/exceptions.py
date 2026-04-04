@@ -20,4 +20,4 @@ class RetrievalError(DomainError):
 
 
 class LLMError(DomainError):
-    pass
+    status_code: int = 503

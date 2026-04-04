@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.config.settings import Settings
 from app.domain.exceptions import LLMError
 from app.infra.providers.llm import LLMResponse, OpenAICompatibleProvider
 
@@ -19,7 +20,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hello"}]
             result = await provider.generate(messages)
@@ -48,7 +49,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hi"}]
             chunks = []
@@ -68,7 +69,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hello"}]
 
@@ -86,7 +87,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hi"}]
 
@@ -107,7 +108,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hello"}]
             result = await provider.generate(messages)
@@ -131,7 +132,7 @@ class TestOpenAICompatibleProvider:
 
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
-                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash"
+                base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hi"}]
             chunks = []
@@ -139,3 +140,95 @@ class TestOpenAICompatibleProvider:
                 chunks.append(chunk)
 
         assert chunks == ["Hi", "!"]
+
+    @pytest.mark.asyncio
+    async def test_from_settings_creates_provider(self):
+        mock_settings = MagicMock(spec=Settings)
+        mock_settings.LLM_BASE_URL = "https://api.example.com/v1"
+        mock_settings.LLM_API_KEY = "test-api-key"
+        mock_settings.LLM_MODEL = "gemini-2.5-flash"
+
+        with patch("app.infra.providers.llm.AsyncOpenAI") as mock_client_class:
+            provider = OpenAICompatibleProvider.from_settings(mock_settings)
+
+            assert provider.model == "gemini-2.5-flash"
+            mock_client_class.assert_called_once_with(
+                base_url="https://api.example.com/v1", api_key="test-api-key", timeout=60.0
+            )
+
+    @pytest.mark.asyncio
+    async def test_generate_retries_on_error(self):
+        from openai import APIConnectionError
+
+        mock_client = AsyncMock()
+        call_count = 0
+
+        async def increment_and_fail(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise APIConnectionError(message="Connection failed", request=MagicMock())
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = "Success"
+            mock_response.model = "gemini-2.5-flash"
+            mock_response.usage.prompt_tokens = 5
+            mock_response.usage.completion_tokens = 5
+            return mock_response
+
+        mock_client.chat.completions.create = increment_and_fail
+
+        with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
+            provider = OpenAICompatibleProvider(
+                base_url="https://api.example.com/v1",
+                api_key="test-key",
+                model="gemini-2.5-flash",
+                max_retries=3,
+                retry_delay=0.01,
+            )
+            messages = [{"role": "user", "content": "Hello"}]
+            result = await provider.generate(messages)
+
+        assert result.content == "Success"
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_retries_on_error(self):
+        from openai import APIConnectionError
+
+        mock_client = AsyncMock()
+        call_count = 0
+
+        async def mock_stream():
+            chunks = [MagicMock(choices=[MagicMock(delta=MagicMock(content="Success"))])]
+            for chunk in chunks:
+                yield chunk
+
+        async def increment_and_fail(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise APIConnectionError(message="Connection failed", request=MagicMock())
+            return mock_stream()
+
+        mock_client.chat.completions.create = increment_and_fail
+
+        with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
+            provider = OpenAICompatibleProvider(
+                base_url="https://api.example.com/v1",
+                api_key="test-key",
+                model="gemini-2.5-flash",
+                max_retries=3,
+                retry_delay=0.01,
+            )
+            messages = [{"role": "user", "content": "Hi"}]
+            chunks = []
+            async for chunk in provider.generate_stream(messages):
+                chunks.append(chunk)
+
+        assert chunks == ["Success"]
+        assert call_count == 2
+
+    def test_llm_error_has_status_code_503(self):
+        error = LLMError("test error")
+        assert error.status_code == 503

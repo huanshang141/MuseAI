@@ -108,15 +108,17 @@ async def ask_question_stream(
 
     messages = [{"role": "user", "content": message}]
     full_content = ""
+    chunks: list[str] = []
 
     try:
         async for chunk in llm_provider.generate_stream(messages):
             full_content += chunk
+            chunks.append(chunk)
             yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
 
         await add_message(session, session_id, "assistant", full_content, trace_id=trace_id)
         await session.commit()
 
-        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'chunks': chunks})}\n\n"
     except Exception as e:
         yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': str(e)})}\n\n"

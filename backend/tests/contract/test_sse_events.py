@@ -89,6 +89,8 @@ async def test_stream_ask_success(db_session):
         done_events = [e for e in events if e["type"] == "done"]
         assert len(done_events) == 1
         assert "trace_id" in done_events[0]
+        assert "chunks" in done_events[0]
+        assert isinstance(done_events[0]["chunks"], list)
     finally:
         app.dependency_overrides = {}
 

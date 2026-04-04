@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
 from app.config.settings import Settings, get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.postgres.database import get_session_maker, init_database, close_database
-from app.infra.postgres.models import Base, User
+from app.infra.postgres.models import Base
 from app.infra.providers.embedding import OllamaEmbeddingProvider
 
 
@@ -40,13 +40,15 @@ async def db_engine(test_settings: Settings) -> AsyncEngine:
 async def db_session(db_engine: AsyncEngine, test_settings: Settings) -> AsyncSession:
     session_maker = get_session_maker(test_settings.DATABASE_URL)
     async with session_maker() as session:
-        async with session.begin():
-            await session.execute(
-                text("INSERT INTO users (id, email, password_hash) VALUES ('test-user-e2e', 'e2e@test.com', 'test_hash') ON CONFLICT (id) DO NOTHING")
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash) VALUES ('test-user-e2e', 'e2e@test.com', 'test_hash') ON CONFLICT (id) DO NOTHING"
             )
+        )
+        await session.commit()
+
         async with session.begin_nested():
             yield session
-        await session.rollback()
 
 
 @pytest.fixture

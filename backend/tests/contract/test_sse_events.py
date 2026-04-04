@@ -62,7 +62,17 @@ async def test_stream_ask_success(db_session):
 
         mock_llm.generate_stream = mock_stream
 
-        with patch("app.api.chat.get_llm_provider", return_value=mock_llm):
+        mock_rag = AsyncMock()
+        mock_rag.run.return_value = {
+            "documents": [],
+            "retrieval_score": 0.95,
+            "answer": "这是一个测试回答",
+        }
+
+        with (
+            patch("app.api.chat.get_llm_provider", return_value=mock_llm),
+            patch("app.api.chat.get_rag_agent", return_value=mock_rag),
+        ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(
@@ -89,8 +99,8 @@ async def test_stream_ask_success(db_session):
         done_events = [e for e in events if e["type"] == "done"]
         assert len(done_events) == 1
         assert "trace_id" in done_events[0]
-        assert "chunks" in done_events[0]
-        assert isinstance(done_events[0]["chunks"], list)
+        assert "sources" in done_events[0]
+        assert isinstance(done_events[0]["sources"], list)
     finally:
         app.dependency_overrides = {}
 
@@ -172,7 +182,17 @@ async def test_stream_ask_saves_messages(db_session):
 
         mock_llm.generate_stream = mock_stream
 
-        with patch("app.api.chat.get_llm_provider", return_value=mock_llm):
+        mock_rag = AsyncMock()
+        mock_rag.run.return_value = {
+            "documents": [],
+            "retrieval_score": 0.9,
+            "answer": "回答内容",
+        }
+
+        with (
+            patch("app.api.chat.get_llm_provider", return_value=mock_llm),
+            patch("app.api.chat.get_rag_agent", return_value=mock_rag),
+        ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
                 response = await client.post(

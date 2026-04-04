@@ -25,10 +25,55 @@ async function handleCreateSession() {
 }
 
 async function handleSendMessage() {
-  if (!inputMessage.value.trim() || loading.value.send) return
+  if (!inputMessage.value.trim() || loading.value.send || !currentSession.value) return
+  
   const userMessage = inputMessage.value.trim()
   inputMessage.value = ''
-  await sendMessage(userMessage)
+  
+  messages.value.push({
+    role: 'user',
+    content: userMessage,
+    created_at: new Date().toISOString(),
+  })
+  scrollToBottom()
+  
+  loading.value.send = true
+  streamingContent.value = ''
+  thinkingStatus.value = ''
+  
+  try {
+    let fullContent = ''
+    for await (const event of sendMessage(currentSession.value.id, userMessage)) {
+      if (event.type === 'thinking') {
+        thinkingStatus.value = event.content
+        scrollToBottom()
+      } else if (event.type === 'chunk') {
+        fullContent += event.content
+        streamingContent.value = fullContent
+        thinkingStatus.value = ''
+        scrollToBottom()
+      } else if (event.type === 'done') {
+        messages.value.push({
+          role: 'assistant',
+          content: fullContent,
+          trace_id: event.trace_id,
+          sources: event.chunks,
+          created_at: new Date().toISOString(),
+        })
+        streamingContent.value = ''
+        thinkingStatus.value = ''
+      }
+    }
+  } catch (e) {
+    console.error('Stream error:', e)
+    messages.value.push({
+      role: 'assistant',
+      content: `错误: ${e.message}`,
+      created_at: new Date().toISOString(),
+    })
+  }
+  
+  loading.value.send = false
   scrollToBottom()
 }
 

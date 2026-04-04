@@ -3,6 +3,7 @@ import HealthCard from './components/HealthCard.vue'
 import DocumentUpload from './components/DocumentUpload.vue'
 import DocumentList from './components/DocumentList.vue'
 import DocumentActions from './components/DocumentActions.vue'
+import ChatPanel from './components/ChatPanel.vue'
 </script>
 
 <template>
@@ -14,6 +15,7 @@ import DocumentActions from './components/DocumentActions.vue'
     </div>
     
     <div style="display: grid; gap: 16px;">
+      <ChatPanel />
       <DocumentUpload />
       <DocumentList />
       <DocumentActions />

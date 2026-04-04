@@ -37,4 +37,50 @@ export const api = {
       return { ok: response.ok, status: response.status, data }
     },
   },
+
+  chat: {
+    createSession: (title) => request('/chat/sessions', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }),
+    listSessions: () => request('/chat/sessions'),
+    getSession: (id) => request(`/chat/sessions/${id}`),
+    deleteSession: (id) => request(`/chat/sessions/${id}`, { method: 'DELETE' }),
+    getMessages: (sessionId) => request(`/chat/sessions/${sessionId}/messages`),
+    ask: (sessionId, message) => request('/chat/ask', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, message }),
+    }),
+    askStream: async function* (sessionId, message) {
+      const response = await fetch(`${BASE_URL}/chat/ask/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, message }),
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') return
+            try {
+              yield JSON.parse(data)
+            } catch (e) {
+              console.warn('Parse error:', data)
+            }
+          }
+        }
+      }
+    },
+  },
 }

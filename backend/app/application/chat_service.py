@@ -39,7 +39,6 @@ async def delete_session(session: AsyncSession, session_id: str) -> bool:
     if chat_session is None:
         return False
     await session.delete(chat_session)
-    await session.commit()
     return True
 
 

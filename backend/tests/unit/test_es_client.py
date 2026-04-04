@@ -2,6 +2,8 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from elasticsearch.exceptions import ApiError
+from app.domain.exceptions import RetrievalError
 from app.infra.elasticsearch.client import ElasticsearchClient
 
 
@@ -20,12 +22,18 @@ class MockSearchResponse:
 
 
 class MockAsyncElasticsearch:
-    def __init__(self, hosts: list[str]) -> None:
+    def __init__(
+        self, hosts: list[str], request_timeout: float = 30.0, max_retries: int = 3, retry_on_timeout: bool = True
+    ) -> None:
         self.hosts = hosts
+        self.request_timeout = request_timeout
+        self.max_retries = max_retries
+        self.retry_on_timeout = retry_on_timeout
         self.indices = MockIndicesClient()
         self.index = AsyncMock(return_value={"result": "created"})
         self.search = AsyncMock(return_value={"hits": {"hits": []}})
         self.delete_by_query = AsyncMock(return_value={"deleted": 5})
+        self.ping = AsyncMock(return_value=True)
         self.close = AsyncMock()
 
 
@@ -40,7 +48,7 @@ def mock_es_client() -> Any:
 @pytest.mark.asyncio
 async def test_create_index_new(mock_es_client: Any) -> None:
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    result = await client.create_index(index_name="museai_chunks_v1", dims=768)
+    result = await client.create_index(index_name="museai_chunks_v1", dims=1536)
 
     assert result == {"acknowledged": True}
     mock_es_client.indices.exists.assert_called_once()
@@ -52,7 +60,7 @@ async def test_create_index_already_exists(mock_es_client: Any) -> None:
     mock_es_client.indices.exists.return_value = True
 
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    result = await client.create_index(index_name="museai_chunks_v1", dims=768)
+    result = await client.create_index(index_name="museai_chunks_v1", dims=1536)
 
     assert result == {"status": "already_exists"}
     mock_es_client.indices.exists.assert_called_once()
@@ -62,7 +70,17 @@ async def test_create_index_already_exists(mock_es_client: Any) -> None:
 @pytest.mark.asyncio
 async def test_create_index_custom_dims(mock_es_client: Any) -> None:
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    await client.create_index(index_name="museai_chunks_v1", dims=1536)
+    await client.create_index(index_name="museai_chunks_v1", dims=768)
+
+    call_args = mock_es_client.indices.create.call_args
+    mapping = call_args.kwargs["body"]
+    assert mapping["mappings"]["properties"]["content_vector"]["dims"] == 768
+
+
+@pytest.mark.asyncio
+async def test_create_index_default_dims_is_1536(mock_es_client: Any) -> None:
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    await client.create_index(index_name="museai_chunks_v1")
 
     call_args = mock_es_client.indices.create.call_args
     mapping = call_args.kwargs["body"]
@@ -76,7 +94,7 @@ async def test_index_chunk(mock_es_client: Any) -> None:
         "chunk_id": "chunk-123",
         "document_id": "doc-456",
         "content": "Test content",
-        "content_vector": [0.1] * 768,
+        "content_vector": [0.1] * 1536,
     }
 
     result = await client.index_chunk(chunk)
@@ -92,7 +110,7 @@ async def test_search_dense(mock_es_client: Any) -> None:
     }
 
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    query_vector = [0.1] * 768
+    query_vector = [0.1] * 1536
     results = await client.search_dense(query_vector, top_k=5)
 
     assert len(results) == 1
@@ -109,7 +127,7 @@ async def test_search_dense_custom_top_k(mock_es_client: Any) -> None:
     mock_es_client.search.return_value = {"hits": {"hits": []}}
 
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
-    query_vector = [0.1] * 768
+    query_vector = [0.1] * 1536
     await client.search_dense(query_vector, top_k=20)
 
     call_args = mock_es_client.search.call_args
@@ -187,8 +205,92 @@ async def test_search_returns_empty_list(mock_es_client: Any) -> None:
 
     client = ElasticsearchClient(hosts=["http://localhost:9200"])
 
-    results = await client.search_dense([0.1] * 768)
+    results = await client.search_dense([0.1] * 1536)
     assert results == []
 
     results = await client.search_bm25("query")
     assert results == []
+
+
+@pytest.mark.asyncio
+async def test_health_check_success(mock_es_client: Any) -> None:
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    result = await client.health_check()
+
+    assert result is True
+    mock_es_client.ping.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_health_check_failure(mock_es_client: Any) -> None:
+    mock_es_client.ping.side_effect = Exception("Connection refused")
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    result = await client.health_check()
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_create_index_raises_retrieval_error(mock_es_client: Any) -> None:
+    mock_es_client.indices.create.side_effect = ApiError("Index creation failed", meta=None, body=None)
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    with pytest.raises(RetrievalError, match="Failed to create index"):
+        await client.create_index(index_name="test_index")
+
+
+@pytest.mark.asyncio
+async def test_index_chunk_raises_retrieval_error(mock_es_client: Any) -> None:
+    mock_es_client.index.side_effect = ApiError("Indexing failed", meta=None, body=None)
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    with pytest.raises(RetrievalError, match="Failed to index chunk"):
+        await client.index_chunk({"chunk_id": "test"})
+
+
+@pytest.mark.asyncio
+async def test_search_dense_raises_retrieval_error(mock_es_client: Any) -> None:
+    mock_es_client.search.side_effect = ApiError("Search failed", meta=None, body=None)
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    with pytest.raises(RetrievalError, match="Dense search failed"):
+        await client.search_dense([0.1] * 1536)
+
+
+@pytest.mark.asyncio
+async def test_search_bm25_raises_retrieval_error(mock_es_client: Any) -> None:
+    mock_es_client.search.side_effect = ApiError("Search failed", meta=None, body=None)
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    with pytest.raises(RetrievalError, match="BM25 search failed"):
+        await client.search_bm25("query")
+
+
+@pytest.mark.asyncio
+async def test_delete_by_document_raises_retrieval_error(mock_es_client: Any) -> None:
+    mock_es_client.delete_by_query.side_effect = ApiError("Delete failed", meta=None, body=None)
+
+    client = ElasticsearchClient(hosts=["http://localhost:9200"])
+    with pytest.raises(RetrievalError, match="Delete by document failed"):
+        await client.delete_by_document("doc-123")
+
+
+@pytest.mark.asyncio
+async def test_timeout_and_retry_config() -> None:
+    with patch("app.infra.elasticsearch.client.AsyncElasticsearch") as mock_class:
+        mock_instance = MockAsyncElasticsearch(["http://localhost:9200"])
+        mock_class.return_value = mock_instance
+
+        client = ElasticsearchClient(
+            hosts=["http://localhost:9200"],
+            timeout=60.0,
+            max_retries=5,
+        )
+
+        mock_class.assert_called_once_with(
+            ["http://localhost:9200"],
+            request_timeout=60.0,
+            max_retries=5,
+            retry_on_timeout=True,
+        )

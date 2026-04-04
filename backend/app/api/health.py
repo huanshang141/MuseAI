@@ -1,0 +1,15 @@
+from fastapi import APIRouter
+
+router = APIRouter(tags=["health"])
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@router.get("/ready")
+async def ready():
+    checks = {"database": "unknown", "elasticsearch": "unknown", "redis": "unknown"}
+
+    return checks

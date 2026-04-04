@@ -1,22 +1,20 @@
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config.settings import settings
+from app.api.health import router as health_router
+from app.config.settings import get_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
+    print(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
     yield
+    print("Shutting down")
 
 
-app = FastAPI(
-    title=settings.APP_NAME,
-    description="MuseAI - Museum AI Guide System",
-    version="0.1.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,12 +24,4 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/ready")
-async def ready():
-    return {"status": "ready"}
+app.include_router(health_router, prefix="/api/v1", tags=["health"])

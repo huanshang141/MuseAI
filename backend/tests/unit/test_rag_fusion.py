@@ -19,7 +19,15 @@ def test_rrf_fusion_basic():
     fused = rrf_fusion(dense_results, bm25_results, k=60)
 
     assert len(fused) == 4
-    assert fused[0]["chunk_id"] in ["A", "B"]
+    assert fused[0]["chunk_id"] == "B"
+    assert fused[1]["chunk_id"] == "A"
+    assert fused[2]["chunk_id"] == "D"
+    assert fused[3]["chunk_id"] == "C"
+
+    assert fused[0]["rrf_score"] == pytest.approx(1 / 62 + 1 / 61, rel=1e-4)
+    assert fused[1]["rrf_score"] == pytest.approx(1 / 61 + 1 / 63, rel=1e-4)
+    assert fused[2]["rrf_score"] == pytest.approx(1 / 62, rel=1e-4)
+    assert fused[3]["rrf_score"] == pytest.approx(1 / 63, rel=1e-4)
 
 
 def test_rrf_fusion_empty_lists():
@@ -54,3 +62,21 @@ def test_rrf_fusion_preserves_metadata():
     assert fused[0]["content"] == "doc A"
     assert fused[0]["title"] == "Title A"
     assert "rrf_score" in fused[0]
+
+
+def test_rrf_fusion_invalid_k():
+    """k 参数验证测试"""
+    with pytest.raises(ValueError, match="k must be positive"):
+        rrf_fusion([{"chunk_id": "A"}], [], k=0)
+
+    with pytest.raises(ValueError, match="k must be positive"):
+        rrf_fusion([{"chunk_id": "A"}], [], k=-1)
+
+
+def test_rrf_fusion_missing_chunk_id():
+    """chunk_id 缺失验证测试"""
+    with pytest.raises(ValueError, match="missing 'chunk_id' field"):
+        rrf_fusion([{"content": "no id"}], [])
+
+    with pytest.raises(ValueError, match="missing 'chunk_id' field"):
+        rrf_fusion([], [{"content": "no id"}])

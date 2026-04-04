@@ -16,17 +16,27 @@ def rrf_fusion(
 
     Returns:
         融合后的结果列表，按 RRF 分数降序排列
+
+    Raises:
+        ValueError: k <= 0 or missing chunk_id in documents
     """
+    if k <= 0:
+        raise ValueError(f"k must be positive, got {k}")
+
     doc_map: dict[str, dict[str, Any]] = {}
     dense_ranks: dict[str, int] = {}
     bm25_ranks: dict[str, int] = {}
 
     for rank, doc in enumerate(dense_results, start=1):
+        if "chunk_id" not in doc:
+            raise ValueError(f"Document at rank {rank} in dense_results missing 'chunk_id' field")
         chunk_id = doc["chunk_id"]
         dense_ranks[chunk_id] = rank
         doc_map[chunk_id] = doc
 
     for rank, doc in enumerate(bm25_results, start=1):
+        if "chunk_id" not in doc:
+            raise ValueError(f"Document at rank {rank} in bm25_results missing 'chunk_id' field")
         chunk_id = doc["chunk_id"]
         bm25_ranks[chunk_id] = rank
         if chunk_id not in doc_map:

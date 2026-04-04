@@ -1,12 +1,14 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.chat_service import (
     ask_question,
+    ask_question_stream,
     create_session,
     delete_session,
     get_messages_by_session,
@@ -15,6 +17,7 @@ from app.application.chat_service import (
 )
 from app.config.settings import get_settings
 from app.infra.postgres.database import get_session, get_session_maker
+from app.infra.providers.llm import OpenAICompatibleProvider
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -76,6 +79,16 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+
+_llm_provider: OpenAICompatibleProvider | None = None
+
+
+def get_llm_provider() -> OpenAICompatibleProvider:
+    global _llm_provider
+    if _llm_provider is None:
+        settings = get_settings()
+        _llm_provider = OpenAICompatibleProvider.from_settings(settings)
+    return _llm_provider
 
 
 @router.post("/sessions", response_model=SessionResponse)
@@ -149,3 +162,24 @@ async def ask_endpoint(session: SessionDep, request: AskRequest) -> AskResponse:
     if result is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return AskResponse(**result)
+
+
+@router.post("/ask/stream")
+async def ask_stream_endpoint(
+    request: Request,
+    session: SessionDep,
+    ask_request: AskRequest,
+) -> StreamingResponse:
+    chat_session = await get_session_by_id(session, ask_request.session_id)
+    if chat_session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    llm_provider = get_llm_provider()
+
+    async def event_generator() -> AsyncGenerator[str, None]:
+        async for event in ask_question_stream(session, ask_request.session_id, ask_request.message, llm_provider):
+            if await request.is_disconnected():
+                break
+            yield event
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

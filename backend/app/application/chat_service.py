@@ -1,4 +1,6 @@
+import json
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from sqlalchemy import select
@@ -82,3 +84,39 @@ async def ask_question(session: AsyncSession, session_id: str, message: str) -> 
         "trace_id": trace_id,
         "sources": [],
     }
+
+
+async def ask_question_stream(
+    session: AsyncSession,
+    session_id: str,
+    message: str,
+    llm_provider: Any,
+) -> AsyncGenerator[str, None]:
+    chat_session = await get_session_by_id(session, session_id)
+    if chat_session is None:
+        yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
+        return
+
+    trace_id = str(uuid.uuid4())
+
+    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
+
+    await add_message(session, session_id, "user", message)
+    await session.commit()
+
+    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '检索完成'})}\n\n"
+
+    messages = [{"role": "user", "content": message}]
+    full_content = ""
+
+    try:
+        async for chunk in llm_provider.generate_stream(messages):
+            full_content += chunk
+            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+
+        await add_message(session, session_id, "assistant", full_content, trace_id=trace_id)
+        await session.commit()
+
+        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id})}\n\n"
+    except Exception as e:
+        yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': str(e)})}\n\n"

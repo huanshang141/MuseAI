@@ -28,6 +28,11 @@ class DocumentListResponse(BaseModel):
     documents: list[DocumentResponse]
 
 
+class DeleteResponse(BaseModel):
+    status: str
+    document_id: str
+
+
 class IngestionJobResponse(BaseModel):
     id: str
     document_id: str
@@ -50,14 +55,22 @@ async def get_db_session():
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 
+MAX_FILE_SIZE = 50 * 1024 * 1024
+
+
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(session: SessionDep, file: UploadFile = File(...)) -> DocumentResponse:
-    filename = file.filename or "unknown"
-    size = 0
-    if file.size is not None:
-        size = file.size
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
 
-    document = await create_document(session, filename, size)
+    content = await file.read()
+    file_size = len(content)
+    await file.seek(0)
+
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+
+    document = await create_document(session, file.filename, file_size)
 
     return DocumentResponse(
         id=document.id,
@@ -118,9 +131,9 @@ async def get_document_status(session: SessionDep, doc_id: str) -> IngestionJobR
     )
 
 
-@router.delete("/{doc_id}")
-async def delete_document_endpoint(session: SessionDep, doc_id: str) -> dict:
+@router.delete("/{doc_id}", response_model=DeleteResponse)
+async def delete_document_endpoint(session: SessionDep, doc_id: str) -> DeleteResponse:
     success = await delete_document(session, doc_id)
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
-    return {"status": "deleted", "document_id": doc_id}
+    return DeleteResponse(status="deleted", document_id=doc_id)

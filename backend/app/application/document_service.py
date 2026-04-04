@@ -55,4 +55,5 @@ async def delete_document(session: AsyncSession, doc_id: str) -> bool:
     if document is None:
         return False
     await session.delete(document)
+    await session.commit()
     return True

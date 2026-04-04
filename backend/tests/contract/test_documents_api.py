@@ -5,8 +5,9 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.main import app
 from app.infra.postgres.database import get_session_maker, get_session
-from app.infra.postgres.models import Base, Document, IngestionJob
+from app.infra.postgres.models import Base, Document, IngestionJob, User
 from app.api.documents import get_db_session as original_get_db_session
+from app.application.document_service import MOCK_USER_ID
 
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -24,6 +25,15 @@ async def db_session(session_maker):
         if engine:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+
+        from sqlalchemy import select
+
+        existing_user = await session.execute(select(User).where(User.id == MOCK_USER_ID))
+        if not existing_user.scalar_one_or_none():
+            test_user = User(id=MOCK_USER_ID, email="test@example.com", password_hash="test_hash")
+            session.add(test_user)
+            await session.commit()
+
         yield session
 
 

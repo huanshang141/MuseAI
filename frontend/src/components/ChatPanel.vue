@@ -1,6 +1,8 @@
 <script setup>
 import { ref, onMounted, nextTick } from 'vue'
 import { useChat } from '../composables/useChat.js'
+import MessageItem from './chat/MessageItem.vue'
+import SourceCard from './chat/SourceCard.vue'
 
 const {
   sessions,
@@ -145,29 +147,11 @@ onMounted(fetchSessions)
           <div v-if="loading.messages" style="text-align: center; color: #999;">加载消息中...</div>
           <div v-else-if="messages.length === 0" style="text-align: center; color: #999;">开始对话吧</div>
           <div v-else>
-            <div 
-              v-for="(msg, idx) in messages" 
-              :key="idx"
-              :style="{
-                marginBottom: '12px',
-                display: 'flex',
-                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-              }"
-            >
-              <div :style="{
-                maxWidth: '80%',
-                padding: '10px 14px',
-                borderRadius: '12px',
-                background: msg.role === 'user' ? '#4a90d9' : '#f0f0f0',
-                color: msg.role === 'user' ? 'white' : '#333',
-              }">
-                <div style="white-space: pre-wrap; word-break: break-word;">{{ msg.content }}</div>
-                <div v-if="msg.trace_id" style="font-size: 10px; margin-top: 6px; opacity: 0.7;">
-                  Trace: {{ msg.trace_id }}
-                </div>
-                <div v-if="msg.sources?.length" style="margin-top: 6px; font-size: 11px; opacity: 0.8;">
-                  Sources: {{ msg.sources.length }} 条
-                </div>
+            <div v-for="(msg, idx) in messages" :key="idx">
+              <MessageItem :message="msg" />
+              <div v-if="msg.sources?.length" style="margin-left: 0; margin-bottom: 16px;">
+                <div style="font-size: 12px; color: #666; margin-bottom: 8px;">来源引用:</div>
+                <SourceCard v-for="(source, sIdx) in msg.sources" :key="sIdx" :source="source" />
               </div>
             </div>
             

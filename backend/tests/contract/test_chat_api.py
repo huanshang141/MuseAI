@@ -195,9 +195,11 @@ async def test_get_messages(db_session):
         assert len(data) == 2
         assert data[0]["role"] == "user"
         assert data[0]["content"] == "这是问题"
+        assert data[0]["session_id"] == session_obj.id
         assert data[1]["role"] == "assistant"
         assert data[1]["content"] == "这是回答"
         assert data[1]["trace_id"] == "trace-123"
+        assert data[1]["session_id"] == session_obj.id
     finally:
         app.dependency_overrides = {}
 

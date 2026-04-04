@@ -34,6 +34,7 @@ class SessionResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     id: str
+    session_id: str
     role: str
     content: str
     trace_id: str | None = None
@@ -123,6 +124,7 @@ async def get_session_messages(session: SessionDep, session_id: str) -> list[Mes
     return [
         MessageResponse(
             id=m.id,
+            session_id=m.session_id,
             role=m.role,
             content=m.content,
             trace_id=m.trace_id,

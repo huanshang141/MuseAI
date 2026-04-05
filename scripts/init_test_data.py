@@ -496,15 +496,16 @@ async def main() -> None:
             print("Test user already exists: user-001\n")
         user_id = user.id
 
-    print("Initializing documents...")
-    print("-" * 50)
-    await init_documents(session_maker, es_client, embeddings, user_id)
+    try:
+        print("Initializing documents...")
+        print("-" * 50)
+        await init_documents(session_maker, es_client, embeddings, user_id)
 
-    print("\nInitializing chat data...")
-    print("-" * 50)
-    await init_chat_data(session_maker, user_id)
-
-    await es_client.close()
+        print("\nInitializing chat data...")
+        print("-" * 50)
+        await init_chat_data(session_maker, user_id)
+    finally:
+        await es_client.close()
 
     print("\n" + "=" * 50)
     print("Test data initialization complete!")

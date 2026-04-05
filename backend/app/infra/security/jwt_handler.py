@@ -11,8 +11,9 @@ class JWTHandler:
         self.expire_minutes = expire_minutes
 
     def create_token(self, user_id: str, extra_data: dict[str, Any] | None = None) -> str:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=self.expire_minutes)
-        payload = {"sub": user_id, "exp": expire}
+        now = datetime.now(timezone.utc)
+        expire = now + timedelta(minutes=self.expire_minutes)
+        payload = {"sub": user_id, "exp": expire, "iat": now}
 
         if extra_data:
             payload.update(extra_data)

@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,3 +116,46 @@ async def check_rate_limit(
 
 
 RateLimitDep = Annotated[None, Depends(check_rate_limit)]
+
+
+async def check_auth_rate_limit(
+    request: Request,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Rate limiting for authentication endpoints using IP address.
+
+    More restrictive than regular rate limiting:
+    - 5 requests per minute for login
+    - 3 requests per minute for register
+
+    Fails closed for security - returns 503 if Redis unavailable.
+    """
+    # Get client IP
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else "unknown"
+
+    key = f"auth_rate:{client_ip}"
+
+    try:
+        first_request = await redis.client.set(key, 1, ex=60, nx=True)
+        if first_request:
+            return
+
+        count = await redis.client.incr(key)
+        if count > 5:  # 5 attempts per minute
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many authentication attempts. Please try again later.",
+            )
+    except RedisError as e:
+        # Fail closed for auth endpoints - security over availability
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication temporarily unavailable. Please try again later.",
+        ) from e
+
+
+AuthRateLimitDep = Annotated[None, Depends(check_auth_rate_limit)]

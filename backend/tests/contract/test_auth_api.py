@@ -1,5 +1,5 @@
 import pytest
-from app.api.deps import get_db_session as original_get_db_session
+from app.api.deps import check_auth_rate_limit, get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.main import app
@@ -30,6 +30,8 @@ async def test_register_endpoint(db_session):
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
+    # Override auth rate limit to allow tests to run without Redis
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
 
     try:
         transport = ASGITransport(app=app)
@@ -56,6 +58,8 @@ async def test_login_endpoint(db_session):
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
+    # Override auth rate limit to allow tests to run without Redis
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
 
     try:
         transport = ASGITransport(app=app)
@@ -90,6 +94,8 @@ async def test_login_wrong_password(db_session):
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
+    # Override auth rate limit to allow tests to run without Redis
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
 
     try:
         transport = ASGITransport(app=app)

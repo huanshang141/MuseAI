@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, field_validator
 from redis.exceptions import RedisError
 
-from app.api.deps import JWTHandlerDep, RedisCacheDep, SessionDep
+from app.api.deps import AuthRateLimitDep, JWTHandlerDep, RedisCacheDep, SessionDep
 from app.application.auth_service import (
     authenticate_user,
     create_access_token,
@@ -55,6 +55,7 @@ class TokenResponse(BaseModel):
 async def register(
     request: RegisterRequest,
     session: SessionDep,
+    _: AuthRateLimitDep,  # Add rate limiting
 ):
     existing_user = await get_user_by_email(session, request.email)
     if existing_user:
@@ -83,6 +84,7 @@ async def login(
     request: LoginRequest,
     session: SessionDep,
     jwt_handler: JWTHandlerDep,
+    _: AuthRateLimitDep,  # Add rate limiting
 ):
     user = await authenticate_user(
         session=session,

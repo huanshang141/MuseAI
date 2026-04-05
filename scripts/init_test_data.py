@@ -394,35 +394,22 @@ async def init_documents(
                 continue
 
             doc_id = str(uuid.uuid4())
-            document = Document(
-                id=doc_id,
-                user_id=user_id,
-                filename=item["filename"],
-                status="pending",
-            )
+            document = Document(id=doc_id, user_id=user_id, filename=item["filename"], status="pending")
             session.add(document)
 
             job_id = str(uuid.uuid4())
-            job = IngestionJob(
-                id=job_id,
-                document_id=doc_id,
-                status="pending",
-            )
+            job = IngestionJob(id=job_id, document_id=doc_id, status="pending")
             session.add(job)
-            await session.commit()
+            await session.flush()
 
-        async with get_session(session_maker) as session:
             try:
-                await ingestion_service.process_document(
-                    session=session,
-                    document_id=doc_id,
-                    content=item["content"],
-                    source=item["source"],
-                )
+                await ingestion_service.process_document(session, doc_id, item["content"], item["source"])
                 created_count += 1
                 print(f"  Created document: {item['filename']}")
             except Exception as e:
+                await session.rollback()
                 print(f"  Failed to create document {item['filename']}: {e}")
+                continue
 
     print(f"\nDocuments: {created_count} created, {skipped_count} skipped")
 

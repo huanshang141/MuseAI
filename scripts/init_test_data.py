@@ -442,7 +442,6 @@ async def init_chat_data(session_maker, user_id: str) -> None:
                 title=session_data["title"],
             )
             session.add(chat_session)
-            await session.commit()
 
             for msg_data in session_data["messages"]:
                 message_id = str(uuid.uuid4())

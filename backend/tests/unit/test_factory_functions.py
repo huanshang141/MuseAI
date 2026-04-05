@@ -1,5 +1,4 @@
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 from app.config.settings import Settings
 

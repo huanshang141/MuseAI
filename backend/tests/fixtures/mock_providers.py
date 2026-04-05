@@ -1,5 +1,5 @@
-from typing import Any, Self
 from collections.abc import AsyncGenerator
+from typing import Any, Self
 
 from app.infra.providers.llm import LLMResponse
 

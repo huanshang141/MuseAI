@@ -1,12 +1,12 @@
-import pytest
-import tempfile
 import os
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.main import app
-from app.infra.postgres.database import get_session_maker, get_session
-from app.infra.postgres.models import Base, Document, IngestionJob, User
+import tempfile
+
+import pytest
 from app.api.deps import get_db_session as original_get_db_session
+from app.infra.postgres.database import get_session, get_session_maker
+from app.infra.postgres.models import Base, User
+from app.main import app
+from httpx import ASGITransport, AsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 TEST_USER_ID = "test-user-001"
@@ -39,8 +39,8 @@ async def db_session(session_maker):
 @pytest.fixture
 async def auth_token(db_session):
     """Get a valid JWT token for the test user."""
-    from app.infra.security.jwt_handler import JWTHandler
     from app.config.settings import get_settings
+    from app.infra.security.jwt_handler import JWTHandler
 
     settings = get_settings()
     jwt_handler = JWTHandler(
@@ -255,6 +255,7 @@ async def test_delete_document_not_found(db_session, auth_token):
 async def test_upload_rate_limit_exceeded(db_session, auth_token):
     """Test that rate limit returns 429 when exceeded."""
     from unittest.mock import AsyncMock
+
     from app.api.deps import get_redis_cache
 
     async def override_get_db():
@@ -297,6 +298,7 @@ async def test_upload_rate_limit_exceeded(db_session, auth_token):
 async def test_upload_rate_limit_allows_requests_within_limit(db_session, auth_token):
     """Test that rate limit allows requests within limit."""
     from unittest.mock import AsyncMock
+
     from app.api.deps import get_redis_cache
 
     async def override_get_db():
@@ -410,7 +412,7 @@ async def test_document_list_shows_error_field(db_session, auth_token):
 @pytest.mark.asyncio
 async def test_update_document_status_function(db_session):
     """Test that update_document_status correctly updates the document."""
-    from app.application.document_service import create_document, update_document_status, get_document_by_id
+    from app.application.document_service import create_document, get_document_by_id, update_document_status
 
     doc = await create_document(db_session, "status-update-test.pdf", 1024, TEST_USER_ID)
     await db_session.commit()

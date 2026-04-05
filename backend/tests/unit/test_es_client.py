@@ -2,9 +2,9 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from elasticsearch.exceptions import ApiError
 from app.domain.exceptions import RetrievalError
 from app.infra.elasticsearch.client import ElasticsearchClient
+from elasticsearch.exceptions import ApiError
 
 
 class MockIndicesClient:

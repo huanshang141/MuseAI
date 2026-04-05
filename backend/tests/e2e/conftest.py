@@ -3,14 +3,13 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
-
 from app.config.settings import Settings, get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.postgres.database import get_session_maker, init_database, close_database
+from app.infra.postgres.database import close_database, get_session_maker, init_database
 from app.infra.postgres.models import Base
 from app.infra.providers.embedding import OllamaEmbeddingProvider
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
 @pytest.fixture(scope="session")

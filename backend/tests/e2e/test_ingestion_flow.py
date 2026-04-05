@@ -2,8 +2,7 @@
 import uuid
 
 import pytest
-
-from app.application.chunking import Chunk, ChunkConfig, TextChunker
+from app.application.chunking import ChunkConfig, TextChunker
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.providers.embedding import OllamaEmbeddingProvider
 

@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 
 

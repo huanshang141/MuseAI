@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from jose import JWTError, jwt
@@ -12,7 +12,7 @@ class JWTHandler:
         self.expire_minutes = expire_minutes
 
     def create_token(self, user_id: str, extra_data: dict[str, Any] | None = None) -> str:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expire = now + timedelta(minutes=self.expire_minutes)
 
         payload = dict(extra_data) if extra_data else {}

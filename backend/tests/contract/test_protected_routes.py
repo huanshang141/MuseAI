@@ -1,10 +1,9 @@
 import pytest
-from httpx import AsyncClient, ASGITransport
-
 from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.main import app
+from httpx import ASGITransport, AsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 

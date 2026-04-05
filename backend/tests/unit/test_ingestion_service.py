@@ -1,7 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock
-from app.application.ingestion_service import IngestionService
+
+import pytest
 from app.application.chunking import ChunkConfig
+from app.application.ingestion_service import IngestionService
 
 
 @pytest.mark.asyncio

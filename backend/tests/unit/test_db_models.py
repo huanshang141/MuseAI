@@ -1,5 +1,5 @@
 # backend/tests/unit/test_db_models.py
-from app.infra.postgres.models import User, ChatSession, ChatMessage, Document, IngestionJob
+from app.infra.postgres.models import ChatMessage, ChatSession, Document, IngestionJob, User
 
 
 def test_user_model():

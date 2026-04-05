@@ -1,15 +1,16 @@
 # backend/tests/unit/test_auth_service.py
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from pydantic import ValidationError
+
+import pytest
+from app.api.auth import RegisterRequest
 from app.application.auth_service import (
-    register_user,
     authenticate_user,
     create_access_token,
-    verify_token,
     get_user_by_id,
+    register_user,
+    verify_token,
 )
-from app.api.auth import RegisterRequest
+from pydantic import ValidationError
 
 
 @pytest.mark.asyncio

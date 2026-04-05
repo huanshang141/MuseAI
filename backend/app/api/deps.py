@@ -2,15 +2,15 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.auth_service import get_user_by_id
 from app.config.settings import get_settings
 from app.infra.postgres.database import get_session, get_session_maker
-from app.infra.security.jwt_handler import JWTHandler
 from app.infra.redis.cache import RedisCache
-from app.application.auth_service import get_user_by_id
+from app.infra.security.jwt_handler import JWTHandler
 
 security = HTTPBearer()
 
@@ -50,10 +50,10 @@ RedisCacheDep = Annotated[RedisCache, Depends(get_redis_cache)]
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    jwt_handler: JWTHandler = Depends(get_jwt_handler),
-    session: AsyncSession = Depends(get_db_session),
-    redis: RedisCache = Depends(get_redis_cache),
+    credentials: HTTPAuthorizationCredentials = Depends(security),  # noqa: B008
+    jwt_handler: JWTHandler = Depends(get_jwt_handler),  # noqa: B008
+    session: AsyncSession = Depends(get_db_session),  # noqa: B008
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
 ) -> dict:
     token = credentials.credentials
 
@@ -96,8 +96,8 @@ CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def check_rate_limit(
-    redis: RedisCache = Depends(get_redis_cache),
-    current_user: dict = Depends(get_current_user),
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+    current_user: dict = Depends(get_current_user),  # noqa: B008
 ) -> None:
     """Check rate limit for the current user.
 

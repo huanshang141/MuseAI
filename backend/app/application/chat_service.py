@@ -10,6 +10,7 @@ from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
 
+
 async def create_session(session: AsyncSession, title: str, user_id: str) -> ChatSession:
     session_id = str(uuid.uuid4())
     chat_session = ChatSession(
@@ -183,8 +184,11 @@ async def ask_question_stream_with_rag(
         doc_count = len(result.get("documents", []))
         retrieval_score = result.get("retrieval_score", 0)
 
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': f'检索完成，找到 {doc_count} 个相关文档'})}\n\n"
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': f'检索评分: {retrieval_score:.2f}'})}\n\n"
+        retrieve_msg = f"检索完成，找到 {doc_count} 个相关文档"
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': retrieve_msg})}\n\n"
+
+        eval_msg = f"检索评分: {retrieval_score:.2f}"
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': eval_msg})}\n\n"
 
         answer = result.get("answer", "")
 

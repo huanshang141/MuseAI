@@ -1,8 +1,7 @@
 # backend/tests/e2e/test_service_health.py
 import pytest
-
 from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.postgres.database import get_session_maker, get_session
+from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.providers.embedding import OllamaEmbeddingProvider
 
 

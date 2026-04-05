@@ -1,6 +1,6 @@
 # backend/app/application/auth_service.py
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

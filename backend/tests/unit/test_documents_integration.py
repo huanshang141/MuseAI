@@ -29,12 +29,12 @@ class TestDocumentsAPIIntegration:
 
     def test_main_provides_global_instances(self):
         from app.main import (
-            get_es_client,
             get_embeddings,
-            get_llm,
-            get_retriever,
-            get_rag_agent,
+            get_es_client,
             get_ingestion_service,
+            get_llm,
+            get_rag_agent,
+            get_retriever,
         )
 
         assert callable(get_es_client)

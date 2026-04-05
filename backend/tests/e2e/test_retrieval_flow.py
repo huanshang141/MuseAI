@@ -1,7 +1,6 @@
 import uuid
 
 import pytest
-
 from app.application.chunking import ChunkConfig, TextChunker
 from app.application.retrieval import rrf_fusion
 from app.infra.elasticsearch.client import ElasticsearchClient

@@ -40,8 +40,8 @@ async def db_session(session_maker):
 @pytest.fixture
 async def auth_token(db_session):
     """Create a valid JWT token for testing authenticated endpoints."""
-    from app.infra.security.jwt_handler import JWTHandler
     from app.config.settings import get_settings
+    from app.infra.security.jwt_handler import JWTHandler
 
     settings = get_settings()
     handler = JWTHandler(

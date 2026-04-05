@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, SessionDep, RateLimitDep
+from app.api.deps import CurrentUser, RateLimitDep, SessionDep
 from app.application.document_service import (
     create_document,
     delete_document,
@@ -97,7 +97,7 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     current_user: CurrentUser,
     _: RateLimitDep,
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008
 ) -> DocumentResponse:
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")

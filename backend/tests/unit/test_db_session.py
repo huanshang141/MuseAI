@@ -1,6 +1,6 @@
 import pytest
+from app.infra.postgres.database import get_session, get_session_maker
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infra.postgres.database import get_session_maker, get_session
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, SessionDep, RateLimitDep
+from app.api.deps import CurrentUser, RateLimitDep, SessionDep
 from app.application.chat_service import (
     ask_question,
     ask_question_stream_with_rag,
@@ -127,7 +127,11 @@ async def delete_session_endpoint(session: SessionDep, session_id: str, current_
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
-async def get_session_messages(session: SessionDep, session_id: str, current_user: CurrentUser) -> list[MessageResponse]:
+async def get_session_messages(
+    session: SessionDep,
+    session_id: str,
+    current_user: CurrentUser,
+) -> list[MessageResponse]:
     chat_session = await get_session_by_id(session, session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")

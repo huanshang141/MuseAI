@@ -1,5 +1,4 @@
-import pytest
-from app.application.chunking import TextChunker, ChunkConfig
+from app.application.chunking import ChunkConfig, TextChunker
 
 
 def test_chunk_text_l1():

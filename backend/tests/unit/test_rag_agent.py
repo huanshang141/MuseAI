@@ -1,8 +1,8 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from langchain_core.documents import Document
 
+import pytest
 from app.infra.langchain.agents import RAGAgent, RAGState
+from langchain_core.documents import Document
 
 
 def test_rag_state_typeddict_has_required_fields():

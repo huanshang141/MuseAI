@@ -1,9 +1,9 @@
-import pytest
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import AsyncMock, MagicMock, patch
 from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from app.main import app
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.mark.asyncio

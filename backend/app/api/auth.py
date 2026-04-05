@@ -1,13 +1,13 @@
-from fastapi import APIRouter, HTTPException, status, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, field_validator
 from redis.exceptions import RedisError
 
-from app.api.deps import SessionDep, JWTHandlerDep, RedisCacheDep, CurrentUser
+from app.api.deps import JWTHandlerDep, RedisCacheDep, SessionDep
 from app.application.auth_service import (
-    register_user,
     authenticate_user,
     create_access_token,
     get_user_by_email,
+    register_user,
 )
 from app.infra.security import hash_password, verify_password
 

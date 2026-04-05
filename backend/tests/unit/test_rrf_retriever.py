@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from app.infra.langchain.retrievers import RRFRetriever
 from langchain_core.documents import Document
 

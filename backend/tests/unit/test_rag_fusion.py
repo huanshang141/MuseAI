@@ -1,5 +1,4 @@
 import pytest
-
 from app.application.retrieval import rrf_fusion
 
 

@@ -1,8 +1,8 @@
 # backend/tests/unit/test_domain_entities.py
-import pytest
 from datetime import datetime
-from app.domain.entities import User, ChatSession, ChatMessage, Document, IngestionJob
-from app.domain.value_objects import SessionId, DocumentId, UserId, JobId
+
+from app.domain.entities import ChatMessage, ChatSession, Document, IngestionJob, User
+from app.domain.value_objects import DocumentId, JobId, SessionId, UserId
 
 
 def test_user_creation():

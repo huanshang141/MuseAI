@@ -35,8 +35,8 @@ async def db_session(session_maker):
 @pytest.fixture
 async def auth_token(db_session):
     """Get a valid JWT token for the test user."""
-    from app.infra.security.jwt_handler import JWTHandler
     from app.config.settings import get_settings
+    from app.infra.security.jwt_handler import JWTHandler
 
     settings = get_settings()
     jwt_handler = JWTHandler(
@@ -318,7 +318,8 @@ async def test_ask_question_session_not_found(db_session, auth_token):
 @pytest.mark.asyncio
 async def test_ask_rate_limit_exceeded(db_session, auth_token):
     """Test that rate limit returns 429 when exceeded."""
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import AsyncMock
+
     from app.api.deps import get_redis_cache
 
     async def override_get_db():
@@ -359,6 +360,7 @@ async def test_ask_rate_limit_exceeded(db_session, auth_token):
 async def test_ask_rate_limit_allows_requests_within_limit(db_session, auth_token):
     """Test that rate limit allows requests within limit."""
     from unittest.mock import AsyncMock
+
     from app.api.deps import get_redis_cache
 
     async def override_get_db():

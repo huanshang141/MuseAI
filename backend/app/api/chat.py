@@ -1,3 +1,4 @@
+import sys
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -16,6 +17,8 @@ from app.application.chat_service import (
     get_sessions_by_user,
 )
 from app.config.settings import get_settings
+from app.infra.elasticsearch.client import ElasticsearchClient
+from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
 from app.infra.providers.llm import OpenAICompatibleProvider
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -62,9 +65,21 @@ class DeleteResponse(BaseModel):
 
 
 _llm_provider: OpenAICompatibleProvider | None = None
+_rag_agent = None
+
+
+def _get_app_state_attr(attr_name: str) -> Any:
+    """Get attribute from app.state if available, without late import."""
+    main_module = sys.modules.get("app.main")
+    if main_module and hasattr(main_module, "app"):
+        app = main_module.app
+        if hasattr(app.state, attr_name):
+            return getattr(app.state, attr_name)
+    return None
 
 
 def get_llm_provider() -> OpenAICompatibleProvider:
+    """Get LLM provider - cached singleton that can be overridden for tests."""
     global _llm_provider
     if _llm_provider is None:
         settings = get_settings()
@@ -72,10 +87,31 @@ def get_llm_provider() -> OpenAICompatibleProvider:
     return _llm_provider
 
 
-def get_rag_agent():
-    from app.main import get_rag_agent as _get_rag_agent
+def get_rag_agent() -> Any:
+    """Get RAG agent from app.state or create fallback.
 
-    return _get_rag_agent()
+    Priority:
+    1. app.state.rag_agent (set by lifespan or mocked in tests)
+    2. Module-level _rag_agent fallback (created on first call)
+    """
+    # Check app.state first (for production and mocked tests)
+    agent = _get_app_state_attr("rag_agent")
+    if agent is not None:
+        return agent
+
+    # Fallback: create from settings (used in standalone mode)
+    global _rag_agent
+    if _rag_agent is None:
+        settings = get_settings()
+        es_client = ElasticsearchClient(
+            hosts=[settings.ELASTICSEARCH_URL],
+            index_name=settings.ELASTICSEARCH_INDEX,
+        )
+        embeddings = create_embeddings(settings)
+        llm = create_llm(settings)
+        retriever = create_retriever(es_client, embeddings, settings)
+        _rag_agent = create_rag_agent(llm, retriever, settings)
+    return _rag_agent
 
 
 @router.post("/sessions", response_model=SessionResponse)

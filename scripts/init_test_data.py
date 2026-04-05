@@ -466,6 +466,7 @@ async def main() -> None:
     """Main entry point."""
     settings = get_settings()
     print(f"Initializing test data for {settings.APP_NAME}...")
+    print("=" * 50)
 
     session_maker = get_session_maker(settings.DATABASE_URL)
 
@@ -481,7 +482,7 @@ async def main() -> None:
     )
 
     await es_client.create_index(settings.ELASTICSEARCH_INDEX, dims=settings.EMBEDDING_DIMS)
-    print(f"ES index '{settings.ELASTICSEARCH_INDEX}' ready")
+    print(f"ES index '{settings.ELASTICSEARCH_INDEX}' ready\n")
 
     async with get_session(session_maker) as session:
         result = await session.execute(select(User).where(User.id == "user-001"))
@@ -490,12 +491,24 @@ async def main() -> None:
             user = User(id="user-001", email="test@museai.local", password_hash="test")
             session.add(user)
             await session.commit()
+            print("Created test user: user-001\n")
+        else:
+            print("Test user already exists: user-001\n")
         user_id = user.id
 
+    print("Initializing documents...")
+    print("-" * 50)
     await init_documents(session_maker, es_client, embeddings, user_id)
+
+    print("\nInitializing chat data...")
+    print("-" * 50)
     await init_chat_data(session_maker, user_id)
 
-    print("\nTest data initialization complete!")
+    await es_client.close()
+
+    print("\n" + "=" * 50)
+    print("Test data initialization complete!")
+    print("=" * 50)
 
 
 if __name__ == "__main__":

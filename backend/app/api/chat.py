@@ -1,12 +1,11 @@
 from collections.abc import AsyncGenerator
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, SessionDep
 from app.application.chat_service import (
     ask_question,
     ask_question_stream_with_rag,
@@ -17,20 +16,9 @@ from app.application.chat_service import (
     get_sessions_by_user,
 )
 from app.config.settings import get_settings
-from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.providers.llm import OpenAICompatibleProvider
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-_session_maker: async_sessionmaker[AsyncSession] | None = None
-
-
-def _get_cached_session_maker() -> async_sessionmaker[AsyncSession]:
-    global _session_maker
-    if _session_maker is None:
-        settings = get_settings()
-        _session_maker = get_session_maker(settings.DATABASE_URL)
-    return _session_maker
 
 
 class CreateSessionRequest(BaseModel):
@@ -72,14 +60,6 @@ class DeleteResponse(BaseModel):
     status: str
     session_id: str
 
-
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    session_maker = _get_cached_session_maker()
-    async with get_session(session_maker) as session:
-        yield session
-
-
-SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 _llm_provider: OpenAICompatibleProvider | None = None
 

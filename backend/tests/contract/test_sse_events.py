@@ -3,7 +3,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from app.api.chat import get_db_session as original_get_db_session
+from app.api.deps import get_db_session as original_get_db_session
 from app.application.chat_service import create_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, ChatMessage, User

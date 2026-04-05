@@ -1,10 +1,7 @@
-from typing import Annotated
-
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, UploadFile, File, BackgroundTasks
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, SessionDep
 from app.application.document_service import (
     create_document,
     delete_document,
@@ -47,16 +44,6 @@ class IngestionJobResponse(BaseModel):
     updated_at: str
 
     model_config = {"from_attributes": True}
-
-
-async def get_db_session():
-    settings = get_settings()
-    session_maker = get_session_maker(settings.DATABASE_URL)
-    async with get_session(session_maker) as session:
-        yield session
-
-
-SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 
 
 MAX_FILE_SIZE = 50 * 1024 * 1024

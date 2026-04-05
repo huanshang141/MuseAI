@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.main import app
 from app.infra.postgres.database import get_session_maker, get_session
 from app.infra.postgres.models import Base, Document, IngestionJob, User
-from app.api.documents import get_db_session as original_get_db_session
+from app.api.deps import get_db_session as original_get_db_session
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 TEST_USER_ID = "test-user-001"

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep, JWTHandlerDep
 from app.application.auth_service import (

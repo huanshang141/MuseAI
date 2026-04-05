@@ -1,4 +1,4 @@
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "json"  # "json" or "text"
+
+    # Admin configuration
+    ADMIN_EMAILS: list[str] = Field(default_factory=list)
+
+    @field_validator("ADMIN_EMAILS", mode="before")
+    @classmethod
+    def parse_admin_emails(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            return [email.strip() for email in v.split(",") if email.strip()]
+        return v
 
     @field_validator("EMBEDDING_DIMS")
     @classmethod

@@ -102,3 +102,28 @@ def test_settings_validation_embedding_dims():
             ELASTICSEARCH_INDEX="test_index",
             EMBEDDING_DIMS=0,
         )
+
+
+def test_settings_has_admin_emails():
+    """Test that Settings has ADMIN_EMAILS field."""
+    from app.config.settings import Settings
+
+    settings = Settings()
+    assert hasattr(settings, "ADMIN_EMAILS")
+    assert isinstance(settings.ADMIN_EMAILS, list)
+
+
+def test_settings_parses_admin_emails_from_string():
+    """Test that ADMIN_EMAILS is parsed from comma-separated string."""
+    from app.config.settings import Settings
+
+    settings = Settings(ADMIN_EMAILS="admin@example.com,another@example.com")
+    assert settings.ADMIN_EMAILS == ["admin@example.com", "another@example.com"]
+
+
+def test_settings_admin_emails_defaults_to_empty():
+    """Test that ADMIN_EMAILS defaults to empty list."""
+    from app.config.settings import Settings
+
+    settings = Settings()
+    assert settings.ADMIN_EMAILS == []

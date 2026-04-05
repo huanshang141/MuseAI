@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from app.infra.redis.cache import RedisCache
 
 
@@ -42,6 +42,72 @@ async def test_set_session_context():
         [{"role": "user", "content": "hello"}],
         ttl=3600
     )
+    
+    mock_redis.setex.assert_called_once()
+    call_args = mock_redis.setex.call_args
+    assert call_args[0][0] == "session:session-123:context"
+    assert call_args[0][1] == 3600
+
+
+@pytest.mark.asyncio
+async def test_get_embedding_not_found():
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+    
+    result = await cache.get_embedding("hash123")
+    
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_embedding_found():
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = b'[0.1, 0.2, 0.3]'
+    
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+    
+    result = await cache.get_embedding("hash123")
+    
+    assert result == [0.1, 0.2, 0.3]
+
+
+@pytest.mark.asyncio
+async def test_set_embedding():
+    mock_redis = AsyncMock()
+    
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+    
+    await cache.set_embedding("hash123", [0.1, 0.2, 0.3], ttl=86400)
+    
+    mock_redis.setex.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_retrieval_not_found():
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+    
+    result = await cache.get_retrieval("query123")
+    
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_set_retrieval():
+    mock_redis = AsyncMock()
+    
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+    
+    await cache.set_retrieval("query123", [{"chunk_id": "c1"}], ttl=600)
     
     mock_redis.setex.assert_called_once()
 

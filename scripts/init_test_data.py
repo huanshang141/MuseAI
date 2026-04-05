@@ -416,7 +416,51 @@ async def init_documents(
 
 async def init_chat_data(session_maker, user_id: str) -> None:
     """Initialize sample chat sessions and messages."""
-    pass
+    created_sessions = 0
+    skipped_sessions = 0
+    created_messages = 0
+
+    for session_data in SAMPLE_CHAT_SESSIONS:
+        async with get_session(session_maker) as session:
+            result = await session.execute(
+                select(ChatSession).where(
+                    ChatSession.user_id == user_id,
+                    ChatSession.title == session_data["title"],
+                )
+            )
+            existing_session = result.scalars().first()
+
+            if existing_session:
+                print(f"  Chat session already exists: {session_data['title']}")
+                skipped_sessions += 1
+                continue
+
+            session_id = str(uuid.uuid4())
+            chat_session = ChatSession(
+                id=session_id,
+                user_id=user_id,
+                title=session_data["title"],
+            )
+            session.add(chat_session)
+            await session.commit()
+
+            for msg_data in session_data["messages"]:
+                message_id = str(uuid.uuid4())
+                message = ChatMessage(
+                    id=message_id,
+                    session_id=session_id,
+                    role=msg_data["role"],
+                    content=msg_data["content"],
+                )
+                session.add(message)
+                created_messages += 1
+
+            await session.commit()
+            created_sessions += 1
+            print(f"  Created chat session: {session_data['title']} ({len(session_data['messages'])} messages)")
+
+    print(f"\nChat sessions: {created_sessions} created, {skipped_sessions} skipped")
+    print(f"Chat messages: {created_messages} created")
 
 
 async def main() -> None:

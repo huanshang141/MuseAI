@@ -164,6 +164,7 @@ class TestGetCurrentUser:
         mock_user = MagicMock()
         mock_user.id = "user-123"
         mock_user.email = "test@example.com"
+        mock_user.role = "user"
 
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
@@ -179,6 +180,7 @@ class TestGetCurrentUser:
 
         assert result["id"] == "user-123"
         assert result["email"] == "test@example.com"
+        assert result["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_redis_error_in_production_fails_closed(self):
@@ -437,3 +439,127 @@ class TestCheckAuthRateLimit:
             await check_auth_rate_limit(request=mock_request, redis=mock_redis)
 
         assert exc_info.value.status_code == 503
+
+
+class TestGetOptionalUser:
+    """Tests for get_optional_user dependency."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_without_token(self):
+        """get_optional_user should return None when no token is provided."""
+        from app.api.deps import get_optional_user
+
+        result = await get_optional_user(
+            credentials=None,
+            jwt_handler=MagicMock(),
+            session=AsyncMock(),
+            redis=AsyncMock(),
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_blacklisted_token(self):
+        """get_optional_user should return None for blacklisted token."""
+        from app.api.deps import get_optional_user
+
+        mock_credentials = MagicMock()
+        mock_credentials.credentials = "blacklisted-token"
+
+        mock_redis = MagicMock()
+        mock_redis.is_token_blacklisted = AsyncMock(return_value=True)
+
+        mock_jwt = MagicMock()
+        mock_jwt.get_jti = MagicMock(return_value="jti-123")
+
+        result = await get_optional_user(
+            credentials=mock_credentials,
+            jwt_handler=mock_jwt,
+            session=AsyncMock(),
+            redis=mock_redis,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_none_for_invalid_token(self):
+        """get_optional_user should return None for invalid token."""
+        from app.api.deps import get_optional_user
+
+        mock_credentials = MagicMock()
+        mock_credentials.credentials = "invalid-token"
+
+        mock_redis = MagicMock()
+        mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+        mock_jwt = MagicMock()
+        mock_jwt.get_jti = MagicMock(return_value="jti-123")
+        mock_jwt.verify_token = MagicMock(return_value=None)
+
+        result = await get_optional_user(
+            credentials=mock_credentials,
+            jwt_handler=mock_jwt,
+            session=AsyncMock(),
+            redis=mock_redis,
+        )
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_user_dict_for_valid_token(self):
+        """get_optional_user should return user dict for valid token."""
+        from app.api.deps import get_optional_user
+
+        mock_credentials = MagicMock()
+        mock_credentials.credentials = "valid-token"
+
+        mock_redis = MagicMock()
+        mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+        mock_jwt = MagicMock()
+        mock_jwt.get_jti = MagicMock(return_value="jti-123")
+        mock_jwt.verify_token = MagicMock(return_value="user-123")
+
+        mock_user = MagicMock()
+        mock_user.id = "user-123"
+        mock_user.email = "test@example.com"
+        mock_user.role = "user"
+
+        with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
+            result = await get_optional_user(
+                credentials=mock_credentials,
+                jwt_handler=mock_jwt,
+                session=AsyncMock(),
+                redis=mock_redis,
+            )
+
+        assert result is not None
+        assert result["id"] == "user-123"
+        assert result["email"] == "test@example.com"
+        assert result["role"] == "user"
+
+
+class TestGetCurrentAdmin:
+    """Tests for get_current_admin dependency."""
+
+    @pytest.mark.asyncio
+    async def test_raises_for_non_admin(self):
+        """get_current_admin should raise 403 for non-admin users."""
+        from app.api.deps import get_current_admin
+
+        current_user = {"id": "user-123", "email": "test@example.com", "role": "user"}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_admin(current_user)
+
+        assert exc_info.value.status_code == 403
+        assert "admin" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_returns_admin_user(self):
+        """get_current_admin should return admin user dict."""
+        from app.api.deps import get_current_admin
+
+        current_user = {"id": "admin-123", "email": "admin@example.com", "role": "admin"}
+
+        result = await get_current_admin(current_user)
+
+        assert result == current_user
+        assert result["role"] == "admin"

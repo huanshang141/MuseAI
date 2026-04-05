@@ -94,10 +94,61 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"id": user.id, "email": user.email}
+    return {"id": user.id, "email": user.email, "role": user.role}
 
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+
+async def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    jwt_handler: JWTHandler = Depends(get_jwt_handler),
+    session: AsyncSession = Depends(get_db_session),
+    redis: RedisCache = Depends(get_redis_cache),
+) -> dict | None:
+    """Get current user if authenticated, else return None (for guest access)."""
+    if credentials is None:
+        return None
+
+    token = credentials.credentials
+
+    # Check if token is blacklisted
+    jti = jwt_handler.get_jti(token)
+    if jti:
+        try:
+            if await redis.is_token_blacklisted(jti):
+                return None
+        except RedisError:
+            # In development, continue without blacklist check
+            pass
+
+    user_id = jwt_handler.verify_token(token)
+    if user_id is None:
+        return None
+
+    user = await get_user_by_id(session, user_id)
+    if user is None:
+        return None
+
+    return {"id": user.id, "email": user.email, "role": user.role}
+
+
+OptionalUser = Annotated[dict | None, Depends(get_optional_user)]
+
+
+async def get_current_admin(
+    current_user: CurrentUser,
+) -> dict:
+    """Require admin role for endpoint access."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user
+
+
+CurrentAdmin = Annotated[dict, Depends(get_current_admin)]
 
 
 async def check_rate_limit(

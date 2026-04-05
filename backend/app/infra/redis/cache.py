@@ -48,9 +48,10 @@ class RedisCache:
 
     async def check_rate_limit(self, user_id: str, max_requests: int = 60) -> bool:
         key = f"rate:{user_id}"
+        first_request = await self.client.set(key, 1, ex=60, nx=True)
+        if first_request:
+            return True
         count = await self.client.incr(key)
-        if count == 1:
-            await self.client.expire(key, 60)
         return count <= max_requests
 
     async def get_rate_limit_count(self, user_id: str) -> int:

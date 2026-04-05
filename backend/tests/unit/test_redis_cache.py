@@ -7,12 +7,12 @@ from app.infra.redis.cache import RedisCache
 async def test_get_session_context_not_found():
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.get_session_context("session-123")
-    
+
     assert result is None
     mock_redis.get.assert_called_once_with("session:session-123:context")
 
@@ -21,28 +21,24 @@ async def test_get_session_context_not_found():
 async def test_get_session_context_found():
     mock_redis = AsyncMock()
     mock_redis.get.return_value = b'[{"role": "user", "content": "hello"}]'
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.get_session_context("session-123")
-    
+
     assert result == [{"role": "user", "content": "hello"}]
 
 
 @pytest.mark.asyncio
 async def test_set_session_context():
     mock_redis = AsyncMock()
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
-    await cache.set_session_context(
-        "session-123",
-        [{"role": "user", "content": "hello"}],
-        ttl=3600
-    )
-    
+
+    await cache.set_session_context("session-123", [{"role": "user", "content": "hello"}], ttl=3600)
+
     mock_redis.setex.assert_called_once()
     call_args = mock_redis.setex.call_args
     assert call_args[0][0] == "session:session-123:context"
@@ -53,37 +49,37 @@ async def test_set_session_context():
 async def test_get_embedding_not_found():
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.get_embedding("hash123")
-    
+
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_get_embedding_found():
     mock_redis = AsyncMock()
-    mock_redis.get.return_value = b'[0.1, 0.2, 0.3]'
-    
+    mock_redis.get.return_value = b"[0.1, 0.2, 0.3]"
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.get_embedding("hash123")
-    
+
     assert result == [0.1, 0.2, 0.3]
 
 
 @pytest.mark.asyncio
 async def test_set_embedding():
     mock_redis = AsyncMock()
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     await cache.set_embedding("hash123", [0.1, 0.2, 0.3], ttl=86400)
-    
+
     mock_redis.setex.assert_called_once()
 
 
@@ -91,50 +87,64 @@ async def test_set_embedding():
 async def test_get_retrieval_not_found():
     mock_redis = AsyncMock()
     mock_redis.get.return_value = None
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.get_retrieval("query123")
-    
+
     assert result is None
 
 
 @pytest.mark.asyncio
 async def test_set_retrieval():
     mock_redis = AsyncMock()
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     await cache.set_retrieval("query123", [{"chunk_id": "c1"}], ttl=600)
-    
+
     mock_redis.setex.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_check_rate_limit_within_limit():
     mock_redis = AsyncMock()
+    mock_redis.set.return_value = False
     mock_redis.incr.return_value = 5
-    mock_redis.expire = AsyncMock()
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.check_rate_limit("user-123", max_requests=60)
-    
+
     assert result is True
 
 
 @pytest.mark.asyncio
 async def test_check_rate_limit_exceeded():
     mock_redis = AsyncMock()
+    mock_redis.set.return_value = False
     mock_redis.incr.return_value = 61
-    mock_redis.expire = AsyncMock()
-    
+
     cache = RedisCache.__new__(RedisCache)
     cache.client = mock_redis
-    
+
     result = await cache.check_rate_limit("user-123", max_requests=60)
-    
+
     assert result is False
+
+
+@pytest.mark.asyncio
+async def test_check_rate_limit_first_request():
+    mock_redis = AsyncMock()
+    mock_redis.set.return_value = True
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    result = await cache.check_rate_limit("user-123", max_requests=60)
+
+    assert result is True
+    mock_redis.set.assert_called_once_with("rate:user-123", 1, ex=60, nx=True)

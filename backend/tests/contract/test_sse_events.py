@@ -1,9 +1,10 @@
 import json
+import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from app.api.chat import get_db_session as original_get_db_session
-from app.application.chat_service import MOCK_USER_ID, create_session
+from app.application.chat_service import create_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, ChatMessage, User
 from app.main import app
@@ -11,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+TEST_USER_ID = str(uuid.uuid4())
 
 
 @pytest.fixture
@@ -26,13 +28,28 @@ async def db_session(session_maker):
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
-        existing_user = await session.execute(select(User).where(User.id == MOCK_USER_ID))
+        existing_user = await session.execute(select(User).where(User.id == TEST_USER_ID))
         if not existing_user.scalar_one_or_none():
-            test_user = User(id=MOCK_USER_ID, email="test@example.com", password_hash="test_hash")
+            test_user = User(id=TEST_USER_ID, email="test@example.com", password_hash="test_hash")
             session.add(test_user)
             await session.commit()
 
         yield session
+
+
+@pytest.fixture
+async def auth_token(db_session):
+    """Create a valid JWT token for testing authenticated endpoints."""
+    from app.infra.security.jwt_handler import JWTHandler
+    from app.config.settings import get_settings
+
+    settings = get_settings()
+    handler = JWTHandler(
+        secret=settings.JWT_SECRET,
+        algorithm=settings.JWT_ALGORITHM,
+        expire_minutes=settings.JWT_EXPIRE_MINUTES,
+    )
+    return handler.create_token(TEST_USER_ID)
 
 
 def parse_sse_events(content: str) -> list[dict]:
@@ -44,14 +61,14 @@ def parse_sse_events(content: str) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_success(db_session):
+async def test_stream_ask_success(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        session_obj = await create_session(db_session, "流式测试")
+        session_obj = await create_session(db_session, "流式测试", TEST_USER_ID)
         await db_session.commit()
 
         mock_llm = AsyncMock()
@@ -78,6 +95,7 @@ async def test_stream_ask_success(db_session):
                 response = await client.post(
                     "/api/v1/chat/ask/stream",
                     json={"session_id": session_obj.id, "message": "问题"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                 )
 
         assert response.status_code == 200
@@ -106,7 +124,7 @@ async def test_stream_ask_success(db_session):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_session_not_found(db_session):
+async def test_stream_ask_session_not_found(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -118,6 +136,7 @@ async def test_stream_ask_session_not_found(db_session):
             response = await client.post(
                 "/api/v1/chat/ask/stream",
                 json={"session_id": "nonexistent-id", "message": "问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
             )
 
         assert response.status_code == 404
@@ -126,14 +145,14 @@ async def test_stream_ask_session_not_found(db_session):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_llm_error(db_session):
+async def test_stream_ask_llm_error(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        session_obj = await create_session(db_session, "错误测试")
+        session_obj = await create_session(db_session, "错误测试", TEST_USER_ID)
         await db_session.commit()
 
         mock_llm = AsyncMock()
@@ -151,6 +170,7 @@ async def test_stream_ask_llm_error(db_session):
                 response = await client.post(
                     "/api/v1/chat/ask/stream",
                     json={"session_id": session_obj.id, "message": "问题"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                 )
 
         assert response.status_code == 200
@@ -165,14 +185,14 @@ async def test_stream_ask_llm_error(db_session):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_saves_messages(db_session):
+async def test_stream_ask_saves_messages(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        session_obj = await create_session(db_session, "消息保存测试")
+        session_obj = await create_session(db_session, "消息保存测试", TEST_USER_ID)
         await db_session.commit()
 
         mock_llm = AsyncMock()
@@ -198,6 +218,7 @@ async def test_stream_ask_saves_messages(db_session):
                 response = await client.post(
                     "/api/v1/chat/ask/stream",
                     json={"session_id": session_obj.id, "message": "用户问题"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                 )
 
         assert response.status_code == 200
@@ -221,14 +242,14 @@ async def test_stream_ask_saves_messages(db_session):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_event_format(db_session):
+async def test_stream_ask_event_format(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        session_obj = await create_session(db_session, "格式测试")
+        session_obj = await create_session(db_session, "格式测试", TEST_USER_ID)
         await db_session.commit()
 
         mock_llm = AsyncMock()
@@ -244,6 +265,7 @@ async def test_stream_ask_event_format(db_session):
                 response = await client.post(
                     "/api/v1/chat/ask/stream",
                     json={"session_id": session_obj.id, "message": "问题"},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                 )
 
         assert "data: " in response.text

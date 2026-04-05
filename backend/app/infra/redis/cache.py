@@ -59,6 +59,16 @@ class RedisCache:
         count = await self.client.get(key)
         return int(count) if count else 0
 
+    async def blacklist_token(self, jti: str, ttl: int) -> None:
+        """Add token jti to blacklist with TTL."""
+        key = f"blacklist:{jti}"
+        await self.client.setex(key, ttl, "1")
+
+    async def is_token_blacklisted(self, jti: str) -> bool:
+        """Check if token jti is blacklisted."""
+        key = f"blacklist:{jti}"
+        return await self.client.exists(key) > 0
+
 
 def create_redis_client(redis_url: str) -> RedisCache:
     return RedisCache(redis_url)

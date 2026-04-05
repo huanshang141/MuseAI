@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr, field_validator
+from redis.exceptions import RedisError
 
-from app.api.deps import SessionDep, JWTHandlerDep
+from app.api.deps import SessionDep, JWTHandlerDep, RedisCacheDep, CurrentUser
 from app.application.auth_service import (
     register_user,
     authenticate_user,
@@ -107,5 +108,28 @@ async def login(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout():
+async def logout(
+    request: Request,
+    jwt_handler: JWTHandlerDep,
+    redis: RedisCacheDep,
+):
+    """Logout user by blacklisting their current token."""
+    # Extract token from Authorization header
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None  # No token to blacklist
+
+    token = auth_header.replace("Bearer ", "")
+    jti = jwt_handler.get_jti(token)
+
+    if jti:
+        try:
+            # Blacklist the token with TTL matching token expiration
+            ttl = jwt_handler.expire_minutes * 60
+            await redis.blacklist_token(jti, ttl)
+        except RedisError:
+            # If Redis is unavailable, logout fails silently
+            # Token will still expire naturally
+            pass
+
     return None

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -19,6 +20,7 @@ class JWTHandler:
             "sub": user_id,
             "exp": expire,
             "iat": now,
+            "jti": str(uuid.uuid4()),
         })
 
         return jwt.encode(payload, self.secret, algorithm=self.algorithm)
@@ -35,3 +37,8 @@ class JWTHandler:
             return jwt.decode(token, self.secret, algorithms=[self.algorithm])
         except JWTError:
             return None
+
+    def get_jti(self, token: str) -> str | None:
+        """Extract the JWT ID (jti) from a token."""
+        payload = self.decode_token(token)
+        return payload.get("jti") if payload else None

@@ -148,3 +148,47 @@ async def test_check_rate_limit_first_request():
 
     assert result is True
     mock_redis.set.assert_called_once_with("rate:user-123", 1, ex=60, nx=True)
+
+
+@pytest.mark.asyncio
+async def test_blacklist_token():
+    """Test adding token to blacklist."""
+    mock_redis = MagicMock()
+    mock_redis.setex = AsyncMock()
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    await cache.blacklist_token("test-jti", 3600)
+
+    mock_redis.setex.assert_called_once_with("blacklist:test-jti", 3600, "1")
+
+
+@pytest.mark.asyncio
+async def test_is_token_blacklisted_true():
+    """Test checking if token is blacklisted (returns True)."""
+    mock_redis = MagicMock()
+    mock_redis.exists = AsyncMock(return_value=1)
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    result = await cache.is_token_blacklisted("test-jti")
+
+    assert result is True
+    mock_redis.exists.assert_called_once_with("blacklist:test-jti")
+
+
+@pytest.mark.asyncio
+async def test_is_token_blacklisted_false():
+    """Test checking if token is not blacklisted (returns False)."""
+    mock_redis = MagicMock()
+    mock_redis.exists = AsyncMock(return_value=0)
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    result = await cache.is_token_blacklisted("test-jti")
+
+    assert result is False
+    mock_redis.exists.assert_called_once_with("blacklist:test-jti")

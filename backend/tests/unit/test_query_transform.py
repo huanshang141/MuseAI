@@ -1,9 +1,8 @@
-import pytest
 from app.workflows.query_transform import (
     QueryTransformStrategy,
-    select_strategy,
     has_specific_details,
     is_ambiguous,
+    select_strategy,
 )
 
 
@@ -101,3 +100,15 @@ class TestIsAmbiguous:
 
     def test_non_ambiguous_query(self):
         assert is_ambiguous("What is the weather like today?") is False
+
+    def test_it_in_word_not_ambiguous(self):
+        assert is_ambiguous("iterate through items") is False
+
+    def test_that_in_word_not_ambiguous(self):
+        assert is_ambiguous("thatch roof design") is False
+
+    def test_standalone_it_is_ambiguous(self):
+        assert is_ambiguous("what is it?") is True
+
+    def test_standalone_that_is_ambiguous(self):
+        assert is_ambiguous("I want that") is True

@@ -23,7 +23,14 @@ def has_specific_details(query: str) -> bool:
 def is_ambiguous(query: str) -> bool:
     ambiguous_words = ["那个", "这个", "它", "那个东西", "something", "it", "that"]
     query_lower = query.lower()
-    return any(word in query_lower for word in ambiguous_words) or len(query) < 10
+    for word in ambiguous_words:
+        if any(ord(c) > 127 for c in word):
+            if word in query_lower:
+                return True
+        else:
+            if re.search(r"\b" + re.escape(word) + r"\b", query_lower):
+                return True
+    return len(query) < 10
 
 
 def select_strategy(query: str, retrieval_score: float, attempt: int) -> QueryTransformStrategy:

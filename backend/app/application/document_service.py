@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.infra.postgres.models import Document, IngestionJob
 
 MOCK_USER_ID = "user-001"

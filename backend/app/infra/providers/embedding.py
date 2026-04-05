@@ -1,6 +1,7 @@
 import asyncio
-import httpx
 from typing import Protocol
+
+import httpx
 
 
 class EmbeddingProvider(Protocol):

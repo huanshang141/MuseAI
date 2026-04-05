@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.chat_service import (
     ask_question,
-    ask_question_stream,
     ask_question_stream_with_rag,
     create_session,
     delete_session,

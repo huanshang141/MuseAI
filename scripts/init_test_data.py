@@ -3,7 +3,7 @@ import sys
 import uuid
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[1] / "backend"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -15,7 +15,6 @@ from app.infra.postgres.models import User, Document, IngestionJob, ChatSession,
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.application.ingestion_service import IngestionService
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
-from app.application.chunking import ChunkConfig
 
 SAMPLE_DOCUMENTS = [
     {

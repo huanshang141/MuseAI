@@ -1,9 +1,9 @@
 from typing import Any, TypedDict
+
 from langchain_core.documents import Document
 from langchain_core.language_models import BaseChatModel
 from langchain_core.retrievers import BaseRetriever
-from langgraph.graph import StateGraph, END
-
+from langgraph.graph import END, StateGraph
 
 SCORE_THRESHOLD = 0.7
 MAX_ATTEMPTS = 3

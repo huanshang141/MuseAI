@@ -78,7 +78,7 @@ class ElasticsearchClient:
             return cast(dict[str, Any], result)
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to index chunk: {type(e).__name__}")
-            raise RetrievalError(f"Failed to index chunk")
+            raise RetrievalError("Failed to index chunk")
 
     async def search_dense(self, query_vector: list[float], top_k: int = 5) -> list[dict[str, Any]]:
         try:

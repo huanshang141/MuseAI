@@ -1,11 +1,12 @@
 import logging
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
-from app.infra.postgres.models import IngestionJob
-from app.application.chunking import TextChunker, ChunkConfig
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.application.chunking import ChunkConfig, TextChunker
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
+from app.infra.postgres.models import IngestionJob
 
 logger = logging.getLogger(__name__)
 

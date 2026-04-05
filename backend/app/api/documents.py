@@ -1,18 +1,19 @@
-import asyncio
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.infra.postgres.database import get_session_maker, get_session
+
 from app.application.document_service import (
     create_document,
-    get_documents_by_user,
-    get_document_by_id,
-    get_ingestion_job_by_document,
     delete_document,
+    get_document_by_id,
+    get_documents_by_user,
+    get_ingestion_job_by_document,
 )
-from app.config.settings import get_settings
 from app.application.ingestion_service import IngestionService
+from app.config.settings import get_settings
+from app.infra.postgres.database import get_session, get_session_maker
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 

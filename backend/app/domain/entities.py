@@ -1,7 +1,8 @@
 # backend/app/domain/entities.py
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from .value_objects import UserId, SessionId, DocumentId, JobId
+
+from .value_objects import DocumentId, JobId, SessionId, UserId
 
 
 @dataclass

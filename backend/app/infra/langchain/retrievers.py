@@ -1,10 +1,9 @@
-from typing import List, Any
-from langchain_core.retrievers import BaseRetriever
+from typing import Any
+
 from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
 from pydantic import ConfigDict
 
-from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 from app.application.retrieval import rrf_fusion
 
 
@@ -18,12 +17,12 @@ class RRFRetriever(BaseRetriever):
     top_k: int = 5
     rrf_k: int = 60
 
-    def _get_relevant_documents(self, query: str) -> List[Document]:
+    def _get_relevant_documents(self, query: str) -> list[Document]:
         raise NotImplementedError(
             "Sync retrieval not supported in async context. Use _aget_relevant_documents instead."
         )
 
-    async def _aget_relevant_documents(self, query: str) -> List[Document]:
+    async def _aget_relevant_documents(self, query: str) -> list[Document]:
         query_vector = await self.embeddings.aembed_query(query)
 
         dense_results = await self.es_client.search_dense(query_vector, self.top_k * 2)

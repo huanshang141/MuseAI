@@ -6,11 +6,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
-from app.config.settings import get_settings
-from app.infra.postgres.database import close_database, init_database
-from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.langchain import create_embeddings, create_llm, create_retriever, create_rag_agent
 from app.application.ingestion_service import IngestionService
+from app.config.settings import get_settings
+from app.infra.elasticsearch.client import ElasticsearchClient
+from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
+from app.infra.postgres.database import close_database, init_database
 
 es_client: ElasticsearchClient | None = None
 embeddings = None

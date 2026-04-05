@@ -1,4 +1,4 @@
-from typing import List
+
 from langchain_core.embeddings import Embeddings
 from pydantic import BaseModel, PrivateAttr
 
@@ -25,20 +25,20 @@ class CustomOllamaEmbeddings(BaseModel, Embeddings):
             )
         return self._provider
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
         import asyncio
 
         return asyncio.run(self.aembed_documents(texts))
 
-    async def aembed_documents(self, texts: List[str]) -> List[List[float]]:
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
         provider = self._get_provider()
         return await provider.embed_batch(texts)
 
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list[float]:
         import asyncio
 
         return asyncio.run(self.aembed_query(text))
 
-    async def aembed_query(self, text: str) -> List[float]:
+    async def aembed_query(self, text: str) -> list[float]:
         provider = self._get_provider()
         return await provider.embed(text)

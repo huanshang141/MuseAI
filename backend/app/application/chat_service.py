@@ -1,17 +1,15 @@
 import json
-import logging
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
-
-logger = logging.getLogger(__name__)
 
 
 def _sanitize_error_message(error: Exception) -> str:

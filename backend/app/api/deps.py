@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from loguru import logger
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -74,7 +75,7 @@ async def get_current_user(
                     detail="Authentication temporarily unavailable",
                 ) from e
             # In development, log and continue
-            print(f"Redis error during blacklist check: {e}")
+            logger.warning(f"Redis error during blacklist check: {e}")
 
     user_id = jwt_handler.verify_token(token)
 

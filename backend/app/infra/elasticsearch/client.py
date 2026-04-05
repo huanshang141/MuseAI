@@ -1,12 +1,10 @@
-import logging
 from typing import Any, cast
 
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.exceptions import ApiError, TransportError
+from loguru import logger
 
 from app.domain.exceptions import RetrievalError
-
-logger = logging.getLogger(__name__)
 
 
 class ElasticsearchClient:

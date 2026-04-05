@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True
 
+    # Logging settings
+    LOG_LEVEL: str = "INFO"
+    LOG_DIR: str = "logs"
+    LOG_FORMAT: str = "json"  # "json" or "text"
+
     @field_validator("EMBEDDING_DIMS")
     @classmethod
     def validate_embedding_dims(cls, v: int) -> int:

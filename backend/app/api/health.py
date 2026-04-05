@@ -1,12 +1,9 @@
-import logging
-
 from fastapi import APIRouter, Response
+from loguru import logger
 from redis.asyncio import from_url as redis_from_url
 from sqlalchemy import text
 
 from app.config.settings import get_settings
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
 

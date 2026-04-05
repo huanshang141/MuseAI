@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from loguru import logger
 
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -13,13 +14,19 @@ from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
 from app.infra.postgres.database import close_database, init_database
 from app.infra.redis.cache import RedisCache
+from app.observability.logging import setup_logging
+from app.observability.middleware import RequestLoggingMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - initialize and cleanup resources."""
     settings = get_settings()
-    print(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
+
+    # Initialize logging first
+    setup_logging(settings)
+
+    logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
 
     try:
         # Initialize database
@@ -58,7 +65,7 @@ async def lifespan(app: FastAPI):
         yield
 
     except Exception as e:
-        print(f"Failed to initialize: {e}")
+        logger.exception(f"Failed to initialize: {e}")
         raise
     finally:
         await close_database()
@@ -66,7 +73,7 @@ async def lifespan(app: FastAPI):
             await app.state.redis_cache.close()
         if hasattr(app.state, "es_client") and app.state.es_client:
             await app.state.es_client.close()
-        print("Shutting down")
+        logger.info("Shutting down")
 
 
 app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)
@@ -137,6 +144,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add request logging middleware
+app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(health_router, prefix="/api/v1", tags=["health"])
 app.include_router(documents_router, prefix="/api/v1", tags=["documents"])

@@ -2,6 +2,7 @@ import sys
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from loguru import logger
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, RateLimitDep, SessionDep
@@ -134,7 +135,7 @@ async def process_document_background(
             )
             await session.commit()
         except Exception as e:
-            print(f"Failed to process document {document_id}: {e}")
+            logger.exception(f"Failed to process document {document_id}: {e}")
             await update_document_status(session, document_id, "failed", str(e))
             await session.commit()
 

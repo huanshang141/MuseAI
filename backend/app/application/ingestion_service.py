@@ -1,6 +1,6 @@
 import asyncio
-import logging
 
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,8 +8,6 @@ from app.application.chunking import ChunkConfig, TextChunker
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 from app.infra.postgres.models import Document, IngestionJob
-
-logger = logging.getLogger(__name__)
 
 
 class IngestionService:

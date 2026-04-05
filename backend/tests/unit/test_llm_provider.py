@@ -2,6 +2,8 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from loguru import logger
+
 from app.config.settings import Settings
 from app.domain.exceptions import LLMError
 from app.infra.providers.llm import LLMResponse, OpenAICompatibleProvider
@@ -194,7 +196,12 @@ class TestOpenAICompatibleProvider:
         assert call_count == 3
 
     @pytest.mark.asyncio
-    async def test_generate_warns_on_none_usage(self, caplog: pytest.LogCaptureFixture):
+    async def test_generate_warns_on_none_usage(self, caplog: pytest.LogCaptureFixture, tmp_path):
+        """Test that a warning is logged when usage is None."""
+        import sys
+
+        from loguru import logger
+
         mock_client = AsyncMock()
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -203,17 +210,22 @@ class TestOpenAICompatibleProvider:
         mock_response.usage = None
         mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
 
+        # Setup loguru to capture warnings to a file
+        log_file = tmp_path / "test.log"
+        logger.add(str(log_file), level="WARNING", format="{message}")
+
         with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
             provider = OpenAICompatibleProvider(
                 base_url="https://api.example.com/v1", api_key="test-key", model="gemini-2.5-flash", max_retries=1
             )
             messages = [{"role": "user", "content": "Hello"}]
-            with caplog.at_level(logging.WARNING):
-                result = await provider.generate(messages)
+            result = await provider.generate(messages)
 
+        # Read log file and check for warning
+        log_content = log_file.read_text()
         assert result.prompt_tokens == 0
         assert result.completion_tokens == 0
-        assert "LLM response usage is None" in caplog.text
+        assert "LLM response usage is None" in log_content
 
     @pytest.mark.asyncio
     async def test_close_method(self):

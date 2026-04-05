@@ -1,17 +1,15 @@
 import asyncio
-import logging
 import time
 from collections.abc import AsyncGenerator
 from types import TracebackType
 from typing import Any, Protocol, Self
 
+from loguru import logger
 from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config.settings import Settings
 from app.domain.exceptions import LLMError
-
-logger = logging.getLogger(__name__)
 
 
 class LLMResponse(BaseModel):

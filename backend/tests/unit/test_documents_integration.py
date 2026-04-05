@@ -44,81 +44,51 @@ class TestDocumentsAPIIntegration:
         assert callable(get_rag_agent)
         assert callable(get_ingestion_service)
 
-    def test_main_has_global_variables(self):
-        import app.main as main
+    def test_main_getters_use_app_state(self):
+        """Test that getter functions retrieve from app.state."""
+        from app.main import app, get_es_client, get_embeddings, get_llm, get_retriever, get_rag_agent, get_ingestion_service
 
-        mock_settings = MagicMock(
-            ELASTICSEARCH_URL="http://localhost:9200",
-            ELASTICSEARCH_INDEX="test_index",
-        )
-
+        # Create mock singletons
         mock_es_client = MagicMock(name="es_client")
-        mock_embeddings = object()
-        mock_llm = object()
-        mock_retriever = object()
-        mock_rag_agent = object()
+        mock_embeddings = MagicMock(name="embeddings")
+        mock_llm = MagicMock(name="llm")
+        mock_retriever = MagicMock(name="retriever")
+        mock_rag_agent = MagicMock(name="rag_agent")
         mock_ingestion_service = MagicMock(name="ingestion_service")
 
-        mock_es_factory = MagicMock(return_value=mock_es_client)
-        mock_embeddings_factory = MagicMock(return_value=mock_embeddings)
-        mock_llm_factory = MagicMock(return_value=mock_llm)
-        mock_retriever_factory = MagicMock(return_value=mock_retriever)
-        mock_rag_agent_factory = MagicMock(return_value=mock_rag_agent)
-        mock_ingestion_factory = MagicMock(return_value=mock_ingestion_service)
+        # Set up app.state
+        app.state.es_client = mock_es_client
+        app.state.embeddings = mock_embeddings
+        app.state.llm = mock_llm
+        app.state.retriever = mock_retriever
+        app.state.rag_agent = mock_rag_agent
+        app.state.ingestion_service = mock_ingestion_service
 
-        with (
-            patch.object(main, "es_client", None),
-            patch.object(main, "embeddings", None),
-            patch.object(main, "llm", None),
-            patch.object(main, "retriever", None),
-            patch.object(main, "rag_agent", None),
-            patch.object(main, "ingestion_service", None),
-            patch.object(main, "get_settings", return_value=mock_settings),
-            patch.object(main, "ElasticsearchClient", mock_es_factory),
-            patch.object(main, "create_embeddings", mock_embeddings_factory),
-            patch.object(main, "create_llm", mock_llm_factory),
-            patch.object(main, "create_retriever", mock_retriever_factory),
-            patch.object(main, "create_rag_agent", mock_rag_agent_factory),
-            patch.object(main, "IngestionService", mock_ingestion_factory),
-        ):
-            es_first = main.get_es_client()
-            es_second = main.get_es_client()
-            assert es_first is mock_es_client
-            assert es_second is es_first
-            mock_es_factory.assert_called_once_with(
-                hosts=[mock_settings.ELASTICSEARCH_URL],
-                index_name=mock_settings.ELASTICSEARCH_INDEX,
-            )
+        try:
+            # Verify getters return the mocked values from app.state
+            assert get_es_client() is mock_es_client
+            assert get_embeddings() is mock_embeddings
+            assert get_llm() is mock_llm
+            assert get_retriever() is mock_retriever
+            assert get_rag_agent() is mock_rag_agent
+            assert get_ingestion_service() is mock_ingestion_service
+        finally:
+            # Clean up app.state
+            delattr(app.state, "es_client")
+            delattr(app.state, "embeddings")
+            delattr(app.state, "llm")
+            delattr(app.state, "retriever")
+            delattr(app.state, "rag_agent")
+            delattr(app.state, "ingestion_service")
 
-            embeddings_first = main.get_embeddings()
-            embeddings_second = main.get_embeddings()
-            assert embeddings_first is mock_embeddings
-            assert embeddings_second is embeddings_first
-            mock_embeddings_factory.assert_called_once_with(mock_settings)
+    def test_main_getters_raise_error_when_not_initialized(self):
+        """Test that getter functions raise error when app.state is not initialized."""
+        from app.main import app, get_es_client
+        import pytest
 
-            llm_first = main.get_llm()
-            llm_second = main.get_llm()
-            assert llm_first is mock_llm
-            assert llm_second is llm_first
-            mock_llm_factory.assert_called_once_with(mock_settings)
+        # Ensure app.state does not have es_client
+        if hasattr(app.state, "es_client"):
+            delattr(app.state, "es_client")
 
-            retriever_first = main.get_retriever()
-            retriever_second = main.get_retriever()
-            assert retriever_first is mock_retriever
-            assert retriever_second is retriever_first
-            mock_retriever_factory.assert_called_once_with(mock_es_client, mock_embeddings, mock_settings)
-
-            rag_agent_first = main.get_rag_agent()
-            rag_agent_second = main.get_rag_agent()
-            assert rag_agent_first is mock_rag_agent
-            assert rag_agent_second is rag_agent_first
-            mock_rag_agent_factory.assert_called_once_with(mock_llm, mock_retriever, mock_settings)
-
-            ingestion_first = main.get_ingestion_service()
-            ingestion_second = main.get_ingestion_service()
-            assert ingestion_first is mock_ingestion_service
-            assert ingestion_second is ingestion_first
-            mock_ingestion_factory.assert_called_once_with(
-                es_client=mock_es_client,
-                embeddings=mock_embeddings,
-            )
+        with pytest.raises(RuntimeError, match="Elasticsearch client not initialized"):
+            get_es_client()

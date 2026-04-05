@@ -13,89 +13,100 @@ from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
 from app.infra.postgres.database import close_database, init_database
 
-es_client: ElasticsearchClient | None = None
-embeddings = None
-llm = None
-retriever = None
-rag_agent = None
-ingestion_service: IngestionService | None = None
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - initialize and cleanup resources."""
+    settings = get_settings()
+    print(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
 
-def get_es_client() -> ElasticsearchClient:
-    global es_client
-    if es_client is None:
-        settings = get_settings()
+    try:
+        # Initialize database
+        await init_database(settings.DATABASE_URL)
+
+        # Initialize Elasticsearch client
         es_client = ElasticsearchClient(
             hosts=[settings.ELASTICSEARCH_URL],
             index_name=settings.ELASTICSEARCH_INDEX,
         )
-    return es_client
+        await es_client.create_index(settings.ELASTICSEARCH_INDEX, settings.EMBEDDING_DIMS)
 
-
-def get_embeddings():
-    global embeddings
-    if embeddings is None:
-        settings = get_settings()
+        # Initialize other singletons
         embeddings = create_embeddings(settings)
-    return embeddings
-
-
-def get_llm():
-    global llm
-    if llm is None:
-        settings = get_settings()
         llm = create_llm(settings)
-    return llm
-
-
-def get_retriever():
-    global retriever
-    if retriever is None:
-        settings = get_settings()
-        retriever = create_retriever(get_es_client(), get_embeddings(), settings)
-    return retriever
-
-
-def get_rag_agent():
-    global rag_agent
-    if rag_agent is None:
-        settings = get_settings()
-        rag_agent = create_rag_agent(get_llm(), get_retriever(), settings)
-    return rag_agent
-
-
-def get_ingestion_service() -> IngestionService:
-    global ingestion_service
-    if ingestion_service is None:
+        retriever = create_retriever(es_client, embeddings, settings)
+        rag_agent = create_rag_agent(llm, retriever, settings)
         ingestion_service = IngestionService(
-            es_client=get_es_client(),
-            embeddings=get_embeddings(),
+            es_client=es_client,
+            embeddings=embeddings,
         )
-    return ingestion_service
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    settings = get_settings()
-    print(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
-    try:
-        await init_database(settings.DATABASE_URL)
-
-        es = get_es_client()
-        await es.create_index(settings.ELASTICSEARCH_INDEX, settings.EMBEDDING_DIMS)
+        # Store in app.state
+        app.state.es_client = es_client
+        app.state.embeddings = embeddings
+        app.state.llm = llm
+        app.state.retriever = retriever
+        app.state.rag_agent = rag_agent
+        app.state.ingestion_service = ingestion_service
+        app.state.settings = settings
 
         yield
+
     except Exception as e:
         print(f"Failed to initialize: {e}")
         raise
     finally:
         await close_database()
-        if es_client:
-            await es_client.close()
+        if hasattr(app.state, "es_client") and app.state.es_client:
+            await app.state.es_client.close()
         print("Shutting down")
 
 
 app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)
+
+
+# Getter functions that retrieve from app.state
+# Note: These are defined after `app` so they can reference it directly without circular imports
+def get_es_client() -> ElasticsearchClient:
+    """Get Elasticsearch client from app.state."""
+    if hasattr(app.state, "es_client"):
+        return app.state.es_client
+    raise RuntimeError("Elasticsearch client not initialized. App not started?")
+
+
+def get_embeddings():
+    """Get embeddings from app.state."""
+    if hasattr(app.state, "embeddings"):
+        return app.state.embeddings
+    raise RuntimeError("Embeddings not initialized. App not started?")
+
+
+def get_llm():
+    """Get LLM from app.state."""
+    if hasattr(app.state, "llm"):
+        return app.state.llm
+    raise RuntimeError("LLM not initialized. App not started?")
+
+
+def get_retriever():
+    """Get retriever from app.state."""
+    if hasattr(app.state, "retriever"):
+        return app.state.retriever
+    raise RuntimeError("Retriever not initialized. App not started?")
+
+
+def get_rag_agent():
+    """Get RAG agent from app.state."""
+    if hasattr(app.state, "rag_agent"):
+        return app.state.rag_agent
+    raise RuntimeError("RAG agent not initialized. App not started?")
+
+
+def get_ingestion_service() -> IngestionService:
+    """Get ingestion service from app.state."""
+    if hasattr(app.state, "ingestion_service"):
+        return app.state.ingestion_service
+    raise RuntimeError("Ingestion service not initialized. App not started?")
 
 # Get settings for CORS configuration
 _settings = get_settings()

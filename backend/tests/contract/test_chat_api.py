@@ -313,3 +313,86 @@ async def test_ask_question_session_not_found(db_session, auth_token):
         assert response.status_code == 404
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_ask_rate_limit_exceeded(db_session, auth_token):
+    """Test that rate limit returns 429 when exceeded."""
+    from unittest.mock import AsyncMock, patch
+    from app.api.deps import get_redis_cache
+
+    async def override_get_db():
+        yield db_session
+
+    # Create a mock Redis cache that simulates rate limit exceeded
+    mock_redis = AsyncMock()
+    mock_redis.check_rate_limit = AsyncMock(return_value=False)
+    mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+    def override_redis():
+        return mock_redis
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[get_redis_cache] = override_redis
+
+    try:
+        from app.application.chat_service import create_session
+
+        session_obj = await create_session(db_session, "问答测试", TEST_USER_ID)
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask",
+                json={"session_id": session_obj.id, "message": "问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "Rate limit exceeded"
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_ask_rate_limit_allows_requests_within_limit(db_session, auth_token):
+    """Test that rate limit allows requests within limit."""
+    from unittest.mock import AsyncMock
+    from app.api.deps import get_redis_cache
+
+    async def override_get_db():
+        yield db_session
+
+    # Create a mock Redis cache that allows the request
+    mock_redis = AsyncMock()
+    mock_redis.check_rate_limit = AsyncMock(return_value=True)
+    mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+    def override_redis():
+        return mock_redis
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[get_redis_cache] = override_redis
+
+    try:
+        from app.application.chat_service import create_session
+
+        session_obj = await create_session(db_session, "问答测试", TEST_USER_ID)
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask",
+                json={"session_id": session_obj.id, "message": "这件青铜器是做什么用的？"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "answer" in data
+        assert "trace_id" in data
+        assert "sources" in data
+    finally:
+        app.dependency_overrides = {}

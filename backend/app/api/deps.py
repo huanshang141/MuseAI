@@ -93,3 +93,26 @@ async def get_current_user(
 
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
+
+
+async def check_rate_limit(
+    redis: RedisCache = Depends(get_redis_cache),
+    current_user: dict = Depends(get_current_user),
+) -> None:
+    """Check rate limit for the current user.
+
+    Fails open if Redis is unavailable to ensure availability during outages.
+    """
+    try:
+        if not await redis.check_rate_limit(current_user["id"]):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded",
+            )
+    except RedisError:
+        # Log the error but allow request to proceed
+        # This ensures availability during Redis outages
+        pass
+
+
+RateLimitDep = Annotated[None, Depends(check_rate_limit)]

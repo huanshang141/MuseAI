@@ -249,3 +249,90 @@ async def test_delete_document_not_found(db_session, auth_token):
         assert response.status_code == 404
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_upload_rate_limit_exceeded(db_session, auth_token):
+    """Test that rate limit returns 429 when exceeded."""
+    from unittest.mock import AsyncMock
+    from app.api.deps import get_redis_cache
+
+    async def override_get_db():
+        yield db_session
+
+    # Create a mock Redis cache that simulates rate limit exceeded
+    mock_redis = AsyncMock()
+    mock_redis.check_rate_limit = AsyncMock(return_value=False)
+    mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+    def override_redis():
+        return mock_redis
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[get_redis_cache] = override_redis
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            tmp.write(b"test content")
+            tmp_path = tmp.name
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with open(tmp_path, "rb") as f:
+                response = await client.post(
+                    "/api/v1/documents/upload",
+                    files={"file": ("test.txt", f, "text/plain")},
+                    headers={"Authorization": f"Bearer {auth_token}"},
+                )
+
+        os.unlink(tmp_path)
+
+        assert response.status_code == 429
+        assert response.json()["detail"] == "Rate limit exceeded"
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_upload_rate_limit_allows_requests_within_limit(db_session, auth_token):
+    """Test that rate limit allows requests within limit."""
+    from unittest.mock import AsyncMock
+    from app.api.deps import get_redis_cache
+
+    async def override_get_db():
+        yield db_session
+
+    # Create a mock Redis cache that allows the request
+    mock_redis = AsyncMock()
+    mock_redis.check_rate_limit = AsyncMock(return_value=True)
+    mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+    def override_redis():
+        return mock_redis
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[get_redis_cache] = override_redis
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            tmp.write(b"test content")
+            tmp_path = tmp.name
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with open(tmp_path, "rb") as f:
+                response = await client.post(
+                    "/api/v1/documents/upload",
+                    files={"file": ("test.txt", f, "text/plain")},
+                    headers={"Authorization": f"Bearer {auth_token}"},
+                )
+
+        os.unlink(tmp_path)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["filename"] == "test.txt"
+        assert data["status"] == "pending"
+        assert "id" in data
+    finally:
+        app.dependency_overrides = {}

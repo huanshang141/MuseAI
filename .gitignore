@@ -60,3 +60,6 @@ htmlcov/
 # Node
 node_modules/
 frontend/node_modules/
+
+# claude
+.claude/

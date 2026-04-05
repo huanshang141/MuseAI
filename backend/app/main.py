@@ -97,10 +97,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)
 
+# Get settings for CORS configuration
+_settings = get_settings()
+cors_origins = _settings.get_cors_origins()
+
+# In production, don't allow credentials with wildcard
+allow_credentials = _settings.CORS_ALLOW_CREDENTIALS and "*" not in cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

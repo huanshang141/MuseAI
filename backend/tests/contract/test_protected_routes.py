@@ -81,13 +81,13 @@ async def test_protected_route_with_valid_token(db_session):
             # Register a user
             await client.post(
                 "/api/v1/auth/register",
-                json={"email": "protected@example.com", "password": "password123"},
+                json={"email": "protected@example.com", "password": "Protected123"},
             )
 
             # Login to get a token
             login_response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": "protected@example.com", "password": "password123"},
+                json={"email": "protected@example.com", "password": "Protected123"},
             )
             token = login_response.json()["access_token"]
 

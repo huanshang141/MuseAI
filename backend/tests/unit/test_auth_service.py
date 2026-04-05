@@ -1,6 +1,7 @@
 # backend/tests/unit/test_auth_service.py
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from pydantic import ValidationError
 from app.application.auth_service import (
     register_user,
     authenticate_user,
@@ -8,6 +9,7 @@ from app.application.auth_service import (
     verify_token,
     get_user_by_id,
 )
+from app.api.auth import RegisterRequest
 
 
 @pytest.mark.asyncio
@@ -193,3 +195,55 @@ async def test_get_user_by_id_not_found():
     user = await get_user_by_id(session=mock_session, user_id="nonexistent-user")
 
     assert user is None
+
+
+# Password validation tests
+def test_password_too_short():
+    """Test that passwords shorter than 8 characters are rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        RegisterRequest(email="test@example.com", password="Short1")
+    assert "Password must be at least 8 characters" in str(exc_info.value)
+
+
+def test_password_no_uppercase():
+    """Test that passwords without uppercase letters are rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        RegisterRequest(email="test@example.com", password="lowercase1")
+    assert "Password must contain at least one uppercase letter" in str(exc_info.value)
+
+
+def test_password_no_lowercase():
+    """Test that passwords without lowercase letters are rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        RegisterRequest(email="test@example.com", password="UPPERCASE1")
+    assert "Password must contain at least one lowercase letter" in str(exc_info.value)
+
+
+def test_password_no_digit():
+    """Test that passwords without digits are rejected."""
+    with pytest.raises(ValidationError) as exc_info:
+        RegisterRequest(email="test@example.com", password="NoDigitsHere")
+    assert "Password must contain at least one digit" in str(exc_info.value)
+
+
+def test_valid_password_accepted():
+    """Test that valid passwords meeting all requirements are accepted."""
+    request = RegisterRequest(email="test@example.com", password="ValidPass1")
+    assert request.password == "ValidPass1"
+    assert request.email == "test@example.com"
+
+
+def test_valid_password_complex():
+    """Test that complex valid passwords are accepted."""
+    request = RegisterRequest(email="test@example.com", password="MySecure123Password")
+    assert request.password == "MySecure123Password"
+
+
+def test_password_validation_error_messages_clear():
+    """Test that validation error messages are user-friendly."""
+    with pytest.raises(ValidationError) as exc_info:
+        RegisterRequest(email="test@example.com", password="weak")
+
+    error_str = str(exc_info.value)
+    # Should contain clear, user-friendly messages
+    assert "Password must be at least 8 characters" in error_str

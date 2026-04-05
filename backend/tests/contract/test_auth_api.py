@@ -40,7 +40,7 @@ async def test_register_endpoint(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "test@example.com",
-                    "password": "password123",
+                    "password": "Password123",
                 },
             )
 
@@ -66,7 +66,7 @@ async def test_login_endpoint(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "login@example.com",
-                    "password": "password123",
+                    "password": "LoginPass123",
                 },
             )
 
@@ -74,7 +74,7 @@ async def test_login_endpoint(db_session):
                 "/api/v1/auth/login",
                 json={
                     "email": "login@example.com",
-                    "password": "password123",
+                    "password": "LoginPass123",
                 },
             )
 
@@ -100,7 +100,7 @@ async def test_login_wrong_password(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "wrong@example.com",
-                    "password": "password123",
+                    "password": "WrongPass123",
                 },
             )
 
@@ -108,7 +108,7 @@ async def test_login_wrong_password(db_session):
                 "/api/v1/auth/login",
                 json={
                     "email": "wrong@example.com",
-                    "password": "wrongpassword",
+                    "password": "Wrongpassword1",
                 },
             )
 

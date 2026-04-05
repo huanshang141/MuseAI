@@ -42,3 +42,9 @@ class CustomOllamaEmbeddings(BaseModel, Embeddings):
     async def aembed_query(self, text: str) -> list[float]:
         provider = self._get_provider()
         return await provider.embed(text)
+
+    async def close(self) -> None:
+        """Close the underlying provider."""
+        if self._provider is not None:
+            await self._provider.close()
+            self._provider = None

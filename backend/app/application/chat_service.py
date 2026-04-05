@@ -4,7 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.exceptions import LLMError
@@ -39,10 +39,26 @@ async def create_session(session: AsyncSession, title: str, user_id: str) -> Cha
     return chat_session
 
 
-async def get_sessions_by_user(session: AsyncSession, user_id: str) -> list[ChatSession]:
-    stmt = select(ChatSession).where(ChatSession.user_id == user_id).order_by(ChatSession.created_at.desc())
+async def get_sessions_by_user(
+    session: AsyncSession, user_id: str, limit: int = 20, offset: int = 0
+) -> list[ChatSession]:
+    """Get chat sessions for a user with pagination."""
+    stmt = (
+        select(ChatSession)
+        .where(ChatSession.user_id == user_id)
+        .order_by(ChatSession.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_sessions_by_user(session: AsyncSession, user_id: str) -> int:
+    """Count total sessions for a user."""
+    stmt = select(func.count()).select_from(ChatSession).where(ChatSession.user_id == user_id)
+    result = await session.execute(stmt)
+    return result.scalar() or 0
 
 
 async def get_session_by_id(session: AsyncSession, session_id: str, user_id: str) -> ChatSession | None:
@@ -76,10 +92,26 @@ async def add_message(
     return message
 
 
-async def get_messages_by_session(session: AsyncSession, session_id: str) -> list[ChatMessage]:
-    stmt = select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc())
+async def get_messages_by_session(
+    session: AsyncSession, session_id: str, limit: int = 50, offset: int = 0
+) -> list[ChatMessage]:
+    """Get messages for a session with pagination."""
+    stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_messages_by_session(session: AsyncSession, session_id: str) -> int:
+    """Count total messages for a session."""
+    stmt = select(func.count()).select_from(ChatMessage).where(ChatMessage.session_id == session_id)
+    result = await session.execute(stmt)
+    return result.scalar() or 0
 
 
 async def ask_question(session: AsyncSession, session_id: str, message: str, user_id: str) -> dict[str, Any] | None:

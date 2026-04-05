@@ -37,8 +37,10 @@ JWTHandlerDep = Annotated[JWTHandler, Depends(get_jwt_handler)]
 
 
 def get_redis_cache() -> RedisCache:
-    settings = get_settings()
-    return RedisCache(settings.REDIS_URL)
+    """Get Redis cache from app.state singleton."""
+    from app.main import get_redis_cache as _get
+
+    return _get()
 
 
 RedisCacheDep = Annotated[RedisCache, Depends(get_redis_cache)]

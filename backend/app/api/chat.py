@@ -2,7 +2,7 @@ import sys
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -10,6 +10,8 @@ from app.api.deps import CurrentUser, RateLimitDep, SessionDep
 from app.application.chat_service import (
     ask_question,
     ask_question_stream_with_rag,
+    count_messages_by_session,
+    count_sessions_by_user,
     create_session,
     delete_session,
     get_messages_by_session,
@@ -62,6 +64,20 @@ class AskResponse(BaseModel):
 class DeleteResponse(BaseModel):
     status: str
     session_id: str
+
+
+class SessionListResponse(BaseModel):
+    sessions: list[SessionResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class MessageListResponse(BaseModel):
+    messages: list[MessageResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 _llm_provider: OpenAICompatibleProvider | None = None
@@ -127,18 +143,29 @@ async def create_session_endpoint(
     )
 
 
-@router.get("/sessions", response_model=list[SessionResponse])
-async def list_sessions(session: SessionDep, current_user: CurrentUser) -> list[SessionResponse]:
-    sessions = await get_sessions_by_user(session, current_user["id"])
-    return [
-        SessionResponse(
-            id=s.id,
-            user_id=s.user_id,
-            title=s.title,
-            created_at=s.created_at.isoformat(),
-        )
-        for s in sessions
-    ]
+@router.get("/sessions", response_model=SessionListResponse)
+async def list_sessions(
+    session: SessionDep,
+    current_user: CurrentUser,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> SessionListResponse:
+    sessions = await get_sessions_by_user(session, current_user["id"], limit=limit, offset=offset)
+    total = await count_sessions_by_user(session, current_user["id"])
+    return SessionListResponse(
+        sessions=[
+            SessionResponse(
+                id=s.id,
+                user_id=s.user_id,
+                title=s.title,
+                created_at=s.created_at.isoformat(),
+            )
+            for s in sessions
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
@@ -162,27 +189,35 @@ async def delete_session_endpoint(session: SessionDep, session_id: str, current_
     return DeleteResponse(status="deleted", session_id=session_id)
 
 
-@router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
+@router.get("/sessions/{session_id}/messages", response_model=MessageListResponse)
 async def get_session_messages(
     session: SessionDep,
     session_id: str,
     current_user: CurrentUser,
-) -> list[MessageResponse]:
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> MessageListResponse:
     chat_session = await get_session_by_id(session, session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    messages = await get_messages_by_session(session, session_id)
-    return [
-        MessageResponse(
-            id=m.id,
-            session_id=m.session_id,
-            role=m.role,
-            content=m.content,
-            trace_id=m.trace_id,
-            created_at=m.created_at.isoformat(),
-        )
-        for m in messages
-    ]
+    messages = await get_messages_by_session(session, session_id, limit=limit, offset=offset)
+    total = await count_messages_by_session(session, session_id)
+    return MessageListResponse(
+        messages=[
+            MessageResponse(
+                id=m.id,
+                session_id=m.session_id,
+                role=m.role,
+                content=m.content,
+                trace_id=m.trace_id,
+                created_at=m.created_at.isoformat(),
+            )
+            for m in messages
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.post("/ask", response_model=AskResponse)

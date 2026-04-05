@@ -46,12 +46,23 @@ class TestGetRedisCache:
     """Tests for get_redis_cache function."""
 
     def test_get_redis_cache_returns_cache(self):
-        """get_redis_cache should return a RedisCache instance."""
+        """get_redis_cache should return a RedisCache instance from app.state."""
         from app.api.deps import get_redis_cache
         from app.infra.redis.cache import RedisCache
+        from app.main import app
+        from unittest.mock import MagicMock
 
-        cache = get_redis_cache()
-        assert isinstance(cache, RedisCache)
+        # Mock the app.state to have a redis_cache
+        mock_cache = MagicMock(spec=RedisCache)
+        app.state.redis_cache = mock_cache
+
+        try:
+            cache = get_redis_cache()
+            assert cache is mock_cache
+        finally:
+            # Clean up
+            if hasattr(app.state, "redis_cache"):
+                delattr(app.state, "redis_cache")
 
 
 class TestGetCurrentUser:

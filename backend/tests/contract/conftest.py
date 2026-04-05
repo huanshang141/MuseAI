@@ -48,6 +48,21 @@ def mock_app_state(monkeypatch):
     mock_es_client.create_index = AsyncMock()
     mock_es_client.close = AsyncMock()
 
+    # Create mock Redis client for auth rate limiting
+    mock_redis_client = MagicMock()
+    mock_redis_client.set = AsyncMock(return_value=True)
+    mock_redis_client.incr = AsyncMock(return_value=1)
+    mock_redis_client.get = AsyncMock(return_value=None)
+    mock_redis_client.setex = AsyncMock()
+    mock_redis_client.delete = AsyncMock()
+    mock_redis_client.exists = AsyncMock(return_value=0)
+
+    mock_redis_cache = MagicMock()
+    mock_redis_cache.client = mock_redis_client
+    mock_redis_cache.check_rate_limit = AsyncMock(return_value=True)
+    mock_redis_cache.is_token_blacklisted = AsyncMock(return_value=False)
+    mock_redis_cache.close = AsyncMock()
+
     mock_embeddings = MagicMock()
     mock_llm = MagicMock()
     mock_retriever = MagicMock()
@@ -55,6 +70,7 @@ def mock_app_state(monkeypatch):
     mock_ingestion_service = MagicMock()
 
     # Set up app.state
+    app.state.redis_cache = mock_redis_cache
     app.state.es_client = mock_es_client
     app.state.embeddings = mock_embeddings
     app.state.llm = mock_llm
@@ -65,6 +81,6 @@ def mock_app_state(monkeypatch):
     yield
 
     # Clean up app.state
-    for attr in ["es_client", "embeddings", "llm", "retriever", "rag_agent", "ingestion_service"]:
+    for attr in ["redis_cache", "es_client", "embeddings", "llm", "retriever", "rag_agent", "ingestion_service"]:
         if hasattr(app.state, attr):
             delattr(app.state, attr)

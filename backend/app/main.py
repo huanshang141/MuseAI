@@ -12,6 +12,7 @@ from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
 from app.infra.postgres.database import close_database, init_database
+from app.infra.redis.cache import RedisCache
 
 
 @asynccontextmanager
@@ -23,6 +24,9 @@ async def lifespan(app: FastAPI):
     try:
         # Initialize database
         await init_database(settings.DATABASE_URL)
+
+        # Initialize Redis
+        redis_cache = RedisCache(settings.REDIS_URL)
 
         # Initialize Elasticsearch client
         es_client = ElasticsearchClient(
@@ -42,6 +46,7 @@ async def lifespan(app: FastAPI):
         )
 
         # Store in app.state
+        app.state.redis_cache = redis_cache
         app.state.es_client = es_client
         app.state.embeddings = embeddings
         app.state.llm = llm
@@ -57,6 +62,8 @@ async def lifespan(app: FastAPI):
         raise
     finally:
         await close_database()
+        if hasattr(app.state, "redis_cache") and app.state.redis_cache:
+            await app.state.redis_cache.close()
         if hasattr(app.state, "es_client") and app.state.es_client:
             await app.state.es_client.close()
         print("Shutting down")
@@ -107,6 +114,14 @@ def get_ingestion_service() -> IngestionService:
     if hasattr(app.state, "ingestion_service"):
         return app.state.ingestion_service
     raise RuntimeError("Ingestion service not initialized. App not started?")
+
+
+def get_redis_cache() -> RedisCache:
+    """Get Redis cache from app.state."""
+    if hasattr(app.state, "redis_cache"):
+        return app.state.redis_cache
+    raise RuntimeError("Redis cache not initialized. App not started?")
+
 
 # Get settings for CORS configuration
 _settings = get_settings()

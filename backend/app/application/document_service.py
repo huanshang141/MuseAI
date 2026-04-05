@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.postgres.models import Document, IngestionJob
@@ -31,10 +31,26 @@ async def create_document(session: AsyncSession, filename: str, size: int, user_
     return document
 
 
-async def get_documents_by_user(session: AsyncSession, user_id: str) -> list[Document]:
-    stmt = select(Document).where(Document.user_id == user_id).order_by(Document.created_at.desc())
+async def get_documents_by_user(
+    session: AsyncSession, user_id: str, limit: int = 20, offset: int = 0
+) -> list[Document]:
+    """Get documents for a user with pagination."""
+    stmt = (
+        select(Document)
+        .where(Document.user_id == user_id)
+        .order_by(Document.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def count_documents_by_user(session: AsyncSession, user_id: str) -> int:
+    """Count total documents for a user."""
+    stmt = select(func.count()).select_from(Document).where(Document.user_id == user_id)
+    result = await session.execute(stmt)
+    return result.scalar() or 0
 
 
 async def get_document_by_id(session: AsyncSession, doc_id: str, user_id: str) -> Document | None:

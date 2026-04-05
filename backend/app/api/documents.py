@@ -1,11 +1,12 @@
 import sys
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, RateLimitDep, SessionDep
 from app.application.document_service import (
+    count_documents_by_user,
     create_document,
     delete_document,
     get_document_by_id,
@@ -21,6 +22,9 @@ from app.infra.postgres.database import get_session, get_session_maker
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
+
 
 class DocumentResponse(BaseModel):
     id: str
@@ -34,6 +38,9 @@ class DocumentResponse(BaseModel):
 
 class DocumentListResponse(BaseModel):
     documents: list[DocumentResponse]
+    total: int
+    limit: int
+    offset: int
 
 
 class DeleteResponse(BaseModel):
@@ -176,8 +183,14 @@ async def upload_document(
 
 
 @router.get("", response_model=DocumentListResponse)
-async def list_documents(session: SessionDep, current_user: CurrentUser) -> DocumentListResponse:
-    documents = await get_documents_by_user(session, current_user["id"])
+async def list_documents(
+    session: SessionDep,
+    current_user: CurrentUser,
+    limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+) -> DocumentListResponse:
+    documents = await get_documents_by_user(session, current_user["id"], limit=limit, offset=offset)
+    total = await count_documents_by_user(session, current_user["id"])
     return DocumentListResponse(
         documents=[
             DocumentResponse(
@@ -188,7 +201,10 @@ async def list_documents(session: SessionDep, current_user: CurrentUser) -> Docu
                 created_at=doc.created_at.isoformat(),
             )
             for doc in documents
-        ]
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 

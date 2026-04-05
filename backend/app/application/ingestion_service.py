@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from sqlalchemy import select
@@ -33,7 +34,19 @@ class IngestionService:
         document_id: str,
         content: str,
         source: str | None = None,
+        max_concurrency: int = 10,
     ) -> int:
+        """Ingest document content into Elasticsearch with parallel indexing.
+
+        Args:
+            document_id: Document identifier
+            content: Document text content
+            source: Source filename
+            max_concurrency: Maximum concurrent ES indexing operations
+
+        Returns:
+            Total number of chunks indexed
+        """
         total_chunks = 0
 
         for config in self.chunk_configs:
@@ -50,6 +63,8 @@ class IngestionService:
             chunk_texts = [c.content for c in chunks]
             embeddings_list = await self.embeddings.aembed_documents(chunk_texts)
 
+            # Prepare all documents with embeddings
+            docs = []
             for chunk, embedding in zip(chunks, embeddings_list):
                 doc = {
                     "chunk_id": chunk.id,
@@ -62,8 +77,17 @@ class IngestionService:
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
                 }
-                await self.es_client.index_chunk(doc)
+                docs.append(doc)
                 total_chunks += 1
+
+            # Index to Elasticsearch concurrently with semaphore
+            semaphore = asyncio.Semaphore(max_concurrency)
+
+            async def index_with_semaphore(doc: dict) -> None:
+                async with semaphore:
+                    await self.es_client.index_chunk(doc)
+
+            await asyncio.gather(*[index_with_semaphore(doc) for doc in docs])
 
         return total_chunks
 

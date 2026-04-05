@@ -11,12 +11,21 @@ class EmbeddingProvider(Protocol):
 
 
 class OllamaEmbeddingProvider:
-    def __init__(self, base_url: str, model: str, dims: int, timeout: float = 60.0):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        dims: int,
+        timeout: float = 60.0,
+        client: httpx.AsyncClient | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.dims = dims
         self.timeout = timeout
-        self.client: httpx.AsyncClient = httpx.AsyncClient(timeout=timeout)
+        # Use provided client or create one
+        self._owns_client = client is None
+        self.client: httpx.AsyncClient = client or httpx.AsyncClient(timeout=timeout)
 
     async def __aenter__(self) -> "OllamaEmbeddingProvider":
         return self
@@ -25,7 +34,9 @@ class OllamaEmbeddingProvider:
         await self.close()
 
     async def close(self) -> None:
-        await self.client.aclose()
+        """Close the HTTP client if we own it."""
+        if self._owns_client:
+            await self.client.aclose()
 
     async def embed(self, text: str) -> list[float]:
         response = await self.client.post(f"{self.base_url}/api/embeddings", json={"model": self.model, "prompt": text})

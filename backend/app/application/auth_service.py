@@ -13,6 +13,7 @@ async def register_user(
     email: str,
     password: str,
     hash_password_func: Callable[[str], str],
+    admin_emails: list[str] | None = None,
 ) -> User:
     """Register a new user with the given email and password.
 
@@ -21,6 +22,8 @@ async def register_user(
         email: The user's email address.
         password: The user's plain text password.
         hash_password_func: Function to hash the password.
+        admin_emails: List of admin email addresses. If the user's email
+            is in this list, they will be assigned the "admin" role.
 
     Returns:
         The newly created User instance.
@@ -28,10 +31,16 @@ async def register_user(
     user_id = str(uuid.uuid4())
     password_hash = hash_password_func(password)
 
+    # Determine role based on admin_emails list
+    role = "user"
+    if admin_emails and email in admin_emails:
+        role = "admin"
+
     user = User(
         id=user_id,
         email=email,
         password_hash=password_hash,
+        role=role,
     )
     session.add(user)
     await session.flush()

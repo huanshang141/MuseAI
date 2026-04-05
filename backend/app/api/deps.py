@@ -8,21 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.auth_service import get_user_by_id
 from app.config.settings import get_settings
-from app.infra.postgres.database import get_session, get_session_maker
+from app.infra.postgres.database import get_session
 from app.infra.redis.cache import RedisCache
 from app.infra.security.jwt_handler import JWTHandler
 
 security = HTTPBearer()
 
-_session_maker = None
-
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    global _session_maker
-    if _session_maker is None:
-        settings = get_settings()
-        _session_maker = get_session_maker(settings.DATABASE_URL)
-    async with get_session(_session_maker) as session:
+    """Get database session from the global session maker."""
+    async for session in get_session():
         yield session
 
 

@@ -13,12 +13,27 @@ _init_lock = asyncio.Lock()
 
 
 async def init_database(database_url: str) -> async_sessionmaker[AsyncSession]:
+    """Initialize database engine and session maker.
+
+    Thread-safe - uses lock to prevent race conditions.
+    Disposes existing engine before creating new one.
+    """
     global _engine, _session_maker
     async with _init_lock:
+        # Dispose existing engine if any
         if _engine is not None:
             await _engine.dispose()
 
-        new_engine = create_async_engine(database_url, echo=False)
+        # Create new engine with pool configuration (not for SQLite)
+        engine_kwargs = {"echo": False}
+        if "sqlite" not in database_url:
+            engine_kwargs.update({
+                "pool_size": 5,
+                "max_overflow": 10,
+                "pool_timeout": 30,
+                "pool_recycle": 1800,
+            })
+        new_engine = create_async_engine(database_url, **engine_kwargs)
         async with new_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         new_maker = async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
@@ -29,6 +44,7 @@ async def init_database(database_url: str) -> async_sessionmaker[AsyncSession]:
 
 
 async def close_database() -> None:
+    """Dispose database engine and clear session maker."""
     global _engine, _session_maker
     async with _init_lock:
         if _engine is not None:
@@ -37,15 +53,26 @@ async def close_database() -> None:
             _session_maker = None
 
 
-def get_session_maker(database_url: str) -> async_sessionmaker[AsyncSession]:
-    """
-    Synchronous initialization for backward compatibility with tests.
-    Note: Not thread-safe. Does not dispose existing engines on reinitialization.
-    Use init_database() for production use cases.
+def get_session_maker(database_url: str | None = None) -> async_sessionmaker[AsyncSession]:
+    """Get the global session maker.
+
+    If session maker is not initialized and database_url is provided,
+    creates a new one (not thread-safe, for testing only).
+
+    For production, use init_database() instead.
     """
     global _engine, _session_maker
     if _session_maker is None:
-        new_engine = create_async_engine(database_url, echo=False)
+        if database_url is None:
+            raise RuntimeError("Database not initialized. Call init_database() first.")
+        # Sync initialization for backward compatibility with tests
+        engine_kwargs = {"echo": False}
+        if "sqlite" not in database_url:
+            engine_kwargs.update({
+                "pool_size": 5,
+                "max_overflow": 10,
+            })
+        new_engine = create_async_engine(database_url, **engine_kwargs)
         new_maker = async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
         _engine = new_engine
         _session_maker = new_maker
@@ -53,7 +80,13 @@ def get_session_maker(database_url: str) -> async_sessionmaker[AsyncSession]:
 
 
 @asynccontextmanager
-async def get_session(session_maker: async_sessionmaker[AsyncSession]):
+async def get_session(session_maker: async_sessionmaker[AsyncSession] | None = None):
+    """Get a database session.
+
+    If session_maker is not provided, uses the global one.
+    """
+    if session_maker is None:
+        session_maker = get_session_maker()
     async with session_maker() as session:
         try:
             yield session

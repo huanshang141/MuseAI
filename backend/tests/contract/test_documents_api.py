@@ -336,3 +336,95 @@ async def test_upload_rate_limit_allows_requests_within_limit(db_session, auth_t
         assert "id" in data
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_document_error_field_accessible_via_api(db_session, auth_token):
+    """Test that the error field is accessible via the API when set."""
+    from app.application.document_service import create_document, update_document_status
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        doc = await create_document(db_session, "error-test.pdf", 1024, TEST_USER_ID)
+        await db_session.commit()
+
+        # Update document to failed status with error
+        await update_document_status(db_session, doc.id, "failed", "Processing failed: test error")
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                f"/api/v1/documents/{doc.id}",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "failed"
+        assert data["error"] == "Processing failed: test error"
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_document_list_shows_error_field(db_session, auth_token):
+    """Test that the error field is included in document list responses."""
+    from app.application.document_service import create_document, update_document_status
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        doc = await create_document(db_session, "error-list-test.pdf", 1024, TEST_USER_ID)
+        await db_session.commit()
+
+        # Update document to failed status with error
+        await update_document_status(db_session, doc.id, "failed", "Test error message")
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/v1/documents",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        # Find our document in the list
+        doc_data = next((d for d in data["documents"] if d["id"] == doc.id), None)
+        assert doc_data is not None
+        assert doc_data["status"] == "failed"
+        assert doc_data["error"] == "Test error message"
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_update_document_status_function(db_session):
+    """Test that update_document_status correctly updates the document."""
+    from app.application.document_service import create_document, update_document_status, get_document_by_id
+
+    doc = await create_document(db_session, "status-update-test.pdf", 1024, TEST_USER_ID)
+    await db_session.commit()
+
+    # Update the document status
+    updated_doc = await update_document_status(db_session, doc.id, "failed", "Test error")
+    await db_session.commit()
+
+    assert updated_doc is not None
+    assert updated_doc.status == "failed"
+    assert updated_doc.error == "Test error"
+
+    # Verify the update persisted
+    fetched_doc = await get_document_by_id(db_session, doc.id, TEST_USER_ID)
+    assert fetched_doc is not None
+    assert fetched_doc.status == "failed"
+    assert fetched_doc.error == "Test error"

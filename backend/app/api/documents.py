@@ -8,6 +8,7 @@ from app.application.document_service import (
     get_document_by_id,
     get_documents_by_user,
     get_ingestion_job_by_document,
+    update_document_status,
 )
 from app.application.ingestion_service import IngestionService
 from app.config.settings import get_settings
@@ -20,6 +21,7 @@ class DocumentResponse(BaseModel):
     id: str
     filename: str
     status: str
+    error: str | None = None
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -85,6 +87,8 @@ async def process_document_background(document_id: str, content: str, filename: 
             await session.commit()
         except Exception as e:
             print(f"Failed to process document {document_id}: {e}")
+            await update_document_status(session, document_id, "failed", str(e))
+            await session.commit()
 
 
 @router.post("/upload", response_model=DocumentResponse)
@@ -123,6 +127,7 @@ async def upload_document(
         id=document.id,
         filename=document.filename,
         status=document.status,
+        error=document.error,
         created_at=document.created_at.isoformat(),
     )
 
@@ -136,6 +141,7 @@ async def list_documents(session: SessionDep, current_user: CurrentUser) -> Docu
                 id=doc.id,
                 filename=doc.filename,
                 status=doc.status,
+                error=doc.error,
                 created_at=doc.created_at.isoformat(),
             )
             for doc in documents
@@ -153,6 +159,7 @@ async def get_document(session: SessionDep, doc_id: str, current_user: CurrentUs
         id=document.id,
         filename=document.filename,
         status=document.status,
+        error=document.error,
         created_at=document.created_at.isoformat(),
     )
 

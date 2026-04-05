@@ -56,3 +56,19 @@ async def delete_document(session: AsyncSession, doc_id: str, user_id: str) -> b
     await session.delete(document)
     await session.commit()
     return True
+
+
+async def update_document_status(
+    session: AsyncSession, doc_id: str, status: str, error: str | None = None
+) -> Document | None:
+    """Update document status and optionally set error message."""
+    stmt = select(Document).where(Document.id == doc_id)
+    result = await session.execute(stmt)
+    document = result.scalar_one_or_none()
+    if document is None:
+        return None
+    document.status = status
+    document.error = error
+    await session.flush()
+    await session.refresh(document)
+    return document

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
+from app.infra.providers.llm import LLMProvider
 from app.workflows.query_transform import (
     QueryTransformStrategy,
     QueryTransformer,
@@ -33,7 +33,7 @@ class MultiTurnStateMachine:
         self,
         score_threshold: float = 0.7,
         max_attempts: int = 3,
-        llm_provider: Any = None,
+        llm_provider: LLMProvider | None = None,
     ):
         self.score_threshold = score_threshold
         self.max_attempts = max_attempts

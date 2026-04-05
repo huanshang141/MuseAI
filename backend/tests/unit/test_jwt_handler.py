@@ -1,6 +1,5 @@
 # backend/tests/unit/test_jwt_handler.py
 import pytest
-from datetime import timedelta
 from app.infra.security.jwt_handler import JWTHandler
 
 

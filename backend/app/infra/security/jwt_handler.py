@@ -13,10 +13,13 @@ class JWTHandler:
     def create_token(self, user_id: str, extra_data: dict[str, Any] | None = None) -> str:
         now = datetime.now(timezone.utc)
         expire = now + timedelta(minutes=self.expire_minutes)
-        payload = {"sub": user_id, "exp": expire, "iat": now}
 
-        if extra_data:
-            payload.update(extra_data)
+        payload = dict(extra_data) if extra_data else {}
+        payload.update({
+            "sub": user_id,
+            "exp": expire,
+            "iat": now,
+        })
 
         return jwt.encode(payload, self.secret, algorithm=self.algorithm)
 

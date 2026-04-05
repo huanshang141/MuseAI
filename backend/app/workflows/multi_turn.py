@@ -1,5 +1,12 @@
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
+
+from app.workflows.query_transform import (
+    QueryTransformStrategy,
+    QueryTransformer,
+    select_strategy,
+)
 
 
 class State(Enum):
@@ -26,9 +33,11 @@ class MultiTurnStateMachine:
         self,
         score_threshold: float = 0.7,
         max_attempts: int = 3,
+        llm_provider: Any = None,
     ):
         self.score_threshold = score_threshold
         self.max_attempts = max_attempts
+        self.llm_provider = llm_provider
         self.current_state = State.START
         self.attempts = 0
         self._query: str | None = None
@@ -59,8 +68,31 @@ class MultiTurnStateMachine:
         self._transformations.append("placeholder")
         self.current_state = State.RETRIEVE
 
-    def transform_query(self, query: str) -> str:
-        return query
+    async def transform_query(self, query: str, retrieval_score: float) -> list[str]:
+        strategy = select_strategy(query, retrieval_score, self.attempts)
+
+        if strategy == QueryTransformStrategy.NONE:
+            return [query]
+
+        if self.llm_provider is None:
+            return [query]
+
+        transformer = QueryTransformer(self.llm_provider)
+
+        if strategy == QueryTransformStrategy.STEP_BACK:
+            transformed = await transformer.transform_step_back(query)
+            self._transformations.append(f"step_back: {transformed}")
+            return [transformed]
+        elif strategy == QueryTransformStrategy.HYDE:
+            transformed = await transformer.transform_hyde(query)
+            self._transformations.append(f"hyde: {transformed}")
+            return [transformed]
+        elif strategy == QueryTransformStrategy.MULTI_QUERY:
+            queries = await transformer.transform_multi_query(query)
+            self._transformations.append(f"multi_query: {', '.join(queries)}")
+            return queries
+
+        return [query]
 
     def run(
         self,

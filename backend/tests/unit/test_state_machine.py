@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from app.workflows.multi_turn import (
     MultiTurnResult,
     MultiTurnStateMachine,
@@ -115,10 +116,11 @@ def test_result_tracks_transformations():
     assert len(result.transformations) == 3
 
 
-def test_placeholder_transform_returns_original_query():
+@pytest.mark.asyncio
+async def test_placeholder_transform_returns_original_query():
     state_machine = MultiTurnStateMachine()
-    transformed = state_machine.transform_query("What is machine learning?")
-    assert transformed == "What is machine learning?"
+    transformed = await state_machine.transform_query("What is machine learning?", retrieval_score=0.8)
+    assert transformed == ["What is machine learning?"]
 
 
 def test_custom_threshold_and_max_attempts():
@@ -213,3 +215,19 @@ def test_run_resets_state_between_calls():
     assert result2.attempts == 0
     assert result2.transformations == []
     assert result2.query == "Second query"
+
+
+@pytest.mark.asyncio
+async def test_state_machine_transform_query():
+    mock_llm = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.content = "1. 更广泛的问题\n2. 另一个问题\n3. 第三个问题"
+    mock_llm.generate.return_value = mock_response
+
+    sm = MultiTurnStateMachine(score_threshold=0.7, max_attempts=3)
+    sm.llm_provider = mock_llm
+
+    queries = await sm.transform_query("具体问题", retrieval_score=0.3)
+
+    assert len(queries) >= 1
+    assert queries[0] != "具体问题"

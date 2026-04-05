@@ -5,104 +5,191 @@ from app.application.auth_service import (
     register_user,
     authenticate_user,
     create_access_token,
+    verify_token,
+    get_user_by_id,
 )
 
 
 @pytest.mark.asyncio
 async def test_register_user():
+    """Test successful user registration."""
     mock_session = MagicMock()
-    mock_session.execute.return_value = MagicMock(scalar_one_or_none=lambda: None)
+    mock_session.add = MagicMock()
     mock_session.flush = AsyncMock()
     mock_session.refresh = AsyncMock()
 
-    from app.infra.security import hash_password
+    mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
         session=mock_session,
         email="test@example.com",
         password="password123",
-        hash_password_func=hash_password,
+        hash_password_func=mock_hash_func,
     )
 
     assert user is not None
     assert user.email == "test@example.com"
+    assert user.password_hash == "hashed_password_123"
+    mock_hash_func.assert_called_once_with("password123")
+
+
+@pytest.mark.asyncio
+async def test_register_user_duplicate_email():
+    """Test that registering with a duplicate email raises an integrity error."""
+    from sqlalchemy.exc import IntegrityError
+
+    mock_session = MagicMock()
+    mock_session.add = MagicMock()
+    mock_session.flush = AsyncMock(
+        side_effect=IntegrityError("duplicate key", {}, None)
+    )
+    mock_session.refresh = AsyncMock()
+
+    mock_hash_func = MagicMock(return_value="hashed_password_123")
+
+    with pytest.raises(IntegrityError):
+        await register_user(
+            session=mock_session,
+            email="duplicate@example.com",
+            password="password123",
+            hash_password_func=mock_hash_func,
+        )
 
 
 @pytest.mark.asyncio
 async def test_authenticate_user_success():
-    from app.infra.security import hash_password
-
+    """Test successful user authentication with correct password."""
     mock_user = MagicMock()
     mock_user.id = "user-123"
     mock_user.email = "test@example.com"
-    mock_user.password_hash = hash_password("password123")
+    mock_user.password_hash = "hashed_password_123"
 
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_user
     mock_session.execute.return_value = mock_result
+
+    mock_verify = MagicMock(return_value=True)
 
     user = await authenticate_user(
         session=mock_session,
         email="test@example.com",
         password="password123",
-        verify_password_func=lambda p, h: p == "password123" and h == mock_user.password_hash,
+        verify_password_func=mock_verify,
     )
 
     assert user is not None
     assert user.id == "user-123"
+    mock_verify.assert_called_once_with("password123", "hashed_password_123")
 
 
 @pytest.mark.asyncio
 async def test_authenticate_user_wrong_password():
-    from app.infra.security import hash_password
-
+    """Test authentication failure with wrong password."""
     mock_user = MagicMock()
     mock_user.id = "user-123"
-    mock_user.password_hash = hash_password("password123")
+    mock_user.password_hash = "hashed_password_123"
 
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = mock_user
     mock_session.execute.return_value = mock_result
+
+    mock_verify = MagicMock(return_value=False)
 
     user = await authenticate_user(
         session=mock_session,
         email="test@example.com",
         password="wrong_password",
-        verify_password_func=lambda p, h: False,
+        verify_password_func=mock_verify,
     )
 
     assert user is None
+    mock_verify.assert_called_once_with("wrong_password", "hashed_password_123")
 
 
 @pytest.mark.asyncio
 async def test_authenticate_user_not_found():
+    """Test authentication failure when user is not found."""
     mock_session = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = None
     mock_session.execute.return_value = mock_result
 
+    mock_verify = MagicMock(return_value=True)
+
     user = await authenticate_user(
         session=mock_session,
         email="notfound@example.com",
         password="password123",
-        verify_password_func=lambda p, h: True,
+        verify_password_func=mock_verify,
     )
 
     assert user is None
+    # Verify should not be called when user is not found
+    mock_verify.assert_not_called()
 
 
 def test_create_access_token():
-    from app.infra.security.jwt_handler import JWTHandler
+    """Test access token creation."""
+    mock_jwt_handler = MagicMock()
+    mock_jwt_handler.create_token.return_value = "mock_token_123"
 
-    handler = JWTHandler(
-        secret="test-secret",
-        algorithm="HS256",
-        expire_minutes=60
-    )
+    token = create_access_token(user_id="user-123", jwt_handler=mock_jwt_handler)
 
-    token = create_access_token(user_id="user-123", jwt_handler=handler)
+    assert token == "mock_token_123"
+    mock_jwt_handler.create_token.assert_called_once_with("user-123")
 
-    assert token is not None
-    assert isinstance(token, str)
+
+def test_verify_token_valid():
+    """Test verifying a valid token."""
+    mock_jwt_handler = MagicMock()
+    mock_jwt_handler.verify_token.return_value = "user-123"
+
+    result = verify_token(token="valid_token_123", jwt_handler=mock_jwt_handler)
+
+    assert result == "user-123"
+    mock_jwt_handler.verify_token.assert_called_once_with("valid_token_123")
+
+
+def test_verify_token_invalid():
+    """Test verifying an invalid token returns None."""
+    mock_jwt_handler = MagicMock()
+    mock_jwt_handler.verify_token.return_value = None
+
+    result = verify_token(token="invalid_token", jwt_handler=mock_jwt_handler)
+
+    assert result is None
+    mock_jwt_handler.verify_token.assert_called_once_with("invalid_token")
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_found():
+    """Test retrieving a user by ID when user exists."""
+    mock_user = MagicMock()
+    mock_user.id = "user-123"
+    mock_user.email = "test@example.com"
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_user
+    mock_session.execute.return_value = mock_result
+
+    user = await get_user_by_id(session=mock_session, user_id="user-123")
+
+    assert user is not None
+    assert user.id == "user-123"
+    assert user.email == "test@example.com"
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_not_found():
+    """Test retrieving a user by ID when user does not exist."""
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_session.execute.return_value = mock_result
+
+    user = await get_user_by_id(session=mock_session, user_id="nonexistent-user")
+
+    assert user is None

@@ -1,8 +1,61 @@
+import os
+
 import pytest
-from app.config.settings import Settings
+from pydantic import ValidationError
+
+
+def test_settings_requires_jwt_secret_in_production(monkeypatch):
+    """JWT_SECRET should be required when APP_ENV is production."""
+    # Clear any existing env vars
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.setenv("APP_ENV", "production")
+
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="JWT_SECRET must be set"):
+        Settings()
+
+
+def test_settings_requires_llm_api_key_in_production(monkeypatch):
+    """LLM_API_KEY should be required when APP_ENV is production."""
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "a" * 32)  # Valid secret
+
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="LLM_API_KEY must be set"):
+        Settings()
+
+
+def test_settings_validates_jwt_secret_length(monkeypatch):
+    """JWT_SECRET must be at least 32 characters in production."""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "short")  # Too short
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="JWT_SECRET must be at least 32 characters"):
+        Settings()
+
+
+def test_settings_allows_defaults_in_development(monkeypatch):
+    """In development mode, defaults are acceptable."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    from app.config.settings import Settings
+
+    settings = Settings()
+    assert settings.JWT_SECRET == "dev-secret-do-not-use-in-production"
+    assert settings.LLM_API_KEY == "dev-key-do-not-use-in-production"
 
 
 def test_settings_defaults():
+    from app.config.settings import Settings
+
     settings = Settings(
         APP_NAME="TestApp",
         APP_ENV="test",
@@ -28,6 +81,8 @@ def test_settings_defaults():
 
 
 def test_settings_validation_embedding_dims():
+    from app.config.settings import Settings
+
     with pytest.raises(ValueError):
         Settings(
             APP_NAME="TestApp",

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.chunking import ChunkConfig, TextChunker
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
-from app.infra.postgres.models import IngestionJob
+from app.infra.postgres.models import Document, IngestionJob
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +75,16 @@ class IngestionService:
         source: str | None = None,
     ) -> IngestionJob:
         job = await self._get_job(session, document_id)
+        document = await self._get_document(session, document_id)
         job.status = "processing"
+        document.status = "processing"
         await session.flush()
 
         try:
             chunk_count = await self.ingest(document_id, content, source)
             job.status = "completed"
             job.chunk_count = chunk_count
+            document.status = "completed"
             await session.flush()
 
             logger.info(f"Document {document_id} ingested: {chunk_count} chunks")
@@ -90,11 +93,18 @@ class IngestionService:
         except Exception as e:
             job.status = "failed"
             job.error = str(e)
+            document.status = "failed"
+            document.error = str(e)
             await session.flush()
             logger.error(f"Document {document_id} ingestion failed: {e}")
             raise
 
     async def _get_job(self, session: AsyncSession, document_id: str) -> IngestionJob:
         stmt = select(IngestionJob).where(IngestionJob.document_id == document_id)
+        result = await session.execute(stmt)
+        return result.scalar_one()
+
+    async def _get_document(self, session: AsyncSession, document_id: str) -> Document:
+        stmt = select(Document).where(Document.id == document_id)
         result = await session.execute(stmt)
         return result.scalar_one()

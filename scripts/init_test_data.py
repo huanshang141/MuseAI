@@ -10,7 +10,7 @@ if str(REPO_ROOT) not in sys.path:
 from sqlalchemy import select
 
 from app.config.settings import get_settings
-from app.infra.postgres.database import get_session_maker, get_session
+from app.infra.postgres.database import init_database, get_session
 from app.infra.postgres.models import User, Document, IngestionJob, ChatSession, ChatMessage
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.application.ingestion_service import IngestionService
@@ -402,7 +402,11 @@ async def init_documents(
             await session.flush()
 
             try:
-                await ingestion_service.process_document(session, doc_id, item["content"], item["source"])
+                job = await ingestion_service.process_document(session, doc_id, item["content"], item["source"])
+                # Update document status based on ingestion job result
+                if job.status == "completed":
+                    document.status = "completed"
+                    await session.flush()
                 created_count += 1
                 print(f"  Created document: {item['filename']}")
             except Exception as e:
@@ -467,7 +471,20 @@ async def main() -> None:
     print(f"Initializing test data for {settings.APP_NAME}...")
     print("=" * 50)
 
-    session_maker = get_session_maker(settings.DATABASE_URL)
+    # Check database URL is not the default in-memory SQLite
+    if settings.DATABASE_URL == "sqlite+aiosqlite:///:memory:":
+        print("ERROR: Using default in-memory SQLite database.")
+        print("Please set DATABASE_URL in .env file or environment variable.")
+        print("Example: DATABASE_URL=postgresql+asyncpg://museai:museai123@localhost:5432/museai")
+        sys.exit(1)
+
+    print(f"Database: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else settings.DATABASE_URL}")
+    print(f"Elasticsearch: {settings.ELASTICSEARCH_URL}")
+    print(f"Embedding: {settings.EMBEDDING_OLLAMA_BASE_URL} ({settings.EMBEDDING_OLLAMA_MODEL})")
+    print()
+
+    # Use init_database to ensure tables are created
+    session_maker = await init_database(settings.DATABASE_URL)
 
     es_client = ElasticsearchClient(
         hosts=[settings.ELASTICSEARCH_URL],

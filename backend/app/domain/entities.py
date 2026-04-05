@@ -10,8 +10,8 @@ class User:
     id: UserId
     email: str
     password_hash: str
+    created_at: datetime
     role: str = "user"
-    created_at: datetime = None  # type: ignore
 
 
 @dataclass

@@ -48,6 +48,8 @@ async def test_register_endpoint(db_session):
         data = response.json()
         assert "id" in data
         assert data["email"] == "test@example.com"
+        assert "role" in data
+        assert data["role"] == "user"
     finally:
         app.dependency_overrides = {}
 

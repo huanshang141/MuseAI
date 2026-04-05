@@ -9,6 +9,7 @@ from app.application.auth_service import (
     get_user_by_email,
     register_user,
 )
+from app.config.settings import get_settings
 from app.infra.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -42,6 +43,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
+    role: str
     created_at: str
 
 
@@ -64,17 +66,20 @@ async def register(
             detail="Email already registered",
         )
 
+    settings = get_settings()
     user = await register_user(
         session=session,
         email=request.email,
         password=request.password,
         hash_password_func=hash_password,
+        admin_emails=settings.get_admin_emails(),
     )
     await session.commit()
 
     return UserResponse(
         id=user.id,
         email=user.email,
+        role=user.role,
         created_at=user.created_at.isoformat(),
     )
 

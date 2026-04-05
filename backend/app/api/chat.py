@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.deps import CurrentUser
 from app.application.chat_service import (
     ask_question,
     ask_question_stream_with_rag,
@@ -98,8 +99,10 @@ def get_rag_agent():
 
 
 @router.post("/sessions", response_model=SessionResponse)
-async def create_session_endpoint(session: SessionDep, request: CreateSessionRequest) -> SessionResponse:
-    chat_session = await create_session(session, request.title)
+async def create_session_endpoint(
+    session: SessionDep, request: CreateSessionRequest, current_user: CurrentUser
+) -> SessionResponse:
+    chat_session = await create_session(session, request.title, current_user["id"])
     return SessionResponse(
         id=chat_session.id,
         user_id=chat_session.user_id,
@@ -109,8 +112,8 @@ async def create_session_endpoint(session: SessionDep, request: CreateSessionReq
 
 
 @router.get("/sessions", response_model=list[SessionResponse])
-async def list_sessions(session: SessionDep) -> list[SessionResponse]:
-    sessions = await get_sessions_by_user(session)
+async def list_sessions(session: SessionDep, current_user: CurrentUser) -> list[SessionResponse]:
+    sessions = await get_sessions_by_user(session, current_user["id"])
     return [
         SessionResponse(
             id=s.id,
@@ -123,8 +126,8 @@ async def list_sessions(session: SessionDep) -> list[SessionResponse]:
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
-async def get_session_detail(session: SessionDep, session_id: str) -> SessionResponse:
-    chat_session = await get_session_by_id(session, session_id)
+async def get_session_detail(session: SessionDep, session_id: str, current_user: CurrentUser) -> SessionResponse:
+    chat_session = await get_session_by_id(session, session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return SessionResponse(
@@ -136,16 +139,16 @@ async def get_session_detail(session: SessionDep, session_id: str) -> SessionRes
 
 
 @router.delete("/sessions/{session_id}", response_model=DeleteResponse)
-async def delete_session_endpoint(session: SessionDep, session_id: str) -> DeleteResponse:
-    success = await delete_session(session, session_id)
+async def delete_session_endpoint(session: SessionDep, session_id: str, current_user: CurrentUser) -> DeleteResponse:
+    success = await delete_session(session, session_id, current_user["id"])
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
     return DeleteResponse(status="deleted", session_id=session_id)
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[MessageResponse])
-async def get_session_messages(session: SessionDep, session_id: str) -> list[MessageResponse]:
-    chat_session = await get_session_by_id(session, session_id)
+async def get_session_messages(session: SessionDep, session_id: str, current_user: CurrentUser) -> list[MessageResponse]:
+    chat_session = await get_session_by_id(session, session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     messages = await get_messages_by_session(session, session_id)
@@ -163,8 +166,8 @@ async def get_session_messages(session: SessionDep, session_id: str) -> list[Mes
 
 
 @router.post("/ask", response_model=AskResponse)
-async def ask_endpoint(session: SessionDep, request: AskRequest) -> AskResponse:
-    result = await ask_question(session, request.session_id, request.message)
+async def ask_endpoint(session: SessionDep, request: AskRequest, current_user: CurrentUser) -> AskResponse:
+    result = await ask_question(session, request.session_id, request.message, current_user["id"])
     if result is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return AskResponse(**result)
@@ -175,8 +178,9 @@ async def ask_stream_endpoint(
     request: Request,
     session: SessionDep,
     ask_request: AskRequest,
+    current_user: CurrentUser,
 ) -> StreamingResponse:
-    chat_session = await get_session_by_id(session, ask_request.session_id)
+    chat_session = await get_session_by_id(session, ask_request.session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -185,7 +189,7 @@ async def ask_stream_endpoint(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in ask_question_stream_with_rag(
-            session, ask_request.session_id, ask_request.message, rag_agent, llm_provider
+            session, ask_request.session_id, ask_request.message, rag_agent, llm_provider, current_user["id"]
         ):
             if await request.is_disconnected():
                 break

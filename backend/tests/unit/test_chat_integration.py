@@ -39,6 +39,7 @@ class TestChatAPIIntegration:
                 session_id="test-session",
                 message="test query",
                 rag_agent=mock_rag_agent,
+                user_id="test-user",
             )
 
             assert result is not None

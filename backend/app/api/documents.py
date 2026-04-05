@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import CurrentUser
 from app.application.document_service import (
     create_document,
     delete_document,
@@ -103,6 +104,7 @@ async def process_document_background(document_id: str, content: str, filename: 
 async def upload_document(
     session: SessionDep,
     background_tasks: BackgroundTasks,
+    current_user: CurrentUser,
     file: UploadFile = File(...),
 ) -> DocumentResponse:
     if not file.filename:
@@ -115,7 +117,7 @@ async def upload_document(
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
-    document = await create_document(session, file.filename, file_size)
+    document = await create_document(session, file.filename, file_size, current_user["id"])
     await session.commit()
 
     try:
@@ -138,8 +140,8 @@ async def upload_document(
 
 
 @router.get("", response_model=DocumentListResponse)
-async def list_documents(session: SessionDep) -> DocumentListResponse:
-    documents = await get_documents_by_user(session)
+async def list_documents(session: SessionDep, current_user: CurrentUser) -> DocumentListResponse:
+    documents = await get_documents_by_user(session, current_user["id"])
     return DocumentListResponse(
         documents=[
             DocumentResponse(
@@ -154,8 +156,8 @@ async def list_documents(session: SessionDep) -> DocumentListResponse:
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
-async def get_document(session: SessionDep, doc_id: str) -> DocumentResponse:
-    document = await get_document_by_id(session, doc_id)
+async def get_document(session: SessionDep, doc_id: str, current_user: CurrentUser) -> DocumentResponse:
+    document = await get_document_by_id(session, doc_id, current_user["id"])
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -168,8 +170,8 @@ async def get_document(session: SessionDep, doc_id: str) -> DocumentResponse:
 
 
 @router.get("/{doc_id}/status", response_model=IngestionJobResponse)
-async def get_document_status(session: SessionDep, doc_id: str) -> IngestionJobResponse:
-    document = await get_document_by_id(session, doc_id)
+async def get_document_status(session: SessionDep, doc_id: str, current_user: CurrentUser) -> IngestionJobResponse:
+    document = await get_document_by_id(session, doc_id, current_user["id"])
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -189,8 +191,8 @@ async def get_document_status(session: SessionDep, doc_id: str) -> IngestionJobR
 
 
 @router.delete("/{doc_id}", response_model=DeleteResponse)
-async def delete_document_endpoint(session: SessionDep, doc_id: str) -> DeleteResponse:
-    success = await delete_document(session, doc_id)
+async def delete_document_endpoint(session: SessionDep, doc_id: str, current_user: CurrentUser) -> DeleteResponse:
+    success = await delete_document(session, doc_id, current_user["id"])
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
     return DeleteResponse(status="deleted", document_id=doc_id)

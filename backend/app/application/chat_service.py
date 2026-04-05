@@ -10,14 +10,11 @@ from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
 
-MOCK_USER_ID = "user-001"
-
-
-async def create_session(session: AsyncSession, title: str) -> ChatSession:
+async def create_session(session: AsyncSession, title: str, user_id: str) -> ChatSession:
     session_id = str(uuid.uuid4())
     chat_session = ChatSession(
         id=session_id,
-        user_id=MOCK_USER_ID,
+        user_id=user_id,
         title=title,
     )
     session.add(chat_session)
@@ -26,20 +23,20 @@ async def create_session(session: AsyncSession, title: str) -> ChatSession:
     return chat_session
 
 
-async def get_sessions_by_user(session: AsyncSession) -> list[ChatSession]:
-    stmt = select(ChatSession).where(ChatSession.user_id == MOCK_USER_ID).order_by(ChatSession.created_at.desc())
+async def get_sessions_by_user(session: AsyncSession, user_id: str) -> list[ChatSession]:
+    stmt = select(ChatSession).where(ChatSession.user_id == user_id).order_by(ChatSession.created_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def get_session_by_id(session: AsyncSession, session_id: str) -> ChatSession | None:
-    stmt = select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == MOCK_USER_ID)
+async def get_session_by_id(session: AsyncSession, session_id: str, user_id: str) -> ChatSession | None:
+    stmt = select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
 
-async def delete_session(session: AsyncSession, session_id: str) -> bool:
-    chat_session = await get_session_by_id(session, session_id)
+async def delete_session(session: AsyncSession, session_id: str, user_id: str) -> bool:
+    chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         return False
     await session.delete(chat_session)
@@ -69,8 +66,8 @@ async def get_messages_by_session(session: AsyncSession, session_id: str) -> lis
     return list(result.scalars().all())
 
 
-async def ask_question(session: AsyncSession, session_id: str, message: str) -> dict[str, Any] | None:
-    chat_session = await get_session_by_id(session, session_id)
+async def ask_question(session: AsyncSession, session_id: str, message: str, user_id: str) -> dict[str, Any] | None:
+    chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         return None
 
@@ -93,8 +90,9 @@ async def ask_question_with_rag(
     session_id: str,
     message: str,
     rag_agent: Any,
+    user_id: str,
 ) -> dict[str, Any] | None:
-    chat_session = await get_session_by_id(session, session_id)
+    chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         return None
 
@@ -129,8 +127,9 @@ async def ask_question_stream(
     session_id: str,
     message: str,
     llm_provider: LLMProvider,
+    user_id: str,
 ) -> AsyncGenerator[str, None]:
-    chat_session = await get_session_by_id(session, session_id)
+    chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
         return
@@ -167,8 +166,9 @@ async def ask_question_stream_with_rag(
     message: str,
     rag_agent: Any,
     llm_provider: LLMProvider,
+    user_id: str,
 ) -> AsyncGenerator[str, None]:
-    chat_session = await get_session_by_id(session, session_id)
+    chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
         return

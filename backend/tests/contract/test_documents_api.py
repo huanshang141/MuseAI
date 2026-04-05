@@ -7,10 +7,9 @@ from app.main import app
 from app.infra.postgres.database import get_session_maker, get_session
 from app.infra.postgres.models import Base, Document, IngestionJob, User
 from app.api.documents import get_db_session as original_get_db_session
-from app.application.document_service import MOCK_USER_ID
-
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+TEST_USER_ID = "test-user-001"
 
 
 @pytest.fixture
@@ -28,13 +27,28 @@ async def db_session(session_maker):
 
         from sqlalchemy import select
 
-        existing_user = await session.execute(select(User).where(User.id == MOCK_USER_ID))
+        existing_user = await session.execute(select(User).where(User.id == TEST_USER_ID))
         if not existing_user.scalar_one_or_none():
-            test_user = User(id=MOCK_USER_ID, email="test@example.com", password_hash="test_hash")
+            test_user = User(id=TEST_USER_ID, email="test@example.com", password_hash="test_hash")
             session.add(test_user)
             await session.commit()
 
         yield session
+
+
+@pytest.fixture
+async def auth_token(db_session):
+    """Get a valid JWT token for the test user."""
+    from app.infra.security.jwt_handler import JWTHandler
+    from app.config.settings import get_settings
+
+    settings = get_settings()
+    jwt_handler = JWTHandler(
+        secret=settings.JWT_SECRET,
+        algorithm=settings.JWT_ALGORITHM,
+        expire_minutes=settings.JWT_EXPIRE_MINUTES,
+    )
+    return jwt_handler.create_token(TEST_USER_ID)
 
 
 @pytest.mark.asyncio

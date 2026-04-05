@@ -5,14 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.postgres.models import Document, IngestionJob
 
-MOCK_USER_ID = "user-001"
 
-
-async def create_document(session: AsyncSession, filename: str, size: int) -> Document:
+async def create_document(session: AsyncSession, filename: str, size: int, user_id: str) -> Document:
     doc_id = str(uuid.uuid4())
     document = Document(
         id=doc_id,
-        user_id=MOCK_USER_ID,
+        user_id=user_id,
         filename=filename,
         status="pending",
     )
@@ -33,14 +31,14 @@ async def create_document(session: AsyncSession, filename: str, size: int) -> Do
     return document
 
 
-async def get_documents_by_user(session: AsyncSession) -> list[Document]:
-    stmt = select(Document).where(Document.user_id == MOCK_USER_ID).order_by(Document.created_at.desc())
+async def get_documents_by_user(session: AsyncSession, user_id: str) -> list[Document]:
+    stmt = select(Document).where(Document.user_id == user_id).order_by(Document.created_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
 
 
-async def get_document_by_id(session: AsyncSession, doc_id: str) -> Document | None:
-    stmt = select(Document).where(Document.id == doc_id, Document.user_id == MOCK_USER_ID)
+async def get_document_by_id(session: AsyncSession, doc_id: str, user_id: str) -> Document | None:
+    stmt = select(Document).where(Document.id == doc_id, Document.user_id == user_id)
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -51,8 +49,8 @@ async def get_ingestion_job_by_document(session: AsyncSession, doc_id: str) -> I
     return result.scalar_one_or_none()
 
 
-async def delete_document(session: AsyncSession, doc_id: str) -> bool:
-    document = await get_document_by_id(session, doc_id)
+async def delete_document(session: AsyncSession, doc_id: str, user_id: str) -> bool:
+    document = await get_document_by_id(session, doc_id, user_id)
     if document is None:
         return False
     await session.delete(document)

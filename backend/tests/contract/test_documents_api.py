@@ -52,7 +52,7 @@ async def auth_token(db_session):
 
 
 @pytest.mark.asyncio
-async def test_upload_document(db_session):
+async def test_upload_document(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -69,6 +69,7 @@ async def test_upload_document(db_session):
                 response = await client.post(
                     "/api/v1/documents/upload",
                     files={"file": ("test.txt", f, "text/plain")},
+                    headers={"Authorization": f"Bearer {auth_token}"},
                 )
 
         os.unlink(tmp_path)
@@ -83,7 +84,7 @@ async def test_upload_document(db_session):
 
 
 @pytest.mark.asyncio
-async def test_list_documents(db_session):
+async def test_list_documents(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -92,7 +93,10 @@ async def test_list_documents(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/documents")
+            response = await client.get(
+                "/api/v1/documents",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -103,7 +107,7 @@ async def test_list_documents(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_document(db_session):
+async def test_get_document(db_session, auth_token):
     from app.application.document_service import create_document
 
     async def override_get_db():
@@ -112,12 +116,15 @@ async def test_get_document(db_session):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "test.pdf", 1024)
+        doc = await create_document(db_session, "test.pdf", 1024, TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(f"/api/v1/documents/{doc.id}")
+            response = await client.get(
+                f"/api/v1/documents/{doc.id}",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -128,7 +135,7 @@ async def test_get_document(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_document_not_found(db_session):
+async def test_get_document_not_found(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -137,7 +144,10 @@ async def test_get_document_not_found(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/documents/nonexistent-id")
+            response = await client.get(
+                "/api/v1/documents/nonexistent-id",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 404
     finally:
@@ -145,7 +155,7 @@ async def test_get_document_not_found(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_document_status(db_session):
+async def test_get_document_status(db_session, auth_token):
     from app.application.document_service import create_document
 
     async def override_get_db():
@@ -154,12 +164,15 @@ async def test_get_document_status(db_session):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "status-test.pdf", 2048)
+        doc = await create_document(db_session, "status-test.pdf", 2048, TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get(f"/api/v1/documents/{doc.id}/status")
+            response = await client.get(
+                f"/api/v1/documents/{doc.id}/status",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -171,7 +184,7 @@ async def test_get_document_status(db_session):
 
 
 @pytest.mark.asyncio
-async def test_get_document_status_document_not_found(db_session):
+async def test_get_document_status_document_not_found(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -180,7 +193,10 @@ async def test_get_document_status_document_not_found(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/documents/nonexistent-id/status")
+            response = await client.get(
+                "/api/v1/documents/nonexistent-id/status",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 404
     finally:
@@ -188,7 +204,7 @@ async def test_get_document_status_document_not_found(db_session):
 
 
 @pytest.mark.asyncio
-async def test_delete_document(db_session):
+async def test_delete_document(db_session, auth_token):
     from app.application.document_service import create_document
 
     async def override_get_db():
@@ -197,12 +213,15 @@ async def test_delete_document(db_session):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "to-delete.pdf", 512)
+        doc = await create_document(db_session, "to-delete.pdf", 512, TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.delete(f"/api/v1/documents/{doc.id}")
+            response = await client.delete(
+                f"/api/v1/documents/{doc.id}",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -213,7 +232,7 @@ async def test_delete_document(db_session):
 
 
 @pytest.mark.asyncio
-async def test_delete_document_not_found(db_session):
+async def test_delete_document_not_found(db_session, auth_token):
     async def override_get_db():
         yield db_session
 
@@ -222,7 +241,10 @@ async def test_delete_document_not_found(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.delete("/api/v1/documents/nonexistent-id")
+            response = await client.delete(
+                "/api/v1/documents/nonexistent-id",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 404
     finally:

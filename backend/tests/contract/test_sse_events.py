@@ -30,7 +30,7 @@ async def db_session(session_maker):
 
         existing_user = await session.execute(select(User).where(User.id == TEST_USER_ID))
         if not existing_user.scalar_one_or_none():
-            test_user = User(id=TEST_USER_ID, email="test@example.com", password_hash="test_hash")
+            test_user = User(id=TEST_USER_ID, email="test@example.com", password_hash="test_hash", role="user")
             session.add(test_user)
             await session.commit()
 

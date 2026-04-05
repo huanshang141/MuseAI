@@ -10,10 +10,23 @@ def test_user_creation():
         id=UserId("user-123"),
         email="test@example.com",
         password_hash="hashed_password",
+        role="user",
         created_at=datetime(2026, 1, 1, 12, 0, 0),
     )
     assert user.id.value == "user-123"
     assert user.email == "test@example.com"
+    assert user.role == "user"
+
+
+def test_user_creation_with_admin_role():
+    user = User(
+        id=UserId("admin-123"),
+        email="admin@example.com",
+        password_hash="hashed_password",
+        role="admin",
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    assert user.role == "admin"
 
 
 def test_chat_session_creation():

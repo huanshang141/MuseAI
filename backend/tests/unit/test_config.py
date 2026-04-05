@@ -110,20 +110,30 @@ def test_settings_has_admin_emails():
 
     settings = Settings()
     assert hasattr(settings, "ADMIN_EMAILS")
-    assert isinstance(settings.ADMIN_EMAILS, list)
+    assert isinstance(settings.ADMIN_EMAILS, str)
 
 
 def test_settings_parses_admin_emails_from_string():
-    """Test that ADMIN_EMAILS is parsed from comma-separated string."""
+    """Test that ADMIN_EMAILS is parsed from comma-separated string via get_admin_emails()."""
     from app.config.settings import Settings
 
     settings = Settings(ADMIN_EMAILS="admin@example.com,another@example.com")
-    assert settings.ADMIN_EMAILS == ["admin@example.com", "another@example.com"]
+    assert settings.get_admin_emails() == ["admin@example.com", "another@example.com"]
 
 
 def test_settings_admin_emails_defaults_to_empty():
-    """Test that ADMIN_EMAILS defaults to empty list."""
+    """Test that ADMIN_EMAILS defaults to empty list via get_admin_emails()."""
     from app.config.settings import Settings
 
     settings = Settings()
-    assert settings.ADMIN_EMAILS == []
+    assert settings.get_admin_emails() == []
+
+
+def test_settings_admin_emails_from_env(monkeypatch):
+    """Test that ADMIN_EMAILS can be set from environment variable."""
+    monkeypatch.setenv("ADMIN_EMAILS", "admin1@example.com,admin2@example.com")
+
+    from app.config.settings import Settings
+
+    settings = Settings(_env_file=None)
+    assert settings.get_admin_emails() == ["admin1@example.com", "admin2@example.com"]

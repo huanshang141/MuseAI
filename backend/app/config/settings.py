@@ -38,15 +38,14 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "json"  # "json" or "text"
 
-    # Admin configuration
-    ADMIN_EMAILS: list[str] = Field(default_factory=list)
+    # Admin configuration (comma-separated list of admin email addresses)
+    ADMIN_EMAILS: str = ""
 
-    @field_validator("ADMIN_EMAILS", mode="before")
-    @classmethod
-    def parse_admin_emails(cls, v: str | list[str]) -> list[str]:
-        if isinstance(v, str):
-            return [email.strip() for email in v.split(",") if email.strip()]
-        return v
+    def get_admin_emails(self) -> list[str]:
+        """Parse ADMIN_EMAILS setting into a list."""
+        if not self.ADMIN_EMAILS:
+            return []
+        return [email.strip() for email in self.ADMIN_EMAILS.split(",") if email.strip()]
 
     @field_validator("EMBEDDING_DIMS")
     @classmethod

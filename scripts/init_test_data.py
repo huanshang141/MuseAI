@@ -375,7 +375,56 @@ async def init_documents(
     user_id: str,
 ) -> None:
     """Initialize sample documents."""
-    pass
+    ingestion_service = IngestionService(
+        es_client=es_client,
+        embeddings=embeddings,
+    )
+
+    created_count = 0
+    skipped_count = 0
+
+    for item in SAMPLE_DOCUMENTS:
+        async with get_session(session_maker) as session:
+            result = await session.execute(select(Document).where(Document.filename == item["filename"]))
+            existing_doc = result.scalars().first()
+
+            if existing_doc:
+                print(f"  Document already exists: {item['filename']}")
+                skipped_count += 1
+                continue
+
+            doc_id = str(uuid.uuid4())
+            document = Document(
+                id=doc_id,
+                user_id=user_id,
+                filename=item["filename"],
+                status="pending",
+            )
+            session.add(document)
+
+            job_id = str(uuid.uuid4())
+            job = IngestionJob(
+                id=job_id,
+                document_id=doc_id,
+                status="pending",
+            )
+            session.add(job)
+            await session.commit()
+
+        async with get_session(session_maker) as session:
+            try:
+                await ingestion_service.process_document(
+                    session=session,
+                    document_id=doc_id,
+                    content=item["content"],
+                    source=item["source"],
+                )
+                created_count += 1
+                print(f"  Created document: {item['filename']}")
+            except Exception as e:
+                print(f"  Failed to create document {item['filename']}: {e}")
+
+    print(f"\nDocuments: {created_count} created, {skipped_count} skipped")
 
 
 async def init_chat_data(session_maker, user_id: str) -> None:

@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -9,6 +10,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
+
+logger = logging.getLogger(__name__)
+
+
+def _sanitize_error_message(error: Exception) -> str:
+    """Sanitize error message for client display.
+
+    Returns a generic message that doesn't expose internal details.
+    """
+    # Log the actual error for debugging
+    logger.error(f"Chat service error: {type(error).__name__}: {error}")
+
+    # Return generic message
+    return "An unexpected error occurred. Please try again."
 
 
 async def create_session(session: AsyncSession, title: str, user_id: str) -> ChatSession:
@@ -156,9 +171,11 @@ async def ask_question_stream(
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'chunks': chunks})}\n\n"
     except LLMError as e:
-        yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': str(e)})}\n\n"
+        sanitized = _sanitize_error_message(e)
+        yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': sanitized})}\n\n"
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': str(e)})}\n\n"
+        sanitized = _sanitize_error_message(e)
+        yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': sanitized})}\n\n"
 
 
 async def ask_question_stream_with_rag(
@@ -210,4 +227,5 @@ async def ask_question_stream_with_rag(
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
     except Exception as e:
-        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': str(e)})}\n\n"
+        sanitized = _sanitize_error_message(e)
+        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"

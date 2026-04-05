@@ -57,7 +57,7 @@ async def get_current_user(
 ) -> dict:
     token = credentials.credentials
 
-    # Check if token is blacklisted (fail open if Redis is unavailable)
+    # Check if token is blacklisted
     jti = jwt_handler.get_jti(token)
     if jti:
         try:
@@ -67,10 +67,17 @@ async def get_current_user(
                     detail="Token has been revoked",
                     headers={"WWW-Authenticate": "Bearer"},
                 )
-        except RedisError:
-            # Log the error but allow request to proceed
-            # This ensures availability during Redis outages
-            pass
+        except RedisError as e:
+            # In production, fail closed for security
+            # In development, fail open for availability
+            settings = get_settings()
+            if settings.APP_ENV == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication temporarily unavailable",
+                ) from e
+            # In development, log and continue
+            print(f"Redis error during blacklist check: {e}")
 
     user_id = jwt_handler.verify_token(token)
 

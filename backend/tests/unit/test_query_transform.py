@@ -1,5 +1,11 @@
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.infra.providers.llm import LLMResponse
 from app.workflows.query_transform import (
     QueryTransformStrategy,
+    QueryTransformer,
     has_specific_details,
     is_ambiguous,
     select_strategy,
@@ -112,3 +118,74 @@ class TestIsAmbiguous:
 
     def test_standalone_that_is_ambiguous(self):
         assert is_ambiguous("I want that") is True
+
+
+class TestQueryTransformer:
+    @pytest.mark.asyncio
+    async def test_transform_step_back(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = LLMResponse(
+            content="这个时期有什么重要的历史事件？",
+            model="mock",
+            prompt_tokens=10,
+            completion_tokens=10,
+            duration_ms=100,
+        )
+
+        transformer = QueryTransformer(mock_llm)
+        result = await transformer.transform_step_back("2024年1月发生了什么？")
+
+        assert result == "这个时期有什么重要的历史事件？"
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_transform_hyde(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = LLMResponse(
+            content="这是一件青铜器，用于祭祀仪式，年代可追溯到商朝。",
+            model="mock",
+            prompt_tokens=10,
+            completion_tokens=10,
+            duration_ms=100,
+        )
+
+        transformer = QueryTransformer(mock_llm)
+        result = await transformer.transform_hyde("这件文物是什么？")
+
+        assert "青铜器" in result
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_transform_multi_query(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = LLMResponse(
+            content="1. 这件文物的历史背景是什么？\n2. 这件文物的用途是什么？\n3. 这件文物的制作工艺如何？",
+            model="mock",
+            prompt_tokens=10,
+            completion_tokens=10,
+            duration_ms=100,
+        )
+
+        transformer = QueryTransformer(mock_llm)
+        result = await transformer.transform_multi_query("这件文物是什么？")
+
+        assert len(result) == 3
+        assert "历史背景" in result[0]
+        assert "用途" in result[1]
+        assert "制作工艺" in result[2]
+
+    @pytest.mark.asyncio
+    async def test_transform_multi_query_empty_response_returns_original(self):
+        mock_llm = AsyncMock()
+        mock_llm.generate.return_value = LLMResponse(
+            content="",
+            model="mock",
+            prompt_tokens=10,
+            completion_tokens=10,
+            duration_ms=100,
+        )
+
+        transformer = QueryTransformer(mock_llm)
+        result = await transformer.transform_multi_query("original query")
+
+        assert result == ["original query"]

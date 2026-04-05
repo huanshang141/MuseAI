@@ -125,8 +125,7 @@ async def check_auth_rate_limit(
     """Rate limiting for authentication endpoints using IP address.
 
     More restrictive than regular rate limiting:
-    - 5 requests per minute for login
-    - 3 requests per minute for register
+    - 5 requests per minute for login and register
 
     Fails closed for security - returns 503 if Redis unavailable.
     """

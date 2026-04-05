@@ -54,3 +54,36 @@ def test_ingestion_job_model():
     )
     assert job.document_id == "doc-123"
     assert job.status == "pending"
+
+
+def test_user_has_role_field():
+    """Test that User model has role field that can be set to 'user'."""
+    user = User(
+        id="test-id",
+        email="test@example.com",
+        password_hash="hash",
+        role="user",
+    )
+    assert hasattr(user, "role")
+    assert user.role == "user"
+
+
+def test_user_role_can_be_admin():
+    """Test that User role can be set to 'admin'."""
+    user = User(
+        id="test-id",
+        email="admin@example.com",
+        password_hash="hash",
+        role="admin",
+    )
+    assert user.role == "admin"
+
+
+def test_user_role_field_exists():
+    """Test that User model has role field defined."""
+    from sqlalchemy import inspect
+    mapper = inspect(User)
+    role_column = mapper.columns.get("role")
+    assert role_column is not None
+    assert role_column.default is not None
+    assert role_column.default.arg == "user"

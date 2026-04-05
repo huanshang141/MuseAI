@@ -10,6 +10,7 @@ class User:
     id: UserId
     email: str
     password_hash: str
+    role: str
     created_at: datetime
 
 

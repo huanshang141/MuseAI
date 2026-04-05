@@ -1,5 +1,3 @@
-import os
-
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +11,7 @@ def test_settings_requires_jwt_secret_in_production(monkeypatch):
     from app.config.settings import Settings
 
     with pytest.raises(ValidationError, match="JWT_SECRET must be set"):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_requires_llm_api_key_in_production(monkeypatch):
@@ -25,7 +23,7 @@ def test_settings_requires_llm_api_key_in_production(monkeypatch):
     from app.config.settings import Settings
 
     with pytest.raises(ValidationError, match="LLM_API_KEY must be set"):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_validates_jwt_secret_length(monkeypatch):
@@ -37,7 +35,7 @@ def test_settings_validates_jwt_secret_length(monkeypatch):
     from app.config.settings import Settings
 
     with pytest.raises(ValidationError, match="JWT_SECRET must be at least 32 characters"):
-        Settings()
+        Settings(_env_file=None)
 
 
 def test_settings_allows_defaults_in_development(monkeypatch):
@@ -48,7 +46,7 @@ def test_settings_allows_defaults_in_development(monkeypatch):
 
     from app.config.settings import Settings
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
     assert settings.JWT_SECRET == "dev-secret-do-not-use-in-production"
     assert settings.LLM_API_KEY == "dev-key-do-not-use-in-production"
 

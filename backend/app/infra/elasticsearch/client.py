@@ -88,10 +88,11 @@ class ElasticsearchClient:
                     "query_vector": query_vector,
                     "k": top_k,
                     "num_candidates": top_k * 10,
-                }
+                },
+                "size": top_k,
             }
 
-            response = await self.client.search(index=self.index_name, body=query, size=top_k)
+            response = await self.client.search(index=self.index_name, body=query)
 
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
         except (ApiError, TransportError) as e:
@@ -100,9 +101,9 @@ class ElasticsearchClient:
 
     async def search_bm25(self, query_text: str, top_k: int = 5) -> list[dict[str, Any]]:
         try:
-            query = {"query": {"match": {"content": query_text}}}
+            query = {"query": {"match": {"content": query_text}}, "size": top_k}
 
-            response = await self.client.search(index=self.index_name, body=query, size=top_k)
+            response = await self.client.search(index=self.index_name, body=query)
 
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
         except (ApiError, TransportError) as e:

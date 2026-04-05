@@ -119,7 +119,7 @@ async def test_search_dense(mock_es_client: Any) -> None:
 
     call_args = mock_es_client.search.call_args
     assert call_args.kwargs["index"] == "museai_chunks_v1"
-    assert call_args.kwargs["size"] == 5
+    assert call_args.kwargs["body"]["size"] == 5
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,9 @@ class TestChatAPIIntegration:
         )
 
         mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = MagicMock(id="test-session")
+        mock_session.execute.return_value = mock_result
 
         with patch("app.application.chat_service.add_message", new_callable=AsyncMock) as mock_add_msg:
             mock_add_msg.return_value = MagicMock()

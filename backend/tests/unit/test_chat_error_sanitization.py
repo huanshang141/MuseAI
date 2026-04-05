@@ -1,7 +1,15 @@
 # backend/tests/unit/test_chat_error_sanitization.py
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+
+def _mock_existing_session() -> AsyncMock:
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = MagicMock(id="test-session")
+    mock_session.execute.return_value = mock_result
+    return mock_session
 
 
 @pytest.mark.asyncio
@@ -9,7 +17,7 @@ async def test_sse_error_does_not_leak_internal_details():
     """SSE error events should not contain internal error details."""
     from app.application.chat_service import ask_question_stream_with_rag
 
-    mock_session = AsyncMock()
+    mock_session = _mock_existing_session()
     mock_rag_agent = MagicMock()
     mock_rag_agent.run = AsyncMock(side_effect=Exception("Internal error: /home/user/secret/path config.py line 42"))
     mock_llm = MagicMock()
@@ -42,7 +50,7 @@ async def test_sse_error_shows_generic_message():
     """SSE error events should show generic error message."""
     from app.application.chat_service import ask_question_stream_with_rag
 
-    mock_session = AsyncMock()
+    mock_session = _mock_existing_session()
     mock_rag_agent = MagicMock()
     mock_rag_agent.run = AsyncMock(side_effect=Exception("Database connection failed"))
     mock_llm = MagicMock()
@@ -52,7 +60,7 @@ async def test_sse_error_shows_generic_message():
         session=mock_session,
         session_id="test-session",
         message="test message",
-        rag_agent=mock_llm,
+        rag_agent=mock_rag_agent,
         llm_provider=mock_llm,
         user_id="user-123",
     ):

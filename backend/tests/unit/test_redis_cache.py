@@ -193,3 +193,64 @@ async def test_is_token_blacklisted_false():
 
     assert result is False
     mock_redis.exists.assert_called_once_with("blacklist:test-jti")
+
+
+@pytest.mark.asyncio
+async def test_set_guest_session():
+    """Test setting a guest chat session."""
+    mock_redis = AsyncMock()
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    messages = [{"role": "user", "content": "Hello"}]
+    await cache.set_guest_session("guest-123", messages, ttl=3600)
+
+    mock_redis.setex.assert_called_once()
+    call_args = mock_redis.setex.call_args
+    assert "guest:guest-123:session" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_get_guest_session():
+    """Test getting a guest chat session."""
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = '[{"role": "user", "content": "Hello"}]'
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    messages = await cache.get_guest_session("guest-123")
+
+    assert messages is not None
+    assert len(messages) == 1
+    assert messages[0]["content"] == "Hello"
+
+
+@pytest.mark.asyncio
+async def test_get_guest_session_not_found():
+    """Test getting a non-existent guest session."""
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    messages = await cache.get_guest_session("nonexistent")
+
+    assert messages is None
+
+
+@pytest.mark.asyncio
+async def test_delete_guest_session():
+    """Test deleting a guest chat session."""
+    mock_redis = AsyncMock()
+
+    cache = RedisCache.__new__(RedisCache)
+    cache.client = mock_redis
+
+    await cache.delete_guest_session("guest-123")
+
+    mock_redis.delete.assert_called_once()
+    call_args = mock_redis.delete.call_args
+    assert "guest:guest-123:session" in call_args[0]

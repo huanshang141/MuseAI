@@ -68,6 +68,22 @@ class RedisCache:
         key = f"blacklist:{jti}"
         return await self.client.exists(key) > 0
 
+    async def set_guest_session(self, session_id: str, messages: list[dict], ttl: int = 3600) -> None:
+        """Store guest chat session with TTL."""
+        key = f"guest:{session_id}:session"
+        await self.client.setex(key, ttl, json.dumps(messages))
+
+    async def get_guest_session(self, session_id: str) -> list[dict] | None:
+        """Get guest chat session."""
+        key = f"guest:{session_id}:session"
+        data = await self.client.get(key)
+        return json.loads(data) if data else None
+
+    async def delete_guest_session(self, session_id: str) -> None:
+        """Delete guest chat session."""
+        key = f"guest:{session_id}:session"
+        await self.client.delete(key)
+
 
 def create_redis_client(redis_url: str) -> RedisCache:
     return RedisCache(redis_url)

@@ -7,11 +7,13 @@ const loading = ref(false)
 const error = ref(null)
 
 export function useDocuments() {
-  const { isAuthenticated } = useAuth()
+  const { isAdmin, isAuthenticated } = useAuth()
 
   function handleError(result) {
     if (result.status === 401) {
       error.value = '请先登录'
+    } else if (result.status === 403) {
+      error.value = '需要管理员权限'
     } else {
       error.value = result.data?.detail || '请求失败'
     }
@@ -19,11 +21,7 @@ export function useDocuments() {
   }
 
   async function fetchDocuments() {
-    if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
-    }
-
+    // Public access - no authentication required
     loading.value = true
     error.value = null
     const result = await api.documents.list()
@@ -43,6 +41,11 @@ export function useDocuments() {
       return { ok: false, status: 401, data: { detail: '未认证' } }
     }
 
+    if (!isAdmin.value) {
+      error.value = '需要管理员权限'
+      return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
+    }
+
     const result = await api.documents.upload(file)
     if (!result.ok) {
       return handleError(result)
@@ -58,6 +61,11 @@ export function useDocuments() {
       return { ok: false, status: 401, data: { detail: '未认证' } }
     }
 
+    if (!isAdmin.value) {
+      error.value = '需要管理员权限'
+      return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
+    }
+
     const result = await api.documents.delete(docId)
     if (!result.ok) {
       return handleError(result)
@@ -68,11 +76,7 @@ export function useDocuments() {
   }
 
   async function getDocumentStatus(docId) {
-    if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
-    }
-
+    // Public access - no authentication required
     const result = await api.documents.status(docId)
     if (!result.ok) {
       return handleError(result)

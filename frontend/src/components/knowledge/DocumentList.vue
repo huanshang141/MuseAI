@@ -1,10 +1,12 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useDocuments } from '../../composables/useDocuments.js'
+import { useAuth } from '../../composables/useAuth.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, View, Delete, Loading } from '@element-plus/icons-vue'
 
 const { documents, loading, fetchDocuments, deleteDocument, getDocumentStatus } = useDocuments()
+const { isAdmin } = useAuth()
 
 const statusMap = {
   processing: { type: 'warning', text: '处理中' },
@@ -71,7 +73,8 @@ onMounted(fetchDocuments)
               <el-tooltip content="查看状态" placement="top">
                 <el-button @click="handleViewStatus(doc)" :icon="View" />
               </el-tooltip>
-              <el-tooltip content="删除文档" placement="top">
+              <!-- Delete button only for admin -->
+              <el-tooltip v-if="isAdmin" content="删除文档" placement="top">
                 <el-button @click="handleDelete(doc)" :icon="Delete" type="danger" />
               </el-tooltip>
             </el-button-group>

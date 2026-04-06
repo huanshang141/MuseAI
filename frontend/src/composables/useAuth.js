@@ -3,13 +3,16 @@ import { api } from '../api/index.js'
 
 const token = ref(localStorage.getItem('access_token') || null)
 const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
+const userRole = ref(localStorage.getItem('user_role') || null)
 
 export function useAuth() {
   const isAuthenticated = computed(() => !!token.value)
+  const isAdmin = computed(() => userRole.value === 'admin')
 
-  function setAuth(newToken, newUser) {
+  function setAuth(newToken, newUser, role = null) {
     token.value = newToken
     user.value = newUser
+    userRole.value = role
     if (newToken) {
       localStorage.setItem('access_token', newToken)
     } else {
@@ -19,6 +22,11 @@ export function useAuth() {
       localStorage.setItem('user', JSON.stringify(newUser))
     } else {
       localStorage.removeItem('user')
+    }
+    if (role) {
+      localStorage.setItem('user_role', role)
+    } else {
+      localStorage.removeItem('user_role')
     }
   }
 
@@ -34,17 +42,19 @@ export function useAuth() {
       token.value = result.data.access_token
       localStorage.setItem('access_token', result.data.access_token)
 
-      // Store email as user info (backend doesn't have /auth/me endpoint)
-      const userInfo = { email }
+      // Store email and role as user info
+      const userInfo = { email, role: result.data.role }
       user.value = userInfo
       localStorage.setItem('user', JSON.stringify(userInfo))
+      userRole.value = result.data.role
+      localStorage.setItem('user_role', result.data.role)
     }
     return result
   }
 
   async function logout() {
     await api.auth.logout()
-    setAuth(null, null)
+    setAuth(null, null, null)
   }
 
   function getToken() {
@@ -54,7 +64,9 @@ export function useAuth() {
   return {
     token,
     user,
+    userRole,
     isAuthenticated,
+    isAdmin,
     register,
     login,
     logout,

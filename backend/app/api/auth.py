@@ -51,6 +51,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    role: str
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -111,6 +112,7 @@ async def login(
         access_token=token,
         token_type="bearer",
         expires_in=jwt_handler.expire_minutes * 60,
+        role=user.role,
     )
 
 

@@ -104,7 +104,7 @@ async def get_optional_user(
     jwt_handler: JWTHandlerDep,
     session: SessionDep,
     redis: RedisCacheDep,
-    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),  # noqa: B008
 ) -> dict | None:
     """Get current user if authenticated, else return None (for guest access)."""
     if credentials is None:

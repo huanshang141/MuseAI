@@ -137,3 +137,16 @@ def test_settings_admin_emails_from_env(monkeypatch):
 
     settings = Settings(_env_file=None)
     assert settings.get_admin_emails() == ["admin1@example.com", "admin2@example.com"]
+
+
+def test_settings_rejects_wildcard_cors_in_production(monkeypatch):
+    """CORS_ORIGINS should not allow wildcard in production."""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "a" * 32)
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("CORS_ORIGINS", "*")
+
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="CORS_ORIGINS cannot be wildcard in production"):
+        Settings(_env_file=None)

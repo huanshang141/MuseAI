@@ -72,6 +72,8 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be at least 32 characters in production")
             if not self.LLM_API_KEY:
                 raise ValueError("LLM_API_KEY must be set in production")
+            if self.CORS_ORIGINS.strip() == "*":
+                raise ValueError("CORS_ORIGINS cannot be wildcard in production")
 
         # Development defaults
         if not self.JWT_SECRET:

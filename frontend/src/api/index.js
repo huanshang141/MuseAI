@@ -4,6 +4,17 @@ function getToken() {
   return localStorage.getItem('access_token')
 }
 
+function clearAuthState() {
+  localStorage.removeItem('access_token')
+  localStorage.removeItem('user')
+  localStorage.removeItem('user_role')
+}
+
+function normalizeNetworkError(error) {
+  const detail = error instanceof Error ? error.message : 'Network error'
+  return { ok: false, status: 0, data: { detail } }
+}
+
 async function request(path, options = {}) {
   const token = getToken()
   const headers = {
@@ -16,12 +27,21 @@ async function request(path, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const response = await fetch(`${BASE_URL}${path}`, {
-    headers,
-    ...options,
-  })
+  let response
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      headers,
+      ...options,
+    })
+  } catch (error) {
+    return normalizeNetworkError(error)
+  }
 
   const data = await response.json().catch(() => ({}))
+  if (response.status === 401) {
+    clearAuthState()
+  }
+
   return {
     ok: response.ok,
     status: response.status,

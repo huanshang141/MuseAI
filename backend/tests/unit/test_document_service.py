@@ -272,3 +272,192 @@ class TestUpdateDocumentStatus:
 
         assert mock_document.status == "completed"
         assert mock_document.error is None
+
+
+class TestGetAllDocuments:
+    """Tests for get_all_documents function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_list_of_all_documents(self):
+        """get_all_documents should return list of all documents."""
+        from app.application.document_service import get_all_documents
+
+        mock_document1 = MagicMock()
+        mock_document1.id = "doc-1"
+        mock_document1.filename = "test1.pdf"
+        mock_document1.user_id = "user-123"
+
+        mock_document2 = MagicMock()
+        mock_document2.id = "doc-2"
+        mock_document2.filename = "test2.pdf"
+        mock_document2.user_id = "user-456"
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_document1, mock_document2]
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_all_documents(mock_session)
+
+        assert len(result) == 2
+        assert result[0].id == "doc-1"
+        assert result[1].id == "doc-2"
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_documents(self):
+        """get_all_documents should return empty list when no documents exist."""
+        from app.application.document_service import get_all_documents
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_all_documents(mock_session)
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_respects_limit_and_offset(self):
+        """get_all_documents should respect pagination parameters."""
+        from app.application.document_service import get_all_documents
+
+        mock_document = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_document]
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_all_documents(mock_session, limit=5, offset=10)
+
+        assert len(result) == 1
+
+
+class TestCountAllDocuments:
+    """Tests for count_all_documents function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_total_count(self):
+        """count_all_documents should return total document count."""
+        from app.application.document_service import count_all_documents
+
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = 42
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await count_all_documents(mock_session)
+
+        assert result == 42
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_when_no_documents(self):
+        """count_all_documents should return 0 when no documents exist."""
+        from app.application.document_service import count_all_documents
+
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await count_all_documents(mock_session)
+
+        assert result == 0
+
+
+class TestGetDocumentByIdPublic:
+    """Tests for get_document_by_id_public function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_document_without_user_check(self):
+        """get_document_by_id_public should return document without user check."""
+        from app.application.document_service import get_document_by_id_public
+
+        mock_document = MagicMock()
+        mock_document.id = "doc-123"
+        mock_document.user_id = "user-456"
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_document
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_document_by_id_public(mock_session, "doc-123")
+
+        assert result.id == "doc-123"
+        assert result.user_id == "user-456"
+
+    @pytest.mark.asyncio
+    async def test_returns_none_if_not_found(self):
+        """get_document_by_id_public should return None if document not found."""
+        from app.application.document_service import get_document_by_id_public
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await get_document_by_id_public(mock_session, "nonexistent")
+
+        assert result is None
+
+
+class TestDeleteDocumentById:
+    """Tests for delete_document_by_id function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_true_on_success(self):
+        """delete_document_by_id should return True when document deleted."""
+        from app.application.document_service import delete_document_by_id
+
+        mock_document = MagicMock()
+        mock_document.id = "doc-123"
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_document
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.delete = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        result = await delete_document_by_id(mock_session, "doc-123")
+
+        assert result is True
+        mock_session.delete.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_if_not_found(self):
+        """delete_document_by_id should return False if document not found."""
+        from app.application.document_service import delete_document_by_id
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await delete_document_by_id(mock_session, "nonexistent")
+
+        assert result is False
+        mock_session.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deletes_without_user_check(self):
+        """delete_document_by_id should delete document regardless of user."""
+        from app.application.document_service import delete_document_by_id
+
+        mock_document = MagicMock()
+        mock_document.id = "doc-123"
+        mock_document.user_id = "different-user"
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_document
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.delete = AsyncMock()
+        mock_session.commit = AsyncMock()
+
+        result = await delete_document_by_id(mock_session, "doc-123")
+
+        assert result is True
+        mock_session.delete.assert_called_once_with(mock_document)

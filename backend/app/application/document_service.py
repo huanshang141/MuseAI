@@ -88,3 +88,41 @@ async def update_document_status(
     await session.flush()
     await session.refresh(document)
     return document
+
+
+async def get_all_documents(
+    session: AsyncSession, limit: int = 20, offset: int = 0
+) -> list[Document]:
+    """Get all documents with pagination (admin access)."""
+    stmt = (
+        select(Document)
+        .order_by(Document.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def count_all_documents(session: AsyncSession) -> int:
+    """Count total documents across all users (admin access)."""
+    stmt = select(func.count()).select_from(Document)
+    result = await session.execute(stmt)
+    return result.scalar() or 0
+
+
+async def get_document_by_id_public(session: AsyncSession, doc_id: str) -> Document | None:
+    """Get document by ID without user filtering (admin access)."""
+    stmt = select(Document).where(Document.id == doc_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def delete_document_by_id(session: AsyncSession, doc_id: str) -> bool:
+    """Delete document by ID without user filtering (admin access)."""
+    document = await get_document_by_id_public(session, doc_id)
+    if document is None:
+        return False
+    await session.delete(document)
+    await session.commit()
+    return True

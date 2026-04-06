@@ -1,16 +1,19 @@
 """Rerank服务提供者模块。
 
-支持OpenAI兼容格式的Rerank API。
+支持多种Rerank API格式：
+- SiliconFlow API
+- OpenAI兼容格式
+- Cohere API
 """
 
 import asyncio
 import time
+from abc import ABC, abstractmethod
 from types import TracebackType
-from typing import Any, Protocol, Self
+from typing import Any, Self
 
 import httpx
 from loguru import logger
-from openai import APIError, AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config.settings import Settings
@@ -20,6 +23,7 @@ from app.domain.exceptions import LLMError
 class RerankRequest(BaseModel):
     """Rerank请求模型。"""
 
+    model: str  # SiliconFlow 必需
     query: str
     documents: list[str]
     top_n: int = 5
@@ -41,15 +45,21 @@ class RerankResponse(BaseModel):
     duration_ms: int
 
 
-class RerankProvider(Protocol):
-    """Rerank服务协议。"""
+class BaseRerankProvider(ABC):
+    """Rerank服务抽象基类。"""
 
+    @abstractmethod
     async def rerank(self, query: str, documents: list[str], top_n: int = 5) -> list[RerankResult]:
         """对文档进行重排序。"""
         ...
 
+    @abstractmethod
+    async def close(self) -> None:
+        """关闭客户端连接。"""
+        ...
 
-class OpenAICompatibleRerankProvider:
+
+class OpenAICompatibleRerankProvider(BaseRerankProvider):
     """OpenAI兼容格式的Rerank服务提供者。"""
 
     def __init__(
@@ -122,8 +132,9 @@ class OpenAICompatibleRerankProvider:
         start_time = time.time()
         last_error: Exception | None = None
 
-        # 构建请求数据
+        # 构建请求数据 - 包含 model
         request_data = RerankRequest(
+            model=self.model,
             query=query,
             documents=documents,
             top_n=min(top_n, len(documents)),
@@ -193,8 +204,12 @@ class OpenAICompatibleRerankProvider:
         return results
 
 
-class MockRerankProvider:
+class MockRerankProvider(BaseRerankProvider):
     """用于测试的Mock Rerank提供者。"""
+
+    async def close(self) -> None:
+        """Mock关闭方法，无需操作。"""
+        pass
 
     async def rerank(self, query: str, documents: list[str], top_n: int = 5) -> list[RerankResult]:
         """返回基于简单字符串匹配的模拟结果。"""
@@ -220,3 +235,145 @@ class MockRerankProvider:
         # 排序并返回top_n
         results.sort(key=lambda x: x.relevance_score, reverse=True)
         return results[:top_n]
+
+
+class SiliconFlowRerankProvider(BaseRerankProvider):
+    """SiliconFlow Rerank服务提供者。
+
+    SiliconFlow API 特点：
+    - 路径: /v1/rerank
+    - 必需字段: model, query, documents
+    - 响应格式: {"results": [{"index": 0, "relevance_score": 0.9, "document": {"text": "..."}}]}
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "BAAI/bge-reranker-v2-m3",
+        timeout: float = 60.0,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ):
+        self.model = model
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+        self.base_url = "https://api.siliconflow.cn/v1"
+        self.api_key = api_key
+        self.timeout = timeout
+        self._client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=timeout,
+        )
+
+    async def close(self) -> None:
+        """关闭客户端连接。"""
+        await self._client.aclose()
+
+    async def rerank(self, query: str, documents: list[str], top_n: int = 5) -> list[RerankResult]:
+        """对文档进行重排序。
+
+        Args:
+            query: 查询文本
+            documents: 待排序的文档列表
+            top_n: 返回前N个结果
+
+        Returns:
+            按相关性排序的结果列表
+
+        Raises:
+            LLMError: 当API调用失败时抛出
+        """
+        if not documents:
+            return []
+
+        start_time = time.time()
+        last_error: Exception | None = None
+
+        # SiliconFlow 请求数据
+        request_data = {
+            "model": self.model,
+            "query": query,
+            "documents": documents,
+            "top_n": min(top_n, len(documents)),
+            "return_documents": True,
+        }
+
+        for attempt in range(self.max_retries):
+            try:
+                response = await self._client.post(
+                    "/rerank",
+                    json=request_data,
+                )
+                response.raise_for_status()
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.debug(f"SiliconFlow rerank completed in {duration_ms}ms")
+
+                data = response.json()
+                results = self._parse_response(data)
+                return results[:top_n]
+
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                logger.warning(f"SiliconFlow rerank attempt {attempt + 1} failed with HTTP error: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
+            except httpx.RequestError as e:
+                last_error = e
+                logger.warning(f"SiliconFlow rerank attempt {attempt + 1} failed with request error: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
+            except Exception as e:
+                last_error = e
+                logger.warning(f"SiliconFlow rerank attempt {attempt + 1} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))
+
+        raise LLMError(f"SiliconFlow rerank failed after {self.max_retries} attempts: {last_error}") from last_error
+
+    def _parse_response(self, data: dict[str, Any]) -> list[RerankResult]:
+        """解析SiliconFlow API响应。
+
+        SiliconFlow 响应格式：
+        {
+            "id": "...",
+            "results": [
+                {
+                    "document": {"text": "..."},
+                    "index": 0,
+                    "relevance_score": 0.9
+                }
+            ],
+            "meta": {...}
+        }
+        """
+        results = []
+        raw_results = data.get("results", [])
+
+        for item in raw_results:
+            if isinstance(item, dict):
+                score = item.get("relevance_score", 0.0)
+                if score is None:
+                    score = 0.0
+
+                # SiliconFlow 返回的 document 是 {"text": "..."} 格式
+                document_data = item.get("document", {})
+                if isinstance(document_data, dict):
+                    document_text = document_data.get("text", "")
+                else:
+                    document_text = str(document_data) if document_data else ""
+
+                result = RerankResult(
+                    index=item.get("index", 0),
+                    relevance_score=float(score),
+                    document=document_text,
+                )
+                results.append(result)
+
+        # 按相关性分数降序排序
+        results.sort(key=lambda x: x.relevance_score, reverse=True)
+        return results

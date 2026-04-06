@@ -16,10 +16,12 @@ from app.config.settings import Settings
 class TestRerankRequest:
     def test_rerank_request_creation(self):
         request = RerankRequest(
+            model="test-model",
             query="test query",
             documents=["doc1", "doc2"],
             top_n=5,
         )
+        assert request.model == "test-model"
         assert request.query == "test query"
         assert request.documents == ["doc1", "doc2"]
         assert request.top_n == 5

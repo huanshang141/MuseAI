@@ -204,6 +204,52 @@ class OpenAICompatibleRerankProvider(BaseRerankProvider):
         return results
 
 
+def create_rerank_provider(settings: Settings) -> BaseRerankProvider | None:
+    """根据配置创建Rerank提供者实例。
+
+    Args:
+        settings: 应用配置
+
+    Returns:
+        Rerank提供者实例，如果未配置则返回None
+
+    Supported providers:
+        - "siliconflow": SiliconFlow Rerank API
+        - "openai": OpenAI兼容格式
+        - "cohere": Cohere API（使用OpenAI兼容模式）
+        - "mock": 模拟提供者（用于测试）
+    """
+    provider_type = settings.RERANK_PROVIDER.lower()
+
+    # 如果没有配置api_key且不是mock，返回None
+    if provider_type != "mock" and not settings.RERANK_API_KEY:
+        logger.debug("Rerank not configured (no API key), returning None")
+        return None
+
+    if provider_type == "siliconflow":
+        logger.info(f"Creating SiliconFlow rerank provider with model: {settings.RERANK_MODEL}")
+        return SiliconFlowRerankProvider(
+            api_key=settings.RERANK_API_KEY,
+            model=settings.RERANK_MODEL,
+        )
+    elif provider_type in ("openai", "cohere", "custom"):
+        logger.info(f"Creating OpenAI-compatible rerank provider: {provider_type}")
+        if not settings.RERANK_BASE_URL:
+            logger.warning(f"RERANK_BASE_URL not set for provider: {provider_type}")
+            return None
+        return OpenAICompatibleRerankProvider(
+            base_url=settings.RERANK_BASE_URL,
+            api_key=settings.RERANK_API_KEY,
+            model=settings.RERANK_MODEL,
+        )
+    elif provider_type == "mock":
+        logger.debug("Creating Mock rerank provider")
+        return MockRerankProvider()
+    else:
+        logger.warning(f"Unknown rerank provider: {provider_type}, returning None")
+        return None
+
+
 class MockRerankProvider(BaseRerankProvider):
     """用于测试的Mock Rerank提供者。"""
 
@@ -377,3 +423,15 @@ class SiliconFlowRerankProvider(BaseRerankProvider):
         # 按相关性分数降序排序
         results.sort(key=lambda x: x.relevance_score, reverse=True)
         return results
+
+
+__all__ = [
+    "RerankRequest",
+    "RerankResult",
+    "RerankResponse",
+    "BaseRerankProvider",
+    "OpenAICompatibleRerankProvider",
+    "SiliconFlowRerankProvider",
+    "MockRerankProvider",
+    "create_rerank_provider",
+]

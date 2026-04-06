@@ -184,3 +184,87 @@ class TestOpenAICompatibleRerankProvider:
 
             assert len(results) == 1
             assert call_count == 3  # 初始调用 + 2次重试 = 第3次成功
+
+
+class TestCreateRerankProvider:
+    def test_create_siliconflow_provider(self):
+        """测试创建 SiliconFlow provider。"""
+        from app.infra.providers.rerank import create_rerank_provider, SiliconFlowRerankProvider
+
+        settings = Settings(
+            RERANK_PROVIDER="siliconflow",
+            RERANK_API_KEY="test-api-key",
+            RERANK_MODEL="BAAI/bge-reranker-v2-m3",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is not None
+        assert isinstance(provider, SiliconFlowRerankProvider)
+        assert provider.model == "BAAI/bge-reranker-v2-m3"
+        assert provider.api_key == "test-api-key"
+
+    def test_create_openai_provider(self):
+        """测试创建 OpenAI compatible provider。"""
+        from app.infra.providers.rerank import create_rerank_provider, OpenAICompatibleRerankProvider
+
+        settings = Settings(
+            RERANK_PROVIDER="openai",
+            RERANK_BASE_URL="https://api.openai.com",
+            RERANK_API_KEY="test-key",
+            RERANK_MODEL="rerank-v1",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is not None
+        assert isinstance(provider, OpenAICompatibleRerankProvider)
+
+    def test_create_mock_provider(self):
+        """测试创建 Mock provider。"""
+        from app.infra.providers.rerank import create_rerank_provider, MockRerankProvider
+
+        settings = Settings(
+            RERANK_PROVIDER="mock",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is not None
+        assert isinstance(provider, MockRerankProvider)
+
+    def test_create_provider_no_config_returns_none(self):
+        """测试无配置时返回None。"""
+        from app.infra.providers.rerank import create_rerank_provider
+
+        settings = Settings(
+            RERANK_PROVIDER="openai",
+            RERANK_BASE_URL="",
+            RERANK_API_KEY="",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is None
+
+    def test_create_unknown_provider_returns_none(self):
+        """测试未知provider返回None。"""
+        from app.infra.providers.rerank import create_rerank_provider
+
+        settings = Settings(
+            RERANK_PROVIDER="unknown_provider",
+            RERANK_BASE_URL="https://example.com",
+            RERANK_API_KEY="test-key",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is None
+
+    def test_create_provider_case_insensitive(self):
+        """测试provider名称大小写不敏感。"""
+        from app.infra.providers.rerank import create_rerank_provider, SiliconFlowRerankProvider
+
+        settings = Settings(
+            RERANK_PROVIDER="SILICONFLOW",  # 大写
+            RERANK_API_KEY="test-key",
+        )
+        provider = create_rerank_provider(settings)
+
+        assert provider is not None
+        assert isinstance(provider, SiliconFlowRerankProvider)

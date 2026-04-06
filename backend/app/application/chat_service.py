@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
+from app.infra.redis.cache import RedisCache
 
 
 def _sanitize_error_message(error: Exception) -> str:
@@ -245,6 +246,56 @@ async def ask_question_stream_with_rag(
         await add_message(session, session_id, "user", message)
         await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
         await session.commit()
+
+        sources = []
+        for doc in result.get("documents", []):
+            sources.append(
+                {
+                    "chunk_id": doc.metadata.get("chunk_id"),
+                    "score": doc.metadata.get("rrf_score"),
+                }
+            )
+
+        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
+    except Exception as e:
+        sanitized = _sanitize_error_message(e)
+        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"
+
+
+async def ask_question_stream_guest(
+    session_id: str,
+    message: str,
+    rag_agent: Any,
+    llm_provider: LLMProvider,
+    redis: RedisCache,
+) -> AsyncGenerator[str, None]:
+    """Stream chat response for guest users (no DB persistence)."""
+    trace_id = str(uuid.uuid4())
+
+    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
+
+    try:
+        result = await rag_agent.run(message)
+
+        doc_count = len(result.get("documents", []))
+        retrieval_score = result.get("retrieval_score", 0)
+
+        retrieve_msg = f"检索完成，找到 {doc_count} 个相关文档"
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': retrieve_msg})}\n\n"
+
+        eval_msg = f"检索评分: {retrieval_score:.2f}"
+        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': eval_msg})}\n\n"
+
+        answer = result.get("answer", "")
+
+        for chunk in [answer[i : i + 50] for i in range(0, len(answer), 50)]:
+            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+
+        # Store session context for guest (no DB persistence)
+        existing_messages = await redis.get_guest_session(session_id) or []
+        existing_messages.append({"role": "user", "content": message})
+        existing_messages.append({"role": "assistant", "content": answer})
+        await redis.set_guest_session(session_id, existing_messages, ttl=3600)
 
         sources = []
         for doc in result.get("documents", []):

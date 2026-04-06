@@ -386,3 +386,41 @@ class TestAskQuestionStreamWithRag:
         assert any('"stage": "evaluate"' in e for e in thinking_events)
         # Check for retrieval score in evaluate event
         assert any("0.75" in e for e in thinking_events)
+
+
+@pytest.mark.asyncio
+async def test_ask_question_stream_guest():
+    """Test guest chat streaming without DB persistence."""
+    from app.application.chat_service import ask_question_stream_guest
+    from unittest.mock import MagicMock, AsyncMock
+    import json
+
+    mock_redis = AsyncMock()
+    mock_redis.get_guest_session.return_value = None
+
+    mock_rag_agent = MagicMock()
+    mock_rag_agent.run = AsyncMock(return_value={
+        "answer": "Test answer",
+        "documents": [],
+        "retrieval_score": 0.8,
+    })
+
+    mock_llm = MagicMock()
+
+    messages = []
+    async for event in ask_question_stream_guest(
+        session_id="guest-123",
+        message="Hello",
+        rag_agent=mock_rag_agent,
+        llm_provider=mock_llm,
+        redis=mock_redis,
+    ):
+        messages.append(event)
+
+    # Should have thinking and done events
+    event_types = [json.loads(m.split("data: ")[1])["type"] for m in messages if m.startswith("data:")]
+    assert "thinking" in event_types
+    assert "done" in event_types
+
+    # Should store session in Redis
+    mock_redis.set_guest_session.assert_called()

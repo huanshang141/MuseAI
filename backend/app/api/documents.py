@@ -10,7 +10,6 @@ from app.application.document_service import (
     count_all_documents,
     count_documents_by_user,
     create_document,
-    delete_document,
     delete_document_by_id,
     get_all_documents,
     get_document_by_id,

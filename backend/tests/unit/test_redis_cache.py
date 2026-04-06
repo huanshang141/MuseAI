@@ -208,7 +208,8 @@ async def test_set_guest_session():
 
     mock_redis.setex.assert_called_once()
     call_args = mock_redis.setex.call_args
-    assert "guest:guest-123:session" in call_args[0]
+    assert call_args[0][0] == "guest:guest-123:session"
+    assert call_args[0][1] == 3600
 
 
 @pytest.mark.asyncio
@@ -253,4 +254,4 @@ async def test_delete_guest_session():
 
     mock_redis.delete.assert_called_once()
     call_args = mock_redis.delete.call_args
-    assert "guest:guest-123:session" in call_args[0]
+    assert call_args[0][0] == "guest:guest-123:session"

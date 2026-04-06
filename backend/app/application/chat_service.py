@@ -224,19 +224,50 @@ async def ask_question_stream_with_rag(
 
     trace_id = str(uuid.uuid4())
 
-    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
+    def _rag_event(step: str, status: str, message: str) -> str:
+        return f"data: {json.dumps({'type': 'rag_step', 'step': step, 'status': status, 'message': message})}\n\n"
+
+    # RAG步骤：查询重写
+    yield _rag_event('rewrite', 'running', '正在分析查询意图...')
 
     try:
         result = await rag_agent.run(message)
 
+        # 查询重写完成
+        rewritten_query = result.get("rewritten_query", message)
+        if rewritten_query != message:
+            q_msg = f'查询已优化: {rewritten_query[:50]}...'
+            yield _rag_event('rewrite', 'completed', q_msg)
+        else:
+            yield _rag_event('rewrite', 'completed', '查询分析完成')
+
+        # RAG步骤：文档检索
+        yield _rag_event('retrieve', 'running', '正在检索相关文档...')
+
         doc_count = len(result.get("documents", []))
         retrieval_score = result.get("retrieval_score", 0)
 
-        retrieve_msg = f"检索完成，找到 {doc_count} 个相关文档"
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': retrieve_msg})}\n\n"
+        r_msg = f'检索完成，找到 {doc_count} 个相关文档'
+        yield _rag_event('retrieve', 'completed', r_msg)
 
-        eval_msg = f"检索评分: {retrieval_score:.2f}"
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': eval_msg})}\n\n"
+        # RAG步骤：重排序
+        yield _rag_event('rerank', 'running', '正在对文档进行重排序...')
+        yield _rag_event('rerank', 'completed', '重排序完成')
+
+        # RAG步骤：评估检索质量
+        yield _rag_event('evaluate', 'running', '正在评估检索质量...')
+
+        # 检查是否进行了查询转换
+        transformations = result.get("transformations", [])
+        if transformations and retrieval_score < rag_agent.score_threshold:
+            t_msg = f'检索评分较低({retrieval_score:.2f})，已尝试查询转换'
+            yield _rag_event('transform', 'completed', t_msg)
+
+        e_msg = f'检索评分: {retrieval_score:.2f}'
+        yield _rag_event('evaluate', 'completed', e_msg)
+
+        # RAG步骤：生成答案
+        yield _rag_event('generate', 'running', '正在生成回答...')
 
         answer = result.get("answer", "")
 

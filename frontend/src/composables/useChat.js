@@ -8,7 +8,18 @@ const messages = ref([])
 const loading = ref({ sessions: false, messages: false, send: false })
 const streamingContent = ref('')
 const thinkingStatus = ref('')
+const ragSteps = ref([])
 const error = ref(null)
+
+// RAG步骤定义
+const RAG_STEP_CONFIG = {
+  rewrite: { label: '查询分析', icon: '🔍' },
+  retrieve: { label: '文档检索', icon: '📚' },
+  rerank: { label: '结果排序', icon: '📊' },
+  evaluate: { label: '质量评估', icon: '✓' },
+  transform: { label: '查询优化', icon: '🔄' },
+  generate: { label: '生成回答', icon: '✨' },
+}
 
 export function useChat() {
   const { isAuthenticated } = useAuth()
@@ -111,7 +122,41 @@ export function useChat() {
     if (!isAuthenticated.value) {
       throw new Error('请先登录')
     }
-    yield* api.chat.askStream(sessionId, message)
+
+    // 重置RAG步骤状态
+    ragSteps.value = []
+
+    for await (const event of api.chat.askStream(sessionId, message)) {
+      // 处理rag_step事件
+      if (event.type === 'rag_step') {
+        const stepIndex = ragSteps.value.findIndex(s => s.step === event.step)
+        const stepConfig = RAG_STEP_CONFIG[event.step] || { label: event.step, icon: '•' }
+
+        if (stepIndex >= 0) {
+          // 更新现有步骤
+          ragSteps.value[stepIndex] = {
+            ...ragSteps.value[stepIndex],
+            status: event.status,
+            message: event.message,
+          }
+        } else {
+          // 添加新步骤
+          ragSteps.value.push({
+            step: event.step,
+            label: stepConfig.label,
+            icon: stepConfig.icon,
+            status: event.status,
+            message: event.message,
+          })
+        }
+      }
+
+      yield event
+    }
+  }
+
+  function resetRagSteps() {
+    ragSteps.value = []
   }
 
   return {
@@ -121,6 +166,7 @@ export function useChat() {
     loading,
     streamingContent,
     thinkingStatus,
+    ragSteps,
     error,
     fetchSessions,
     createSession,
@@ -128,5 +174,6 @@ export function useChat() {
     fetchMessages,
     deleteSession,
     sendMessage,
+    resetRagSteps,
   }
 }

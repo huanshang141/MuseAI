@@ -11,7 +11,7 @@ from app.config.settings import Settings
 from app.infra.langchain.agents import RAGAgent
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 from app.infra.langchain.retrievers import RRFRetriever
-from app.infra.providers.rerank import OpenAICompatibleRerankProvider
+from app.infra.providers.rerank import create_rerank_provider as _create_rerank_provider_impl
 from app.workflows.query_transform import ConversationAwareQueryRewriter
 
 
@@ -47,7 +47,7 @@ def create_retriever(
     )
 
 
-def create_rerank_provider(settings: Settings) -> OpenAICompatibleRerankProvider | None:
+def create_rerank_provider(settings: Settings) -> Any:
     """创建Rerank提供者实例。
 
     Args:
@@ -56,13 +56,7 @@ def create_rerank_provider(settings: Settings) -> OpenAICompatibleRerankProvider
     Returns:
         Rerank提供者实例，如果未配置则返回None
     """
-    if not settings.RERANK_BASE_URL:
-        return None
-    return OpenAICompatibleRerankProvider(
-        base_url=settings.RERANK_BASE_URL,
-        api_key=settings.RERANK_API_KEY,
-        model=settings.RERANK_MODEL,
-    )
+    return _create_rerank_provider_impl(settings)
 
 
 def create_query_rewriter(llm_provider: Any) -> ConversationAwareQueryRewriter:
@@ -81,7 +75,7 @@ def create_rag_agent(
     llm: Any,
     retriever: Any,
     settings: Settings,
-    rerank_provider: OpenAICompatibleRerankProvider | None = None,
+    rerank_provider: Any | None = None,
     query_rewriter: ConversationAwareQueryRewriter | None = None,
 ) -> RAGAgent:
     """创建RAG Agent实例。

@@ -11,7 +11,7 @@ from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import END, StateGraph
 from loguru import logger
 
-from app.infra.providers.rerank import RerankProvider, RerankResult
+from app.infra.providers.rerank import BaseRerankProvider, RerankResult
 from app.workflows.query_transform import ConversationAwareQueryRewriter
 
 SCORE_THRESHOLD = 0.7
@@ -39,7 +39,7 @@ class RAGAgent:
         self,
         llm: BaseChatModel,
         retriever: BaseRetriever,
-        rerank_provider: RerankProvider | None = None,
+        rerank_provider: BaseRerankProvider | None = None,
         query_rewriter: ConversationAwareQueryRewriter | None = None,
         score_threshold: float = SCORE_THRESHOLD,
         max_attempts: int = MAX_ATTEMPTS,

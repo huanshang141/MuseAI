@@ -6,16 +6,23 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 def test_get_redis_cache_returns_singleton():
     """get_redis_cache should return the same instance from app.state."""
-    from app.main import app, get_redis_cache
+    from app.main import app
     from app.infra.redis.cache import RedisCache
 
     # Mock the app.state to have a redis_cache
     mock_cache = MagicMock(spec=RedisCache)
     app.state.redis_cache = mock_cache
 
+    # Mock request
+    mock_request = MagicMock()
+    mock_request.app = app
+
+    # Import the deps version which uses request.app.state
+    from app.api.deps import get_redis_cache
+
     # Both calls should return the same instance
-    redis1 = get_redis_cache()
-    redis2 = get_redis_cache()
+    redis1 = get_redis_cache(mock_request)
+    redis2 = get_redis_cache(mock_request)
 
     # Should be the same instance
     assert redis1 is redis2
@@ -49,7 +56,7 @@ async def test_redis_close_cleans_up():
 
 
 def test_deps_get_redis_cache_uses_singleton():
-    """deps.get_redis_cache should delegate to main.get_redis_cache."""
+    """deps.get_redis_cache should return singleton from request.app.state."""
     from app.api.deps import get_redis_cache
     from app.main import app
     from app.infra.redis.cache import RedisCache
@@ -58,6 +65,10 @@ def test_deps_get_redis_cache_uses_singleton():
     mock_cache = MagicMock(spec=RedisCache)
     app.state.redis_cache = mock_cache
 
+    # Mock the request with app reference
+    mock_request = MagicMock()
+    mock_request.app = app
+
     # deps.get_redis_cache should return the same instance
-    result = get_redis_cache()
+    result = get_redis_cache(mock_request)
     assert result is mock_cache

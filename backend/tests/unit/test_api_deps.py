@@ -58,8 +58,12 @@ class TestGetRedisCache:
         mock_cache = MagicMock(spec=RedisCache)
         app.state.redis_cache = mock_cache
 
+        # Mock the request with app reference
+        mock_request = MagicMock()
+        mock_request.app = app
+
         try:
-            cache = get_redis_cache()
+            cache = get_redis_cache(mock_request)
             assert cache is mock_cache
         finally:
             # Clean up

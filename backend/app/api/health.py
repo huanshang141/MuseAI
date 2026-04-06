@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 from loguru import logger
 from redis.asyncio import from_url as redis_from_url
 from sqlalchemy import text
@@ -29,11 +29,13 @@ async def _check_database() -> str:
         return "unhealthy"
 
 
-async def _check_elasticsearch() -> str:
+async def _check_elasticsearch(request: Request) -> str:
     try:
-        from app.main import get_es_client
+        if not hasattr(request.app.state, "es_client"):
+            logger.warning("Elasticsearch client not initialized")
+            return "not_initialized"
 
-        es_client = get_es_client()
+        es_client = request.app.state.es_client
         if await es_client.health_check():
             return "healthy"
         return "unhealthy"
@@ -63,10 +65,10 @@ async def _check_redis() -> str:
 
 
 @router.get("/ready")
-async def ready(response: Response) -> dict:
+async def ready(request: Request, response: Response) -> dict:
     checks = {
         "database": await _check_database(),
-        "elasticsearch": await _check_elasticsearch(),
+        "elasticsearch": await _check_elasticsearch(request),
         "redis": await _check_redis(),
     }
 

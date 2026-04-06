@@ -47,6 +47,7 @@ def mock_app_state(monkeypatch):
     mock_es_client = MagicMock()
     mock_es_client.create_index = AsyncMock()
     mock_es_client.close = AsyncMock()
+    mock_es_client.health_check = AsyncMock(return_value=True)
 
     # Create mock Redis client for auth rate limiting
     mock_redis_client = MagicMock()

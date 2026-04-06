@@ -9,6 +9,15 @@ from langchain_openai import ChatOpenAI
 
 from app.config.settings import Settings
 from app.infra.langchain.agents import RAGAgent
+from app.infra.langchain.curator_agent import CuratorAgent
+from app.infra.langchain.curator_tools import (
+    KnowledgeRetrievalTool,
+    NarrativeGenerationTool,
+    PathPlanningTool,
+    PreferenceManagementTool,
+    ReflectionPromptTool,
+    create_curator_tools,
+)
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 from app.infra.langchain.retrievers import RRFRetriever
 from app.infra.providers.rerank import create_rerank_provider as _create_rerank_provider_impl
@@ -101,6 +110,42 @@ def create_rag_agent(
     )
 
 
+def create_curator_agent(
+    llm: Any,
+    rag_agent: Any,
+    exhibit_repository: Any,
+    profile_repository: Any,
+    session_id: str,
+    verbose: bool = False,
+) -> CuratorAgent:
+    """创建Curator Agent实例。
+
+    Args:
+        llm: 语言模型实例
+        rag_agent: RAG Agent实例，用于知识检索
+        exhibit_repository: 展品数据仓库
+        profile_repository: 参观者画像仓库
+        session_id: 会话ID
+        verbose: 是否启用详细日志
+
+    Returns:
+        Curator Agent实例
+    """
+    tools = create_curator_tools(
+        exhibit_repository=exhibit_repository,
+        profile_repository=profile_repository,
+        rag_agent=rag_agent,
+        llm=llm,
+    )
+
+    return CuratorAgent(
+        llm=llm,
+        tools=tools,
+        session_id=session_id,
+        verbose=verbose,
+    )
+
+
 __all__ = [
     "CustomOllamaEmbeddings",
     "create_embeddings",
@@ -109,4 +154,12 @@ __all__ = [
     "create_rerank_provider",
     "create_query_rewriter",
     "create_rag_agent",
+    "create_curator_agent",
+    "CuratorAgent",
+    "PathPlanningTool",
+    "KnowledgeRetrievalTool",
+    "NarrativeGenerationTool",
+    "ReflectionPromptTool",
+    "PreferenceManagementTool",
+    "create_curator_tools",
 ]

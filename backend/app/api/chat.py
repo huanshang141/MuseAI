@@ -1,14 +1,16 @@
 import sys
+import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, RateLimitDep, SessionDep
+from app.api.deps import CurrentUser, RateLimitDep, RedisCacheDep, SessionDep
 from app.application.chat_service import (
     ask_question,
+    ask_question_stream_guest,
     ask_question_stream_with_rag,
     count_messages_by_session,
     count_sessions_by_user,
@@ -128,6 +130,11 @@ def get_rag_agent() -> Any:
         retriever = create_retriever(es_client, embeddings, settings)
         _rag_agent = create_rag_agent(llm, retriever, settings)
     return _rag_agent
+
+
+# Dependency types (must be defined after get_rag_agent and get_llm_provider)
+RagAgentDep = Annotated[Any, Depends(get_rag_agent)]
+LLMProviderDep = Annotated[OpenAICompatibleProvider, Depends(get_llm_provider)]
 
 
 @router.post("/sessions", response_model=SessionResponse)
@@ -254,3 +261,35 @@ async def ask_stream_endpoint(
             yield event
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+class MessageRequest(BaseModel):
+    session_id: str | None = None
+    message: str
+
+
+@router.post("/guest/message")
+async def send_guest_message(
+    request: MessageRequest,
+    redis: RedisCacheDep,
+    rag_agent: RagAgentDep,
+    llm_provider: LLMProviderDep,
+) -> StreamingResponse:
+    """Send a message and get streaming response (guest mode, no auth required)."""
+    session_id = request.session_id or str(uuid.uuid4())
+
+    return StreamingResponse(
+        ask_question_stream_guest(
+            session_id=session_id,
+            message=request.message,
+            rag_agent=rag_agent,
+            llm_provider=llm_provider,
+            redis=redis,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "X-Session-Id": session_id,
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )

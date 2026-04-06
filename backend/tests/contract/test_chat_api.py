@@ -55,6 +55,8 @@ def mock_redis():
     mock = AsyncMock()
     mock.check_rate_limit = AsyncMock(return_value=True)
     mock.is_token_blacklisted = AsyncMock(return_value=False)
+    mock.get_guest_session = AsyncMock(return_value=None)
+    mock.set_guest_session = AsyncMock(return_value=None)
     return mock
 
 
@@ -350,3 +352,53 @@ async def test_ask_rate_limit_allows_requests_within_limit(db_session, auth_toke
         assert "sources" in data
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_guest_can_send_chat_message(db_session, mock_redis):
+    """Test that guests can send chat messages without authentication."""
+    from app.main import app
+    from httpx import ASGITransport, AsyncClient
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    async def override_get_db():
+        yield db_session
+
+    def override_redis():
+        return mock_redis
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_redis_cache] = override_redis
+
+    # Mock RAG agent
+    mock_rag_agent = MagicMock()
+    mock_rag_agent.run = AsyncMock(return_value={
+        "answer": "Test response",
+        "documents": [],
+        "retrieval_score": 0.8,
+    })
+
+    with patch.object(app.state, 'rag_agent', mock_rag_agent):
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.post(
+                    "/api/v1/chat/guest/message",
+                    json={"message": "Hello"},
+                )
+
+                assert response.status_code == 200
+                # Verify X-Session-Id header is returned
+                assert "X-Session-Id" in response.headers
+                session_id = response.headers["X-Session-Id"]
+                assert session_id  # Should not be empty
+
+                # Test with existing session_id
+                response2 = await client.post(
+                    "/api/v1/chat/guest/message",
+                    json={"message": "Hello again", "session_id": session_id},
+                )
+                assert response2.status_code == 200
+                assert response2.headers["X-Session-Id"] == session_id
+        finally:
+            app.dependency_overrides = {}

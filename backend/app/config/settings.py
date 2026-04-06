@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True
 
+    # Allow insecure dev defaults for local development
+    ALLOW_INSECURE_DEV_DEFAULTS: bool = False
+
     # Logging settings
     LOG_LEVEL: str = "INFO"
     LOG_DIR: str = "logs"
@@ -64,6 +67,10 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         is_production = self.APP_ENV == "production"
+        allow_insecure_defaults = (
+            self.ALLOW_INSECURE_DEV_DEFAULTS
+            and self.APP_ENV in {"development", "test", "local"}
+        )
 
         if is_production:
             if not self.JWT_SECRET:
@@ -75,11 +82,17 @@ class Settings(BaseSettings):
             if self.CORS_ORIGINS.strip() == "*":
                 raise ValueError("CORS_ORIGINS cannot be wildcard in production")
 
-        # Development defaults
+        # Development defaults (only if explicitly allowed)
         if not self.JWT_SECRET:
-            self.JWT_SECRET = "dev-secret-do-not-use-in-production"
+            if allow_insecure_defaults:
+                self.JWT_SECRET = "dev-secret-do-not-use-in-production"
+            else:
+                raise ValueError("JWT_SECRET must be set unless ALLOW_INSECURE_DEV_DEFAULTS=true")
         if not self.LLM_API_KEY:
-            self.LLM_API_KEY = "dev-key-do-not-use-in-production"
+            if allow_insecure_defaults:
+                self.LLM_API_KEY = "dev-key-do-not-use-in-production"
+            else:
+                raise ValueError("LLM_API_KEY must be set unless ALLOW_INSECURE_DEV_DEFAULTS=true")
 
         return self
 

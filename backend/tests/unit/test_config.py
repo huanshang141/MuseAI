@@ -39,8 +39,9 @@ def test_settings_validates_jwt_secret_length(monkeypatch):
 
 
 def test_settings_allows_defaults_in_development(monkeypatch):
-    """In development mode, defaults are acceptable."""
+    """In development mode, defaults are acceptable when ALLOW_INSECURE_DEV_DEFAULTS is true."""
     monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("ALLOW_INSECURE_DEV_DEFAULTS", "true")
     monkeypatch.delenv("JWT_SECRET", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
@@ -132,6 +133,7 @@ def test_settings_admin_emails_defaults_to_empty():
 def test_settings_admin_emails_from_env(monkeypatch):
     """Test that ADMIN_EMAILS can be set from environment variable."""
     monkeypatch.setenv("ADMIN_EMAILS", "admin1@example.com,admin2@example.com")
+    monkeypatch.setenv("ALLOW_INSECURE_DEV_DEFAULTS", "true")
 
     from app.config.settings import Settings
 
@@ -149,4 +151,17 @@ def test_settings_rejects_wildcard_cors_in_production(monkeypatch):
     from app.config.settings import Settings
 
     with pytest.raises(ValidationError, match="CORS_ORIGINS cannot be wildcard in production"):
+        Settings(_env_file=None)
+
+
+def test_settings_requires_secrets_without_insecure_dev_flag(monkeypatch):
+    """Without ALLOW_INSECURE_DEV_DEFAULTS, secrets must be explicitly set."""
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("ALLOW_INSECURE_DEV_DEFAULTS", "false")
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="JWT_SECRET must be set unless ALLOW_INSECURE_DEV_DEFAULTS=true"):
         Settings(_env_file=None)

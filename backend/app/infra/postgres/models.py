@@ -1,7 +1,8 @@
 # backend/app/infra/postgres/models.py
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -19,6 +20,8 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    profile: Mapped["VisitorProfile"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
+    created_tour_paths: Mapped[list["TourPath"]] = relationship(back_populates="creator")
 
 
 class ChatSession(Base):
@@ -57,6 +60,7 @@ class Document(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    exhibits: Mapped[list["Exhibit"]] = relationship(back_populates="document")
 
 
 class IngestionJob(Base):
@@ -73,3 +77,65 @@ class IngestionJob(Base):
     )
 
     document: Mapped["Document"] = relationship(back_populates="ingestion_jobs")
+
+
+class Exhibit(Base):
+    __tablename__ = "exhibits"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    location_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    floor: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    hall: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    era: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    importance: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_visit_time: Mapped[int | None] = mapped_column(Integer, nullable=True)  # in minutes
+    document_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("documents.id"), nullable=True, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+    document: Mapped["Document"] = relationship(back_populates="exhibits")
+
+
+class TourPath(Base):
+    __tablename__ = "tour_paths"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    theme: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    estimated_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # in minutes
+    exhibit_ids: Mapped[list] = mapped_column(JSON, default=list)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_by: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+    creator: Mapped["User"] = relationship(back_populates="created_tour_paths")
+
+
+class VisitorProfile(Base):
+    __tablename__ = "visitor_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    interests: Mapped[list] = mapped_column(JSON, default=list)
+    knowledge_level: Mapped[str] = mapped_column(String(20), default="beginner")  # beginner, intermediate, expert
+    narrative_preference: Mapped[str] = mapped_column(String(20), default="balanced")  # concise, balanced, detailed
+    reflection_depth: Mapped[int] = mapped_column(Integer, default=2)  # 1-5 scale
+    visited_exhibit_ids: Mapped[list] = mapped_column(JSON, default=list)
+    feedback_history: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
+
+    user: Mapped["User"] = relationship(back_populates="profile")

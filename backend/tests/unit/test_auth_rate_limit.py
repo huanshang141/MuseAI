@@ -49,3 +49,17 @@ def test_register_endpoint_has_rate_limiting():
             break
 
     assert register_route is not None, "Register route not found"
+
+
+def test_logout_endpoint_has_rate_limiting():
+    """Logout endpoint should check rate limit."""
+    from app.api.auth import router
+
+    logout_route = None
+    for route in router.routes:
+        if hasattr(route, 'path') and route.path == '/auth/logout':
+            logout_route = route
+            break
+
+    assert logout_route is not None, "Logout route not found"
+    assert any(dep.call.__name__ == "check_auth_rate_limit" for dep in logout_route.dependant.dependencies)

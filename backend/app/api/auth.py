@@ -1,3 +1,4 @@
+from loguru import logger
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, field_validator
 from redis.exceptions import RedisError
@@ -121,6 +122,7 @@ async def logout(
     request: Request,
     jwt_handler: JWTHandlerDep,
     redis: RedisCacheDep,
+    _: AuthRateLimitDep,
 ):
     """Logout user by blacklisting their current token."""
     # Extract token from Authorization header
@@ -136,9 +138,11 @@ async def logout(
             # Blacklist the token with TTL matching token expiration
             ttl = jwt_handler.expire_minutes * 60
             await redis.blacklist_token(jti, ttl)
-        except RedisError:
-            # If Redis is unavailable, logout fails silently
-            # Token will still expire naturally
-            pass
+        except RedisError as e:
+            logger.warning("Logout blacklist write failed: {}", e)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Logout temporarily unavailable. Please retry.",
+            ) from e
 
     return None

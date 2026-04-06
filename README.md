@@ -171,6 +171,12 @@ Environment variables (see `.env.example`):
 
 ## Development
 
+### One-command local verification
+
+```bash
+bash scripts/verify_local_quality.sh
+```
+
 ### Run Tests
 
 ```bash

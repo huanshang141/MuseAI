@@ -1,8 +1,26 @@
 # backend/tests/unit/test_domain_entities.py
 from datetime import datetime
 
-from app.domain.entities import ChatMessage, ChatSession, Document, IngestionJob, User
-from app.domain.value_objects import DocumentId, JobId, SessionId, UserId
+from app.domain.entities import (
+    ChatMessage,
+    ChatSession,
+    Document,
+    IngestionJob,
+    User,
+    Exhibit,
+    TourPath,
+    VisitorProfile,
+)
+from app.domain.value_objects import (
+    DocumentId,
+    JobId,
+    SessionId,
+    UserId,
+    ExhibitId,
+    TourPathId,
+    ProfileId,
+    Location,
+)
 
 
 def test_user_creation():
@@ -104,3 +122,66 @@ def test_ingestion_job_failure():
     job.fail(error="Something went wrong")
     assert job.status == "failed"
     assert job.error == "Something went wrong"
+
+
+def test_exhibit_creation():
+    exhibit = Exhibit(
+        id=ExhibitId("exhibit-123"),
+        name="Ancient Vase",
+        description="A beautiful ancient vase from the Ming Dynasty",
+        location=Location(x=10.5, y=20.3, floor=2),
+        hall="Hall A",
+        category="Ceramics",
+        era="Ming Dynasty",
+        importance=5,
+        estimated_visit_time=15,
+        document_id="doc-456",
+        is_active=True,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    assert exhibit.id.value == "exhibit-123"
+    assert exhibit.name == "Ancient Vase"
+    assert exhibit.location.x == 10.5
+    assert exhibit.location.y == 20.3
+    assert exhibit.location.floor == 2
+    assert exhibit.importance == 5
+
+
+def test_tour_path_creation():
+    tour = TourPath(
+        id=TourPathId("tour-123"),
+        name="Ancient China Tour",
+        description="A tour through ancient Chinese artifacts",
+        theme="Ancient History",
+        estimated_duration=60,
+        exhibit_ids=[ExhibitId("exhibit-123"), ExhibitId("exhibit-456")],
+        is_active=True,
+        created_by=UserId("user-123"),
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    assert tour.id.value == "tour-123"
+    assert tour.name == "Ancient China Tour"
+    assert len(tour.exhibit_ids) == 2
+    assert tour.exhibit_ids[0].value == "exhibit-123"
+
+
+def test_visitor_profile_creation():
+    profile = VisitorProfile(
+        id=ProfileId("profile-123"),
+        user_id=UserId("user-123"),
+        interests=["Ancient History", "Art", "Sculpture"],
+        knowledge_level="intermediate",
+        narrative_preference="storytelling",
+        reflection_depth="deep",
+        visited_exhibit_ids=[ExhibitId("exhibit-123")],
+        feedback_history=["positive"],
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    assert profile.id.value == "profile-123"
+    assert profile.user_id.value == "user-123"
+    assert profile.knowledge_level == "intermediate"
+    assert len(profile.interests) == 3
+    assert "Ancient History" in profile.interests

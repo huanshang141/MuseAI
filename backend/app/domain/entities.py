@@ -1,8 +1,9 @@
 # backend/app/domain/entities.py
 from dataclasses import dataclass
 from datetime import datetime
+from typing import List
 
-from .value_objects import DocumentId, JobId, SessionId, UserId
+from .value_objects import DocumentId, JobId, SessionId, UserId, ExhibitId, TourPathId, ProfileId, Location
 
 
 @dataclass
@@ -66,3 +67,48 @@ class IngestionJob:
             raise ValueError("Can only fail processing jobs")
         self.status = "failed"
         self.error = error
+
+
+@dataclass
+class Exhibit:
+    id: ExhibitId
+    name: str
+    description: str
+    location: Location
+    hall: str
+    category: str
+    era: str
+    importance: int
+    estimated_visit_time: int
+    document_id: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class TourPath:
+    id: TourPathId
+    name: str
+    description: str
+    theme: str
+    estimated_duration: int
+    exhibit_ids: List[ExhibitId]
+    is_active: bool
+    created_by: UserId
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass
+class VisitorProfile:
+    id: ProfileId
+    user_id: UserId
+    interests: List[str]
+    knowledge_level: str
+    narrative_preference: str
+    reflection_depth: str
+    visited_exhibit_ids: List[ExhibitId]
+    feedback_history: List[str]
+    created_at: datetime
+    updated_at: datetime

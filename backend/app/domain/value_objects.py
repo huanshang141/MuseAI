@@ -30,3 +30,25 @@ class ChunkId:
 @dataclass(frozen=True)
 class TraceId:
     value: str
+
+
+@dataclass(frozen=True)
+class ExhibitId:
+    value: str
+
+
+@dataclass(frozen=True)
+class TourPathId:
+    value: str
+
+
+@dataclass(frozen=True)
+class ProfileId:
+    value: str
+
+
+@dataclass(frozen=True)
+class Location:
+    x: float
+    y: float
+    floor: int = 1

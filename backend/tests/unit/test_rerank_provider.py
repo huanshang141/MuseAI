@@ -268,3 +268,48 @@ class TestCreateRerankProvider:
 
         assert provider is not None
         assert isinstance(provider, SiliconFlowRerankProvider)
+
+
+class TestSiliconFlowRerankProvider:
+    @pytest.mark.asyncio
+    async def test_parse_siliconflow_response_format(self):
+        """测试解析SiliconFlow响应格式（document是对象）。"""
+        from app.infra.providers.rerank import SiliconFlowRerankProvider
+
+        provider = SiliconFlowRerankProvider(api_key="test-key")
+
+        # SiliconFlow 实际响应格式
+        response_data = {
+            "id": "test-id",
+            "results": [
+                {
+                    "document": {"text": "四羊方尊是中国商代晚期的青铜礼器"},
+                    "index": 0,
+                    "relevance_score": 0.9793559908866882
+                },
+                {
+                    "document": {"text": "四羊方尊出土于湖南宁乡"},
+                    "index": 1,
+                    "relevance_score": 0.9064918160438538
+                }
+            ],
+            "meta": {"tokens": {"input_tokens": 67}}
+        }
+
+        results = provider._parse_response(response_data)
+
+        assert len(results) == 2
+        assert results[0].relevance_score == 0.9793559908866882
+        assert results[0].document == "四羊方尊是中国商代晚期的青铜礼器"
+        assert results[0].index == 0
+        # 验证按分数降序排序
+        assert results[0].relevance_score > results[1].relevance_score
+
+    @pytest.mark.asyncio
+    async def test_rerank_empty_documents(self):
+        """测试空文档列表。"""
+        from app.infra.providers.rerank import SiliconFlowRerankProvider
+
+        provider = SiliconFlowRerankProvider(api_key="test-key")
+        results = await provider.rerank("query", [], 5)
+        assert results == []

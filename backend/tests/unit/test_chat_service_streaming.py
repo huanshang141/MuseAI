@@ -379,13 +379,13 @@ class TestAskQuestionStreamWithRag:
         ):
             events.append(event)
 
-        # Check for retrieval info in thinking events
-        thinking_events = [e for e in events if '"type": "thinking"' in e]
-        # Should have retrieve and evaluate thinking events
-        assert any('"stage": "retrieve"' in e for e in thinking_events)
-        assert any('"stage": "evaluate"' in e for e in thinking_events)
+        # Check for retrieval info in rag_step events
+        rag_step_events = [e for e in events if '"type": "rag_step"' in e]
+        # Should have retrieve and evaluate rag_step events
+        assert any('"step": "retrieve"' in e for e in rag_step_events)
+        assert any('"step": "evaluate"' in e for e in rag_step_events)
         # Check for retrieval score in evaluate event
-        assert any("0.75" in e for e in thinking_events)
+        assert any("0.75" in e for e in rag_step_events)
 
 
 @pytest.mark.asyncio

@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     ELASTICSEARCH_INDEX: str = "museai_chunks_v1"
     EMBEDDING_DIMS: int = 768
 
+    # Rerank服务配置
+    RERANK_PROVIDER: str = "openai"  # openai, cohere, custom
+    RERANK_BASE_URL: str = ""
+    RERANK_API_KEY: str = ""
+    RERANK_MODEL: str = "rerank-v1"
+    RERANK_TOP_N: int = 5  # 返回top N结果
+
     # CORS settings
     CORS_ORIGINS: str = "*"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True

@@ -8,10 +8,18 @@ from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
+from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
 from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
+from app.infra.langchain import (
+    create_embeddings,
+    create_llm,
+    create_query_rewriter,
+    create_rag_agent,
+    create_rerank_provider,
+    create_retriever,
+)
 from app.infra.postgres.database import close_database, init_database
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
@@ -46,11 +54,32 @@ async def lifespan(app: FastAPI):
         embeddings = create_embeddings(settings)
         llm = create_llm(settings)
         retriever = create_retriever(es_client, embeddings, settings)
-        rag_agent = create_rag_agent(llm, retriever, settings)
+
+        # Initialize rerank and query rewriter
+        rerank_provider = create_rerank_provider(settings)
+
+        # Create LLM provider for query rewriter
+        from app.infra.providers.llm import OpenAICompatibleProvider
+
+        llm_provider = OpenAICompatibleProvider.from_settings(settings)
+        query_rewriter = create_query_rewriter(llm_provider)
+
+        # Create RAG agent with enhanced capabilities
+        rag_agent = create_rag_agent(
+            llm=llm,
+            retriever=retriever,
+            settings=settings,
+            rerank_provider=rerank_provider,
+            query_rewriter=query_rewriter,
+        )
+
         ingestion_service = IngestionService(
             es_client=es_client,
             embeddings=embeddings,
         )
+
+        # Create conversation context manager
+        context_manager = ConversationContextManager(redis_cache=redis_cache)
 
         # Store in app.state
         app.state.redis_cache = redis_cache
@@ -59,6 +88,9 @@ async def lifespan(app: FastAPI):
         app.state.llm = llm
         app.state.retriever = retriever
         app.state.rag_agent = rag_agent
+        app.state.rerank_provider = rerank_provider
+        app.state.query_rewriter = query_rewriter
+        app.state.context_manager = context_manager
         app.state.ingestion_service = ingestion_service
         app.state.settings = settings
 
@@ -128,6 +160,27 @@ def get_redis_cache() -> RedisCache:
     if hasattr(app.state, "redis_cache"):
         return app.state.redis_cache
     raise RuntimeError("Redis cache not initialized. App not started?")
+
+
+def get_rerank_provider():
+    """Get Rerank provider from app.state."""
+    if hasattr(app.state, "rerank_provider"):
+        return app.state.rerank_provider
+    raise RuntimeError("Rerank provider not initialized. App not started?")
+
+
+def get_query_rewriter():
+    """Get query rewriter from app.state."""
+    if hasattr(app.state, "query_rewriter"):
+        return app.state.query_rewriter
+    raise RuntimeError("Query rewriter not initialized. App not started?")
+
+
+def get_context_manager() -> ConversationContextManager:
+    """Get conversation context manager from app.state."""
+    if hasattr(app.state, "context_manager"):
+        return app.state.context_manager
+    raise RuntimeError("Context manager not initialized. App not started?")
 
 
 # Get settings for CORS configuration

@@ -1,6 +1,6 @@
 import re
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 
 
 class QueryTransformStrategy(Enum):
@@ -8,6 +8,76 @@ class QueryTransformStrategy(Enum):
     STEP_BACK = "step_back"
     HYDE = "hyde"
     MULTI_QUERY = "multi_query"
+
+
+class LLMProviderProtocol(Protocol):
+    """LLM提供者协议。"""
+
+    async def generate(self, messages: list[dict[str, Any]]) -> Any:
+        """生成文本响应。"""
+        ...
+
+
+class LLMResponseProtocol(Protocol):
+    """LLM响应协议。"""
+
+    content: str
+
+
+class ConversationAwareQueryRewriter:
+    """基于多轮对话历史的查询重写器。"""
+
+    REWRITE_PROMPT = """你是一个博物馆导览助手。用户正在与您进行多轮对话。
+
+对话历史：
+{conversation_history}
+
+当前用户问题：{query}
+
+请根据对话历史，将用户的问题改写为一个独立、完整的问题，使其能够独立理解而不需要之前的上下文。
+只输出改写后的问题，不要解释："""
+
+    def __init__(self, llm_provider: LLMProviderProtocol):
+        self.llm_provider = llm_provider
+
+    def _format_conversation_history(self, history: list[dict[str, str]]) -> str:
+        """格式化对话历史为可读文本。"""
+        if not history:
+            return "（无历史对话）"
+
+        formatted = []
+        for msg in history:
+            role = "用户" if msg.get("role") == "user" else "助手"
+            content = msg.get("content", "")
+            formatted.append(f"{role}：{content}")
+
+        return "\n".join(formatted)
+
+    async def rewrite_with_context(
+        self,
+        query: str,
+        conversation_history: list[dict[str, str]],
+    ) -> str:
+        """根据对话历史重写查询。
+
+        Args:
+            query: 当前用户查询
+            conversation_history: 对话历史列表，每项包含role和content
+
+        Returns:
+            重写后的独立查询
+        """
+        if not conversation_history:
+            return query
+
+        formatted_history = self._format_conversation_history(conversation_history)
+        prompt = self.REWRITE_PROMPT.format(
+            conversation_history=formatted_history,
+            query=query,
+        )
+
+        response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
+        return str(response.content).strip()
 
 
 class QueryTransformer:
@@ -38,18 +108,18 @@ class QueryTransformer:
     async def transform_step_back(self, query: str) -> str:
         prompt = self.STEP_BACK_PROMPT.format(query=query)
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
-        return response.content.strip()
+        return str(response.content).strip()
 
     async def transform_hyde(self, query: str) -> str:
         prompt = self.HYDE_PROMPT.format(query=query)
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
-        return response.content.strip()
+        return str(response.content).strip()
 
     async def transform_multi_query(self, query: str) -> list[str]:
         prompt = self.MULTI_QUERY_PROMPT.format(query=query)
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
 
-        lines = response.content.strip().split("\n")
+        lines = str(response.content).strip().split("\n")
         queries = []
         for line in lines:
             line = line.strip()

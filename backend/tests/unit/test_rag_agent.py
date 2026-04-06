@@ -8,18 +8,24 @@ from langchain_core.documents import Document
 def test_rag_state_typeddict_has_required_fields():
     state = RAGState(
         query="test query",
+        rewritten_query="",
         documents=[],
+        reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
         transformations=[],
         answer="",
+        conversation_history=[],
     )
     assert state["query"] == "test query"
+    assert state["rewritten_query"] == ""
     assert state["documents"] == []
+    assert state["reranked_documents"] == []
     assert state["retrieval_score"] == 0.0
     assert state["attempts"] == 0
     assert state["transformations"] == []
     assert state["answer"] == ""
+    assert state["conversation_history"] == []
 
 
 def test_rag_agent_initialization():
@@ -53,7 +59,7 @@ def test_rag_agent_custom_threshold_and_max_attempts():
 async def test_rag_agent_retrieve_node():
     mock_llm = MagicMock()
     mock_retriever = AsyncMock()
-    mock_retriever._aget_relevant_documents = AsyncMock(
+    mock_retriever.ainvoke = AsyncMock(
         return_value=[
             Document(page_content="doc1", metadata={"chunk_id": "1"}),
             Document(page_content="doc2", metadata={"chunk_id": "2"}),
@@ -63,11 +69,14 @@ async def test_rag_agent_retrieve_node():
     agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
     state = RAGState(
         query="test query",
+        rewritten_query="test query",
         documents=[],
+        reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
         transformations=[],
         answer="",
+        conversation_history=[],
     )
 
     result = await agent.retrieve(state)
@@ -89,11 +98,14 @@ async def test_rag_agent_evaluate_node_high_score():
     ]
     state = RAGState(
         query="test query",
+        rewritten_query="test query",
         documents=docs,
+        reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
         transformations=[],
         answer="",
+        conversation_history=[],
     )
 
     result = agent.evaluate(state)
@@ -109,11 +121,14 @@ async def test_rag_agent_transform_node():
     agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
     state = RAGState(
         query="test query",
+        rewritten_query="test query",
         documents=[],
+        reranked_documents=[],
         retrieval_score=0.5,
         attempts=0,
         transformations=[],
         answer="",
+        conversation_history=[],
     )
 
     result = agent.transform(state)
@@ -133,11 +148,14 @@ async def test_rag_agent_generate_node():
     docs = [Document(page_content="context", metadata={})]
     state = RAGState(
         query="test query",
+        rewritten_query="test query",
         documents=docs,
+        reranked_documents=[],
         retrieval_score=0.8,
         attempts=0,
         transformations=[],
         answer="",
+        conversation_history=[],
     )
 
     result = await agent.generate(state)
@@ -151,7 +169,7 @@ async def test_rag_agent_run_full_flow():
     mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="Final answer"))
 
     mock_retriever = AsyncMock()
-    mock_retriever._aget_relevant_documents = AsyncMock(
+    mock_retriever.ainvoke = AsyncMock(
         return_value=[
             Document(page_content="relevant doc", metadata={"rrf_score": 0.9}),
         ]
@@ -171,7 +189,7 @@ async def test_rag_agent_run_with_low_score_retries():
     mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="Answer after retries"))
 
     mock_retriever = AsyncMock()
-    mock_retriever._aget_relevant_documents = AsyncMock(
+    mock_retriever.ainvoke = AsyncMock(
         return_value=[
             Document(page_content="doc", metadata={"rrf_score": 0.3}),
         ]
@@ -182,3 +200,40 @@ async def test_rag_agent_run_with_low_score_retries():
 
     assert result["answer"] == "Answer after retries"
     assert result["attempts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rag_agent_rewrite_with_history():
+    """测试多轮对话查询重写。"""
+    from app.workflows.query_transform import ConversationAwareQueryRewriter
+
+    mock_llm_provider = AsyncMock()
+    mock_llm_provider.generate = AsyncMock(
+        return_value=MagicMock(content="这件青铜器是什么时候制作的？")
+    )
+
+    query_rewriter = ConversationAwareQueryRewriter(mock_llm_provider)
+
+    mock_llm = MagicMock()
+    mock_retriever = AsyncMock()
+    mock_retriever.ainvoke = AsyncMock(
+        return_value=[
+            Document(page_content="doc", metadata={"rrf_score": 0.8}),
+        ]
+    )
+    mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="Answer"))
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        query_rewriter=query_rewriter,
+    )
+
+    history = [
+        {"role": "user", "content": "请介绍一下这件青铜器"},
+        {"role": "assistant", "content": "这是一件商代青铜器"},
+    ]
+
+    result = await agent.run("那它是什么时候制作的？", conversation_history=history)
+
+    assert result["answer"] == "Answer"

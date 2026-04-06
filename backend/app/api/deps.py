@@ -151,6 +151,32 @@ async def get_current_admin(
 CurrentAdmin = Annotated[dict, Depends(get_current_admin)]
 
 
+async def get_current_admin_user(
+    current_user: CurrentUser,
+) -> dict:
+    """Require admin role for endpoint access (alias for get_current_admin).
+
+    Checks if the user's email is in the ADMIN_EMAILS setting or if their role is 'admin'.
+    """
+    from app.config.settings import get_settings
+
+    settings = get_settings()
+    admin_emails = settings.get_admin_emails()
+
+    # Check if user is admin by role or by email
+    is_admin = current_user.get("role") == "admin" or current_user.get("email") in admin_emails
+
+    if not is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return current_user
+
+
+CurrentAdminUser = Annotated[dict, Depends(get_current_admin_user)]
+
+
 async def check_rate_limit(
     redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
     current_user: dict = Depends(get_current_user),  # noqa: B008

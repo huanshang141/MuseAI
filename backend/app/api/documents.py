@@ -5,12 +5,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from loguru import logger
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, RateLimitDep, SessionDep
+from app.api.deps import CurrentAdmin, CurrentUser, OptionalUser, RateLimitDep, SessionDep
 from app.application.document_service import (
+    count_all_documents,
     count_documents_by_user,
     create_document,
     delete_document,
+    delete_document_by_id,
+    get_all_documents,
     get_document_by_id,
+    get_document_by_id_public,
     get_documents_by_user,
     get_ingestion_job_by_document,
     update_document_status,
@@ -144,7 +148,7 @@ async def process_document_background(
 async def upload_document(
     session: SessionDep,
     background_tasks: BackgroundTasks,
-    current_user: CurrentUser,
+    current_admin: CurrentAdmin,
     _: RateLimitDep,
     ingestion_service: IngestionService = Depends(get_ingestion_service),  # noqa: B008
     file: UploadFile = File(...),  # noqa: B008
@@ -159,7 +163,7 @@ async def upload_document(
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
-    document = await create_document(session, file.filename, file_size, current_user["id"])
+    document = await create_document(session, file.filename, file_size, current_admin["id"])
     await session.commit()
 
     try:
@@ -186,12 +190,12 @@ async def upload_document(
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
     session: SessionDep,
-    current_user: CurrentUser,
+    _: OptionalUser,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> DocumentListResponse:
-    documents = await get_documents_by_user(session, current_user["id"], limit=limit, offset=offset)
-    total = await count_documents_by_user(session, current_user["id"])
+    documents = await get_all_documents(session, limit=limit, offset=offset)
+    total = await count_all_documents(session)
     return DocumentListResponse(
         documents=[
             DocumentResponse(
@@ -210,8 +214,8 @@ async def list_documents(
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
-async def get_document(session: SessionDep, doc_id: str, current_user: CurrentUser) -> DocumentResponse:
-    document = await get_document_by_id(session, doc_id, current_user["id"])
+async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> DocumentResponse:
+    document = await get_document_by_id_public(session, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -225,8 +229,8 @@ async def get_document(session: SessionDep, doc_id: str, current_user: CurrentUs
 
 
 @router.get("/{doc_id}/status", response_model=IngestionJobResponse)
-async def get_document_status(session: SessionDep, doc_id: str, current_user: CurrentUser) -> IngestionJobResponse:
-    document = await get_document_by_id(session, doc_id, current_user["id"])
+async def get_document_status(session: SessionDep, doc_id: str, _: OptionalUser) -> IngestionJobResponse:
+    document = await get_document_by_id_public(session, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -246,8 +250,8 @@ async def get_document_status(session: SessionDep, doc_id: str, current_user: Cu
 
 
 @router.delete("/{doc_id}", response_model=DeleteResponse)
-async def delete_document_endpoint(session: SessionDep, doc_id: str, current_user: CurrentUser) -> DeleteResponse:
-    success = await delete_document(session, doc_id, current_user["id"])
+async def delete_document_endpoint(session: SessionDep, doc_id: str, current_admin: CurrentAdmin) -> DeleteResponse:
+    success = await delete_document_by_id(session, doc_id)
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
     return DeleteResponse(status="deleted", document_id=doc_id)

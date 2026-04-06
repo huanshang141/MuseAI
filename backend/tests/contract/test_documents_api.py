@@ -10,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 TEST_USER_ID = "test-user-001"
+TEST_ADMIN_ID = "test-admin-001"
 
 
 @pytest.fixture
@@ -31,7 +32,13 @@ async def db_session(session_maker):
         if not existing_user.scalar_one_or_none():
             test_user = User(id=TEST_USER_ID, email="test@example.com", password_hash="test_hash", role="user")
             session.add(test_user)
-            await session.commit()
+
+        existing_admin = await session.execute(select(User).where(User.id == TEST_ADMIN_ID))
+        if not existing_admin.scalar_one_or_none():
+            test_admin = User(id=TEST_ADMIN_ID, email="admin@example.com", password_hash="test_hash", role="admin")
+            session.add(test_admin)
+
+        await session.commit()
 
         yield session
 
@@ -51,8 +58,23 @@ async def auth_token(db_session):
     return jwt_handler.create_token(TEST_USER_ID)
 
 
+@pytest.fixture
+async def admin_token(db_session):
+    """Get a valid JWT token for the test admin."""
+    from app.config.settings import get_settings
+    from app.infra.security.jwt_handler import JWTHandler
+
+    settings = get_settings()
+    jwt_handler = JWTHandler(
+        secret=settings.JWT_SECRET,
+        algorithm=settings.JWT_ALGORITHM,
+        expire_minutes=settings.JWT_EXPIRE_MINUTES,
+    )
+    return jwt_handler.create_token(TEST_ADMIN_ID)
+
+
 @pytest.mark.asyncio
-async def test_upload_document(db_session, auth_token):
+async def test_upload_document(db_session, admin_token):
     async def override_get_db():
         yield db_session
 
@@ -69,7 +91,7 @@ async def test_upload_document(db_session, auth_token):
                 response = await client.post(
                     "/api/v1/documents/upload",
                     files={"file": ("test.txt", f, "text/plain")},
-                    headers={"Authorization": f"Bearer {auth_token}"},
+                    headers={"Authorization": f"Bearer {admin_token}"},
                 )
 
         os.unlink(tmp_path)
@@ -204,7 +226,7 @@ async def test_get_document_status_document_not_found(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_delete_document(db_session, auth_token):
+async def test_delete_document(db_session, admin_token):
     from app.application.document_service import create_document
 
     async def override_get_db():
@@ -213,14 +235,14 @@ async def test_delete_document(db_session, auth_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "to-delete.pdf", 512, TEST_USER_ID)
+        doc = await create_document(db_session, "to-delete.pdf", 512, TEST_ADMIN_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.delete(
                 f"/api/v1/documents/{doc.id}",
-                headers={"Authorization": f"Bearer {auth_token}"},
+                headers={"Authorization": f"Bearer {admin_token}"},
             )
 
         assert response.status_code == 200
@@ -232,7 +254,7 @@ async def test_delete_document(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_delete_document_not_found(db_session, auth_token):
+async def test_delete_document_not_found(db_session, admin_token):
     async def override_get_db():
         yield db_session
 
@@ -243,7 +265,7 @@ async def test_delete_document_not_found(db_session, auth_token):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.delete(
                 "/api/v1/documents/nonexistent-id",
-                headers={"Authorization": f"Bearer {auth_token}"},
+                headers={"Authorization": f"Bearer {admin_token}"},
             )
 
         assert response.status_code == 404
@@ -252,7 +274,7 @@ async def test_delete_document_not_found(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_upload_rate_limit_exceeded(db_session, auth_token):
+async def test_upload_rate_limit_exceeded(db_session, admin_token):
     """Test that rate limit returns 429 when exceeded."""
     from unittest.mock import AsyncMock
 
@@ -283,7 +305,7 @@ async def test_upload_rate_limit_exceeded(db_session, auth_token):
                 response = await client.post(
                     "/api/v1/documents/upload",
                     files={"file": ("test.txt", f, "text/plain")},
-                    headers={"Authorization": f"Bearer {auth_token}"},
+                    headers={"Authorization": f"Bearer {admin_token}"},
                 )
 
         os.unlink(tmp_path)
@@ -295,7 +317,7 @@ async def test_upload_rate_limit_exceeded(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_upload_rate_limit_allows_requests_within_limit(db_session, auth_token):
+async def test_upload_rate_limit_allows_requests_within_limit(db_session, admin_token):
     """Test that rate limit allows requests within limit."""
     from unittest.mock import AsyncMock
 
@@ -326,7 +348,7 @@ async def test_upload_rate_limit_allows_requests_within_limit(db_session, auth_t
                 response = await client.post(
                     "/api/v1/documents/upload",
                     files={"file": ("test.txt", f, "text/plain")},
-                    headers={"Authorization": f"Bearer {auth_token}"},
+                    headers={"Authorization": f"Bearer {admin_token}"},
                 )
 
         os.unlink(tmp_path)
@@ -430,3 +452,79 @@ async def test_update_document_status_function(db_session):
     assert fetched_doc is not None
     assert fetched_doc.status == "failed"
     assert fetched_doc.error == "Test error"
+
+
+@pytest.mark.asyncio
+async def test_list_documents_public_access(db_session):
+    """Test that documents can be listed without authentication."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/v1/documents")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "documents" in data
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_upload_requires_admin(db_session, auth_token):
+    """Test that upload requires admin role."""
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+            tmp.write(b"test content")
+            tmp_path = tmp.name
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with open(tmp_path, "rb") as f:
+                response = await client.post(
+                    "/api/v1/documents/upload",
+                    files={"file": ("test.txt", f, "text/plain")},
+                    headers={"Authorization": f"Bearer {auth_token}"},
+                )
+
+        os.unlink(tmp_path)
+
+        assert response.status_code == 403
+        assert "Admin access required" in response.json()["detail"]
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_delete_requires_admin(db_session, auth_token):
+    """Test that delete requires admin role."""
+    from app.application.document_service import create_document
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        doc = await create_document(db_session, "test.pdf", 1024, TEST_USER_ID)
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.delete(
+                f"/api/v1/documents/{doc.id}",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides = {}

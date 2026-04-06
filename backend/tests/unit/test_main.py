@@ -1,5 +1,19 @@
-import pytest
+import importlib.util
+import uuid
+from pathlib import Path
+
 from fastapi.testclient import TestClient
+
+APP_MAIN_PATH = Path(__file__).resolve().parents[2] / "app" / "main.py"
+
+
+def _load_isolated_app():
+    module_name = f"app_main_test_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, APP_MAIN_PATH)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.app
 
 
 def test_cors_uses_settings_origins(monkeypatch):
@@ -7,7 +21,7 @@ def test_cors_uses_settings_origins(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://example.com,https://app.example.com")
     monkeypatch.setenv("APP_ENV", "development")
 
-    from app.main import app
+    app = _load_isolated_app()
 
     # Check that CORS middleware is configured
     client = TestClient(app)
@@ -30,14 +44,7 @@ def test_cors_rejects_unauthorized_origin_in_production(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("CORS_ORIGINS", "https://example.com")
 
-    # Need to reimport to pick up new settings
-    import importlib
-
-    import app.main
-
-    importlib.reload(app.main)
-
-    from app.main import app
+    app = _load_isolated_app()
 
     client = TestClient(app)
     response = client.options(

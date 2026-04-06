@@ -27,6 +27,8 @@ async function request(path, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
+  console.log(`[API] ${options.method || 'GET'} ${path}`, options.body || '')
+
   let response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
@@ -34,10 +36,13 @@ async function request(path, options = {}) {
       ...options,
     })
   } catch (error) {
+    console.error(`[API] Network error for ${path}:`, error)
     return normalizeNetworkError(error)
   }
 
   const data = await response.json().catch(() => ({}))
+  console.log(`[API] Response for ${path}:`, { status: response.status, ok: response.ok, data })
+
   if (response.status === 401) {
     clearAuthState()
   }

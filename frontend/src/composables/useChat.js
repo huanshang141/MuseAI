@@ -37,7 +37,7 @@ export function useChat() {
       return handleError(result)
     }
 
-    sessions.value = result.data
+    sessions.value = result.data.sessions || result.data
     return result
   }
 
@@ -47,14 +47,20 @@ export function useChat() {
       return { ok: false, status: 401, data: { detail: '未认证' } }
     }
 
+    console.log('[useChat] Creating session with title:', title)
     const result = await api.chat.createSession(title)
+    console.log('[useChat] Create session result:', result)
+
     if (!result.ok) {
+      console.error('[useChat] Create session failed:', result)
       return handleError(result)
     }
 
+    console.log('[useChat] Setting currentSession to:', result.data)
     sessions.value.unshift(result.data)
     currentSession.value = result.data
     messages.value = []
+    console.log('[useChat] currentSession is now:', currentSession.value)
     return result
   }
 
@@ -78,7 +84,7 @@ export function useChat() {
       return handleError(result)
     }
 
-    messages.value = result.data
+    messages.value = result.data.messages || result.data
     return result
   }
 

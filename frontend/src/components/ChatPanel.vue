@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useChat } from '../composables/useChat.js'
 import MessageItem from './chat/MessageItem.vue'
 import SourceCard from './chat/SourceCard.vue'
@@ -23,7 +23,10 @@ const messagesContainer = ref(null)
 
 async function handleCreateSession() {
   const title = `会话 ${new Date().toLocaleString('zh-CN')}`
-  await createSession(title)
+  console.log('[ChatPanel] Creating session:', title)
+  const result = await createSession(title)
+  console.log('[ChatPanel] Create session result:', result)
+  console.log('[ChatPanel] currentSession after create:', currentSession.value)
 }
 
 async function handleSendMessage() {
@@ -88,6 +91,11 @@ function scrollToBottom() {
 }
 
 onMounted(fetchSessions)
+
+// Watch for currentSession changes to debug reactivity
+watch(currentSession, (newVal, oldVal) => {
+  console.log('[ChatPanel] currentSession changed:', { from: oldVal, to: newVal })
+}, { immediate: true })
 </script>
 
 <template>

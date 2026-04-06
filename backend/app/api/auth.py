@@ -1,5 +1,5 @@
-from loguru import logger
 from fastapi import APIRouter, HTTPException, Request, status
+from loguru import logger
 from pydantic import BaseModel, EmailStr, field_validator
 from redis.exceptions import RedisError
 

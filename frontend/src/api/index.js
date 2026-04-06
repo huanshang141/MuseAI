@@ -49,10 +49,29 @@ async function request(path, options = {}) {
   }
 }
 
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function requestWithRetry(path, options = {}, config = { retries: 0, baseDelayMs: 150 }) {
+  let attempt = 0
+  while (true) {
+    const result = await request(path, options)
+    const retryable = result.status === 0 || result.status >= 500
+
+    if (!retryable || attempt >= config.retries) {
+      return result
+    }
+
+    attempt += 1
+    await wait(config.baseDelayMs * attempt)
+  }
+}
+
 export const api = {
-  // Health endpoints (public)
-  health: () => request('/health'),
-  ready: () => request('/ready'),
+  // Health endpoints (public) - idempotent, safe to retry
+  health: () => requestWithRetry('/health', {}, { retries: 1, baseDelayMs: 150 }),
+  ready: () => requestWithRetry('/ready', {}, { retries: 1, baseDelayMs: 150 }),
 
   // Auth endpoints
   auth: {

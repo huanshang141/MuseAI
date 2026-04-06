@@ -34,4 +34,21 @@ describe('api request hardening', () => {
     expect(localStorage.getItem('user')).toBeNull()
     expect(localStorage.getItem('user_role')).toBeNull()
   })
+
+  it('retries idempotent health request once after transient failure', async () => {
+    vi.useFakeTimers()
+
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ status: 'ok' }) })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const pending = api.health()
+    await vi.runAllTimersAsync()
+    const result = await pending
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(result.ok).toBe(true)
+  })
 })

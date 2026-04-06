@@ -78,7 +78,11 @@ def setup_logging(settings: Settings) -> None:
 
     # Determine format based on settings
     is_json = settings.LOG_FORMAT.lower() == "json"
-    log_level = settings.LOG_LEVEL.upper()
+    console_level = settings.LOG_LEVEL.upper()
+
+    # 开发模式下，文件日志使用DEBUG级别，控制台保持INFO或配置级别
+    is_dev = settings.APP_ENV in {"development", "dev", "local", "test"}
+    file_level = "DEBUG" if is_dev else console_level
 
     # Console handler - always text for readability, use string format to avoid colorization issues
     console_format = (
@@ -90,7 +94,7 @@ def setup_logging(settings: Settings) -> None:
     logger.add(
         sys.stdout,
         format=console_format,
-        level=log_level,
+        level=console_level,
         colorize=True,
     )
 
@@ -108,7 +112,7 @@ def setup_logging(settings: Settings) -> None:
                 filter=lambda record, m=module: _should_log_to_module(record, m),
                 rotation="00:00",  # Daily rotation at midnight
                 retention="7 days",
-                level=log_level,
+                level=file_level,
                 serialize=True,  # Built-in JSON serialization
                 enqueue=True,  # Async writes for high concurrency
             )
@@ -120,11 +124,19 @@ def setup_logging(settings: Settings) -> None:
                 filter=lambda record, m=module: _should_log_to_module(record, m),
                 rotation="00:00",
                 retention="7 days",
-                level=log_level,
+                level=file_level,
                 enqueue=True,
             )
 
-    logger.info("Logging system initialized", extra={"log_dir": str(log_dir), "log_level": log_level})
+    logger.info(
+        "Logging system initialized",
+        extra={
+            "log_dir": str(log_dir),
+            "console_level": console_level,
+            "file_level": file_level,
+            "is_dev": is_dev,
+        }
+    )
 
 
 def _should_log_to_module(record: dict, module: str) -> bool:

@@ -20,8 +20,8 @@ const expanded = ref(false)
           <el-icon><Document /></el-icon>
           {{ source.source || '未知来源' }}
         </span>
-        <el-tag size="small" type="info">
-          相似度: {{ (source.score || 0).toFixed(2) }}
+        <el-tag size="small" type="info" :title="`原始分数: ${(source.score || 0).toFixed(4)}`">
+          相似度: {{ ((source.score || 0) * 100).toFixed(1) }}%
         </el-tag>
       </div>
     </template>

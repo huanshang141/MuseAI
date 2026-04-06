@@ -217,6 +217,8 @@ async def ask_question_stream_with_rag(
     llm_provider: LLMProvider,
     user_id: str,
 ) -> AsyncGenerator[str, None]:
+    from loguru import logger
+
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
@@ -232,6 +234,9 @@ async def ask_question_stream_with_rag(
 
     try:
         result = await rag_agent.run(message)
+        logger.debug(f"RAG result keys: {result.keys() if hasattr(result, 'keys') else 'N/A'}")
+        logger.debug(f"documents count: {len(result.get('documents', []))}")
+        logger.debug(f"reranked_documents count: {len(result.get('reranked_documents', []))}")
 
         # 查询重写完成
         rewritten_query = result.get("rewritten_query", message)
@@ -278,15 +283,50 @@ async def ask_question_stream_with_rag(
         await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
         await session.commit()
 
-        sources = []
-        for doc in result.get("documents", []):
-            sources.append(
-                {
-                    "chunk_id": doc.metadata.get("chunk_id"),
-                    "score": doc.metadata.get("rrf_score"),
-                }
+        # 优先使用rerank后的文档，按rerank分数排序
+        docs = result.get("reranked_documents") or result.get("documents", [])
+        logger.debug(f"Using docs count: {len(docs)}")
+
+        # 检查是否有rerank分数
+        has_rerank_scores = any(
+            d.metadata.get("rerank_score") is not None for d in docs
+        )
+
+        if has_rerank_scores:
+            # 按rerank分数降序排序
+            docs = sorted(
+                docs,
+                key=lambda d: d.metadata.get("rerank_score", 0),
+                reverse=True
+            )
+        else:
+            # 按RRF分数降序排序
+            docs = sorted(
+                docs,
+                key=lambda d: d.metadata.get("rrf_score", 0),
+                reverse=True
             )
 
+        sources = []
+        for doc in docs:
+            # 优先使用rerank分数，其次RRF分数
+            score = doc.metadata.get("rerank_score") or doc.metadata.get("rrf_score", 0)
+            chunk_id = doc.metadata.get("chunk_id")
+            source_name = doc.metadata.get("source")
+            rrf_score = doc.metadata.get('rrf_score')
+            rerank_score = doc.metadata.get('rerank_score')
+            logger.debug(f"Doc {chunk_id}: rerank_score={rerank_score}, rrf_score={rrf_score}, source={source_name}")
+            if score > 0:  # 只要有分数就添加
+                sources.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "score": score,
+                        "source": source_name or "未知来源",
+                        "content": doc.page_content[:200] if doc.page_content else "",
+                    }
+                )
+
+        logger.debug(f"Final sources count: {len(sources)}")
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
     except Exception as e:
         sanitized = _sanitize_error_message(e)
@@ -328,14 +368,42 @@ async def ask_question_stream_guest(
         existing_messages.append({"role": "assistant", "content": answer})
         await redis.set_guest_session(session_id, existing_messages, ttl=3600)
 
-        sources = []
-        for doc in result.get("documents", []):
-            sources.append(
-                {
-                    "chunk_id": doc.metadata.get("chunk_id"),
-                    "score": doc.metadata.get("rrf_score"),
-                }
+        # 优先使用rerank后的文档，按rerank分数排序
+        docs = result.get("reranked_documents") or result.get("documents", [])
+
+        # 检查是否有rerank分数
+        has_rerank_scores = any(
+            d.metadata.get("rerank_score") is not None for d in docs
+        )
+
+        if has_rerank_scores:
+            # 按rerank分数降序排序
+            docs = sorted(
+                docs,
+                key=lambda d: d.metadata.get("rerank_score", 0),
+                reverse=True
             )
+        else:
+            # 按RRF分数降序排序
+            docs = sorted(
+                docs,
+                key=lambda d: d.metadata.get("rrf_score", 0),
+                reverse=True
+            )
+
+        sources = []
+        for doc in docs:
+            # 优先使用rerank分数，其次RRF分数
+            score = doc.metadata.get("rerank_score") or doc.metadata.get("rrf_score", 0)
+            if score > 0:  # 只要有分数就添加
+                sources.append(
+                    {
+                        "chunk_id": doc.metadata.get("chunk_id"),
+                        "score": score,
+                        "source": doc.metadata.get("source") or "未知来源",
+                        "content": doc.page_content[:200] if doc.page_content else "",
+                    }
+                )
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
     except Exception as e:

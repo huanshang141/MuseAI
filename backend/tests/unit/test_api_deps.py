@@ -12,15 +12,17 @@ class TestGetDbSession:
     @pytest.mark.asyncio
     async def test_yields_database_session(self):
         """get_db_session should yield database sessions."""
+        from contextlib import asynccontextmanager
         from app.api.deps import get_db_session
 
         mock_session = AsyncMock()
         with patch("app.api.deps.get_session") as mock_get_session:
-            # Create an async iterator that yields one session
-            async def async_gen():
+            # Create an async context manager that yields the session
+            @asynccontextmanager
+            async def mock_context():
                 yield mock_session
 
-            mock_get_session.return_value = async_gen()
+            mock_get_session.return_value = mock_context()
 
             sessions = []
             async for session in get_db_session():

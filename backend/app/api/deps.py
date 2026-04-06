@@ -18,7 +18,7 @@ security = HTTPBearer()
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """Get database session from the global session maker."""
-    async for session in get_session():
+    async with get_session() as session:
         yield session
 
 

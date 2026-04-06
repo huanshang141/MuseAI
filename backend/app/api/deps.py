@@ -48,10 +48,10 @@ RedisCacheDep = Annotated[RedisCache, Depends(get_redis_cache)]
 
 
 async def get_current_user(
+    jwt_handler: JWTHandlerDep,
+    session: SessionDep,
+    redis: RedisCacheDep,
     credentials: HTTPAuthorizationCredentials = Depends(security),  # noqa: B008
-    jwt_handler: JWTHandler = Depends(get_jwt_handler),  # noqa: B008
-    session: AsyncSession = Depends(get_db_session),  # noqa: B008
-    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
 ) -> dict:
     token = credentials.credentials
 
@@ -101,10 +101,10 @@ CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def get_optional_user(
+    jwt_handler: JWTHandlerDep,
+    session: SessionDep,
+    redis: RedisCacheDep,
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
-    jwt_handler: JWTHandler = Depends(get_jwt_handler),
-    session: AsyncSession = Depends(get_db_session),
-    redis: RedisCache = Depends(get_redis_cache),
 ) -> dict | None:
     """Get current user if authenticated, else return None (for guest access)."""
     if credentials is None:

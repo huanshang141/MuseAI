@@ -1,5 +1,7 @@
 """Tests for API dependencies module."""
 
+import inspect
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
@@ -569,3 +571,26 @@ class TestGetCurrentAdmin:
 
         assert result == current_user
         assert result["role"] == "admin"
+
+
+class TestDependencySignatureStyle:
+    """Tests for dependency injection signature consistency."""
+
+    def test_get_current_user_signature_uses_dependency_aliases(self) -> None:
+        """get_current_user should use dependency aliases in signature."""
+        from app.api import deps
+
+        source = inspect.getsource(deps.get_current_user)
+        # Check that the signature uses the alias types, not raw Depends()
+        assert "jwt_handler: JWTHandlerDep" in source
+        assert "session: SessionDep" in source
+        assert "redis: RedisCacheDep" in source
+
+    def test_get_optional_user_signature_uses_dependency_aliases(self) -> None:
+        """get_optional_user should use dependency aliases in signature."""
+        from app.api import deps
+
+        source = inspect.getsource(deps.get_optional_user)
+        assert "jwt_handler: JWTHandlerDep" in source
+        assert "session: SessionDep" in source
+        assert "redis: RedisCacheDep" in source

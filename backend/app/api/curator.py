@@ -1,7 +1,7 @@
 # backend/app/api/curator.py
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, RateLimitDep, SessionDep
@@ -9,6 +9,7 @@ from app.application.curator_service import CuratorService
 from app.application.exhibit_service import ExhibitService
 from app.application.profile_service import ProfileService
 from app.domain.exceptions import EntityNotFoundError
+from app.infra.langchain import create_curator_tools
 from app.infra.langchain.curator_agent import CuratorAgent
 from app.infra.postgres.repositories import PostgresExhibitRepository, PostgresVisitorProfileRepository
 
@@ -57,7 +58,7 @@ class ReflectionResponse(BaseModel):
     session_id: str
 
 
-def get_curator_service(session: SessionDep) -> CuratorService:
+def get_curator_service(session: SessionDep, request: Request) -> CuratorService:
     """Get curator service instance with all dependencies."""
     # Create repositories
     profile_repository = PostgresVisitorProfileRepository(session)
@@ -67,8 +68,31 @@ def get_curator_service(session: SessionDep) -> CuratorService:
     profile_service = ProfileService(profile_repository)
     exhibit_service = ExhibitService(exhibit_repository)
 
-    # Create curator agent (will use app state if available)
-    curator_agent = CuratorAgent()
+    # Get LLM from app state
+    if not hasattr(request.app.state, "llm"):
+        raise RuntimeError("LLM not initialized. App not started?")
+    llm = request.app.state.llm
+
+    # Get RAG agent from app state (for knowledge retrieval tool)
+    rag_agent = getattr(request.app.state, "rag_agent", None)
+
+    # Create tools
+    tools = create_curator_tools(
+        exhibit_repository=exhibit_repository,
+        profile_repository=profile_repository,
+        rag_agent=rag_agent,
+        llm=llm,
+    )
+
+    # Create curator agent
+    import uuid
+
+    curator_agent = CuratorAgent(
+        llm=llm,
+        tools=tools,
+        session_id=str(uuid.uuid4()),
+        verbose=False,
+    )
 
     return CuratorService(
         curator_agent=curator_agent,
@@ -82,10 +106,11 @@ async def plan_tour(
     session: SessionDep,
     request: PlanTourRequest,
     current_user: CurrentUser,
+    http_request: Request,
     _: RateLimitDep,
 ) -> PlanTourResponse:
     """Plan a museum tour based on available time and interests."""
-    service = get_curator_service(session)
+    service = get_curator_service(session, http_request)
 
     result = await service.plan_tour(
         user_id=current_user["id"],
@@ -101,10 +126,11 @@ async def generate_narrative(
     session: SessionDep,
     request: NarrativeRequest,
     current_user: CurrentUser,
+    http_request: Request,
     _: RateLimitDep,
 ) -> NarrativeResponse:
     """Generate narrative content for an exhibit."""
-    service = get_curator_service(session)
+    service = get_curator_service(session, http_request)
 
     try:
         result = await service.generate_narrative(
@@ -125,10 +151,11 @@ async def get_reflection_prompts(
     session: SessionDep,
     request: ReflectionRequest,
     current_user: CurrentUser,
+    http_request: Request,
     _: RateLimitDep,
 ) -> ReflectionResponse:
     """Get reflection prompts for an exhibit."""
-    service = get_curator_service(session)
+    service = get_curator_service(session, http_request)
 
     try:
         result = await service.get_reflection_prompts(

@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { EXHIBIT_CATEGORIES } from '../../constants/categories.js'
 
 defineProps({
   loading: Boolean
@@ -10,14 +11,11 @@ const emit = defineEmits(['plan'])
 const availableTime = ref(60)
 const selectedInterests = ref([])
 
-const interestOptions = [
-  { label: '青铜器', value: 'bronze' },
-  { label: '书画', value: 'painting' },
-  { label: '陶瓷', value: 'ceramics' },
-  { label: '玉器', value: 'jade' },
-  { label: '金银器', value: 'gold_silver' },
-  { label: '雕塑', value: 'sculpture' },
-]
+// Use shared category constants
+const interestOptions = EXHIBIT_CATEGORIES.map(c => ({
+  label: c.label,
+  value: c.value
+}))
 
 function handleSubmit() {
   emit('plan', {

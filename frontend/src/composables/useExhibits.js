@@ -1,12 +1,13 @@
 import { ref } from 'vue'
 import { api } from '../api/index.js'
 
-const exhibits = ref([])
-const currentExhibit = ref(null)
-const loading = ref(false)
-const error = ref(null)
-
 export function useExhibits() {
+  // State is now encapsulated within each useExhibits instance
+  const exhibits = ref([])
+  const currentExhibit = ref(null)
+  const loading = ref(false)
+  const error = ref(null)
+
   async function fetchExhibits(params = {}) {
     loading.value = true
     error.value = null

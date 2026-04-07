@@ -27,7 +27,7 @@ async function checkHealth() {
   try {
     const result = await api.health()
     healthStatus.value = result.ok ? 'healthy' : 'unhealthy'
-  } catch (error) {
+  } catch {
     healthStatus.value = 'error'
   }
 }

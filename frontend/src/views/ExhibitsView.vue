@@ -5,7 +5,7 @@ import ExhibitList from '../components/exhibits/ExhibitList.vue'
 import ExhibitFilter from '../components/exhibits/ExhibitFilter.vue'
 import FloorMap from '../components/layout/FloorMap.vue'
 
-const { exhibits, loading, fetchExhibits, filterByCategory, filterByHall } = useExhibits()
+const { exhibits, loading, fetchExhibits } = useExhibits()
 
 const selectedExhibit = ref(null)
 const viewMode = ref('list') // 'list' | 'map'

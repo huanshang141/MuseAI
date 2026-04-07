@@ -227,7 +227,7 @@ watch(currentSession, (newVal, oldVal) => {
                 </div>
                 <div v-if="showRagSteps" class="rag-steps-list">
                   <div
-                    v-for="(step, idx) in ragSteps"
+                    v-for="step in ragSteps"
                     :key="step.step"
                     class="rag-step-item"
                     :class="getStepStatusClass(step.status)"
@@ -250,7 +250,7 @@ watch(currentSession, (newVal, oldVal) => {
                 </div>
                 <div v-if="showRagSteps && ragSteps.length > 0" class="rag-steps-list collapsed">
                   <div
-                    v-for="(step, idx) in ragSteps"
+                    v-for="step in ragSteps"
                     :key="step.step"
                     class="rag-step-item"
                     :class="getStepStatusClass(step.status)"

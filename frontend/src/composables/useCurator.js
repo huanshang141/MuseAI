@@ -1,42 +1,5 @@
 import { ref } from 'vue'
-
-const API_BASE = '/api/v1'
-
-function getToken() {
-  return localStorage.getItem('access_token')
-}
-
-function handleError(response) {
-  const error = new Error(response.data?.detail || `HTTP ${response.status}`)
-  error.status = response.status
-  error.data = response.data
-  throw error
-}
-
-async function request(path, options = {}) {
-  const token = getToken()
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  }
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers,
-    ...options,
-  })
-
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    handleError({ status: response.status, data })
-  }
-
-  return { ok: response.ok, status: response.status, data }
-}
+import { api } from '../api/index.js'
 
 export function useCurator() {
   const loading = ref(false)
@@ -46,10 +9,11 @@ export function useCurator() {
     loading.value = true
     error.value = null
     try {
-      const result = await request('/curator/plan-tour', {
-        method: 'POST',
-        body: JSON.stringify({ available_time: availableTime, interests }),
-      })
+      const result = await api.curator.planTour(availableTime, interests)
+      if (!result.ok) {
+        error.value = result.data?.detail || '规划路线失败'
+        return null
+      }
       return result.data
     } catch (err) {
       error.value = err.message
@@ -63,10 +27,11 @@ export function useCurator() {
     loading.value = true
     error.value = null
     try {
-      const result = await request('/curator/narrative', {
-        method: 'POST',
-        body: JSON.stringify({ exhibit_id: exhibitId }),
-      })
+      const result = await api.curator.generateNarrative(exhibitId)
+      if (!result.ok) {
+        error.value = result.data?.detail || '生成讲解失败'
+        return null
+      }
       return result.data
     } catch (err) {
       error.value = err.message
@@ -80,10 +45,11 @@ export function useCurator() {
     loading.value = true
     error.value = null
     try {
-      const result = await request('/curator/reflection', {
-        method: 'POST',
-        body: JSON.stringify({ exhibit_id: exhibitId }),
-      })
+      const result = await api.curator.getReflectionPrompts(exhibitId)
+      if (!result.ok) {
+        error.value = result.data?.detail || '获取思考引导失败'
+        return null
+      }
       return result.data
     } catch (err) {
       error.value = err.message

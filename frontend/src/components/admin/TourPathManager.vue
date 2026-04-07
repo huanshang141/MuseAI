@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useAdmin } from '../../composables/useAdmin.js'
 import { api } from '../../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import PlusIcon from '../icons/PlusIcon.vue'
 
 const { loading, createTourPath, updateTourPath, deleteTourPath } = useAdmin()
 
@@ -87,7 +88,7 @@ async function handleSubmit() {
   <div class="tour-path-manager">
     <div class="toolbar">
       <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
+        <el-icon><PlusIcon /></el-icon>
         添加路线
       </el-button>
     </div>

@@ -161,7 +161,7 @@ export const api = {
             if (data === '[DONE]') return
             try {
               yield JSON.parse(data)
-            } catch (e) {
+            } catch {
               console.warn('Parse error:', data)
             }
           }
@@ -207,5 +207,21 @@ export const api = {
       body: JSON.stringify(data)
     }),
     deleteTourPath: (id) => request(`/admin/tour-paths/${id}`, { method: 'DELETE' }),
+  },
+
+  // Curator (AI-powered tour planning)
+  curator: {
+    planTour: (availableTime, interests) => request('/curator/plan-tour', {
+      method: 'POST',
+      body: JSON.stringify({ available_time: availableTime, interests })
+    }),
+    generateNarrative: (exhibitId) => request('/curator/narrative', {
+      method: 'POST',
+      body: JSON.stringify({ exhibit_id: exhibitId })
+    }),
+    getReflectionPrompts: (exhibitId) => request('/curator/reflection', {
+      method: 'POST',
+      body: JSON.stringify({ exhibit_id: exhibitId })
+    }),
   },
 }

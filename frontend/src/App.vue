@@ -1,13 +1,8 @@
 <script setup>
 import { ref, provide } from 'vue'
-import { useRoute } from 'vue-router'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AuthModal from './components/auth/AuthModal.vue'
-import { useAuth } from './composables/useAuth.js'
-
-const route = useRoute()
-const { isAuthenticated } = useAuth()
 
 const showAuthModal = ref(false)
 provide('showAuthModal', (show = true) => {

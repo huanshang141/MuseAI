@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useAdmin } from '../../composables/useAdmin.js'
 import { api } from '../../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import PlusIcon from '../icons/PlusIcon.vue'
 
 const { loading, createExhibit, updateExhibit, deleteExhibit } = useAdmin()
 
@@ -101,7 +102,7 @@ async function handleSubmit() {
   <div class="exhibit-manager">
     <div class="toolbar">
       <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
+        <el-icon><PlusIcon /></el-icon>
         添加展品
       </el-button>
     </div>

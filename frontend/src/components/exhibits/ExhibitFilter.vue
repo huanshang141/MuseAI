@@ -1,5 +1,6 @@
 <script setup>
 import { ref } from 'vue'
+import { CATEGORY_OPTIONS, HALL_OPTIONS } from '../../constants/categories.js'
 
 const emit = defineEmits(['filter'])
 
@@ -9,21 +10,9 @@ const filters = ref({
   keyword: '',
 })
 
-const categoryOptions = [
-  { label: '全部', value: null },
-  { label: '青铜器', value: 'bronze' },
-  { label: '陶瓷', value: 'ceramic' },
-  { label: '书画', value: 'painting' },
-  { label: '玉器', value: 'jade' },
-  { label: '雕塑', value: 'sculpture' },
-]
-
-const hallOptions = [
-  { label: '全部', value: null },
-  { label: '一楼展厅', value: '1F' },
-  { label: '二楼展厅', value: '2F' },
-  { label: '三楼展厅', value: '3F' },
-]
+// Use shared category and hall constants
+const categoryOptions = CATEGORY_OPTIONS
+const hallOptions = HALL_OPTIONS
 
 function handleFilter() {
   emit('filter', {

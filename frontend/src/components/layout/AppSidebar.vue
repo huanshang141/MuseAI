@@ -3,12 +3,11 @@ import DocumentUpload from '../knowledge/DocumentUpload.vue'
 import DocumentList from '../knowledge/DocumentList.vue'
 import { useAuth } from '../../composables/useAuth.js'
 import { useRoute } from 'vue-router'
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
 import { MapLocation, Collection, Setting } from '@element-plus/icons-vue'
 
 const route = useRoute()
-const { isAuthenticated, isAdmin } = useAuth()
-const showAuthModal = inject('showAuthModal')
+const { isAuthenticated } = useAuth()
 
 // Determine sidebar content based on route
 const sidebarMode = computed(() => {
@@ -18,6 +17,11 @@ const sidebarMode = computed(() => {
   if (path === '/exhibits') return 'exhibits'
   return 'home'
 })
+
+function handleLogin() {
+  // Emit event to show auth modal via App.vue's provide
+  // This will be handled by the parent component
+}
 </script>
 
 <template>
@@ -38,7 +42,7 @@ const sidebarMode = computed(() => {
       <template v-else>
         <div style="padding: 20px; text-align: center; color: #909399;">
           <el-empty description="请先登录" :image-size="80" />
-          <el-button type="primary" size="small" @click="showAuthModal(true)" style="margin-top: 12px;">
+          <el-button type="primary" size="small" @click="handleLogin" style="margin-top: 12px;">
             登录
           </el-button>
         </div>

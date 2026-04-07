@@ -84,6 +84,7 @@ class ExhibitService:
         limit: int = 100,
         category: Optional[str] = None,
         hall: Optional[str] = None,
+        floor: Optional[int] = None,
     ) -> List[Exhibit]:
         """获取展品列表，支持分页和筛选。
 
@@ -92,12 +93,19 @@ class ExhibitService:
             limit: 返回的最大记录数
             category: 按类别筛选（可选）
             hall: 按展厅筛选（可选）
+            floor: 按楼层筛选（可选）
 
         Returns:
             展品实体列表
         """
-        # 先获取所有符合条件的展品
-        if category:
+        # 如果有floor筛选，使用支持所有筛选的方法
+        if floor is not None:
+            exhibits = await self._repository.list_with_filters(
+                category=category,
+                hall=hall,
+                floor=floor,
+            )
+        elif category:
             exhibits = await self._repository.list_by_category(category)
         elif hall:
             exhibits = await self._repository.list_by_hall(hall)
@@ -208,3 +216,58 @@ class ExhibitService:
             匹配的展品列表
         """
         return await self._repository.find_by_interests(interests, limit)
+
+    async def list_all_active(self) -> List[Exhibit]:
+        """获取所有活跃展品。
+
+        Returns:
+            所有活跃展品列表
+        """
+        return await self._repository.list_all_active()
+
+    async def search_exhibits(
+        self,
+        query: str,
+        skip: int = 0,
+        limit: int = 20,
+        category: Optional[str] = None,
+        hall: Optional[str] = None,
+        floor: Optional[int] = None,
+    ) -> List[Exhibit]:
+        """搜索展品（按名称）。
+
+        Args:
+            query: 搜索关键词
+            skip: 跳过的记录数
+            limit: 返回的最大记录数
+            category: 按类别筛选（可选）
+            hall: 按展厅筛选（可选）
+            floor: 按楼层筛选（可选）
+
+        Returns:
+            匹配的展品列表
+        """
+        return await self._repository.search_by_name(
+            query=query,
+            category=category,
+            hall=hall,
+            floor=floor,
+            skip=skip,
+            limit=limit,
+        )
+
+    async def get_all_categories(self) -> List[str]:
+        """获取所有类别。
+
+        Returns:
+            所有类别列表
+        """
+        return await self._repository.get_distinct_categories()
+
+    async def get_all_halls(self) -> List[str]:
+        """获取所有展厅。
+
+        Returns:
+            所有展厅列表
+        """
+        return await self._repository.get_distinct_halls()

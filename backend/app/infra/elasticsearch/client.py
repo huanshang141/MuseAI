@@ -58,6 +58,12 @@ class ElasticsearchClient:
                         "tags": {"type": "keyword"},
                         "user_id": {"type": "keyword"},
                         "created_at": {"type": "date"},
+                        # Exhibit-specific fields
+                        "doc_type": {"type": "keyword"},
+                        "exhibit_id": {"type": "keyword"},
+                        "category": {"type": "keyword"},
+                        "hall": {"type": "keyword"},
+                        "floor": {"type": "keyword"},
                     }
                 }
             }
@@ -123,3 +129,68 @@ class ElasticsearchClient:
             await self.client.close()
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to close ES client: {type(e).__name__}")
+
+    async def index_exhibit(self, exhibit_doc: dict[str, Any]) -> dict[str, Any]:
+        """Index an exhibit document."""
+        try:
+            exhibit_id = exhibit_doc["exhibit_id"]
+            doc_id = f"exhibit_{exhibit_id}"
+            result = await self.client.index(index=self.index_name, id=doc_id, document=exhibit_doc)
+            logger.info(f"Successfully indexed exhibit: {exhibit_id}")
+            return cast(dict[str, Any], result)
+        except (ApiError, TransportError) as e:
+            logger.error(f"Failed to index exhibit: {type(e).__name__}")
+            raise RetrievalError("Failed to index exhibit")
+
+    async def delete_exhibit(self, exhibit_id: str) -> dict[str, Any]:
+        """Delete an exhibit document by ID."""
+        try:
+            doc_id = f"exhibit_{exhibit_id}"
+            result = await self.client.delete(index=self.index_name, id=doc_id)
+            logger.info(f"Successfully deleted exhibit: {exhibit_id}")
+            return cast(dict[str, Any], result)
+        except ApiError as e:
+            if e.meta and e.meta.status == 404:
+                logger.warning(f"Exhibit not found: {exhibit_id}")
+                return {"status": "not_found"}
+            logger.error(f"Failed to delete exhibit: {type(e).__name__}")
+            raise RetrievalError("Failed to delete exhibit")
+        except TransportError as e:
+            logger.error(f"Failed to delete exhibit: {type(e).__name__}")
+            raise RetrievalError("Failed to delete exhibit")
+
+    async def search_exhibits(
+        self,
+        query_vector: list[float],
+        top_k: int = 5,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Vector similarity search for exhibits."""
+        try:
+            filter_clauses: list[dict[str, Any]] = [{"term": {"doc_type": "exhibit"}}]
+
+            if filters:
+                if "category" in filters:
+                    filter_clauses.append({"term": {"category": filters["category"]}})
+                if "hall" in filters:
+                    filter_clauses.append({"term": {"hall": filters["hall"]}})
+                if "floor" in filters:
+                    filter_clauses.append({"term": {"floor": filters["floor"]}})
+
+            query = {
+                "knn": {
+                    "field": "content_vector",
+                    "query_vector": query_vector,
+                    "k": top_k,
+                    "num_candidates": top_k * 10,
+                    "filter": {"bool": {"filter": filter_clauses}},
+                },
+                "size": top_k,
+            }
+
+            response = await self.client.search(index=self.index_name, body=query)
+            logger.info(f"Exhibit search returned {len(response['hits']['hits'])} results")
+            return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
+        except (ApiError, TransportError) as e:
+            logger.error(f"Exhibit search failed: {type(e).__name__}")
+            raise RetrievalError("Exhibit search failed")

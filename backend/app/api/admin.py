@@ -1,10 +1,12 @@
 # backend/app/api/admin.py
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from loguru import logger
 from pydantic import BaseModel
 
 from app.api.deps import CurrentAdminUser, SessionDep
+from app.application.exhibit_indexing_service import ExhibitIndexingService
 from app.application.exhibit_service import ExhibitService
 from app.domain.exceptions import EntityNotFoundError
 from app.infra.postgres.repositories import PostgresExhibitRepository
@@ -53,9 +55,31 @@ class ExhibitListResponse(BaseModel):
     limit: int
 
 
+class UpdateExhibitRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    location_x: Optional[float] = None
+    location_y: Optional[float] = None
+    floor: Optional[int] = None
+    hall: Optional[str] = None
+    category: Optional[str] = None
+    era: Optional[str] = None
+    importance: Optional[int] = None
+    estimated_visit_time: Optional[int] = None
+    document_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class DeleteResponse(BaseModel):
     status: str
     exhibit_id: str
+
+
+class ReindexResponse(BaseModel):
+    status: str
+    total: int
+    indexed: int
+    failed: int
 
 
 def get_exhibit_service(session: SessionDep) -> ExhibitService:
@@ -69,6 +93,7 @@ async def create_exhibit(
     session: SessionDep,
     request: CreateExhibitRequest,
     current_user: CurrentAdminUser,
+    http_request: Request,
 ) -> ExhibitResponse:
     """Create a new exhibit (admin only)."""
     service = get_exhibit_service(session)
@@ -86,6 +111,15 @@ async def create_exhibit(
         estimated_visit_time=request.estimated_visit_time,
         document_id=request.document_id,
     )
+
+    # Index the exhibit to Elasticsearch
+    try:
+        es_client = http_request.app.state.es_client
+        embeddings = http_request.app.state.embeddings
+        indexing_service = ExhibitIndexingService(es_client, embeddings)
+        await indexing_service.index_exhibit(exhibit)
+    except Exception as e:
+        logger.error(f"Failed to index exhibit {exhibit.id.value}: {e}")
 
     return ExhibitResponse(
         id=exhibit.id.value,
@@ -156,11 +190,90 @@ async def list_exhibits(
     )
 
 
+@router.put("/exhibits/{exhibit_id}", response_model=ExhibitResponse)
+async def update_exhibit(
+    session: SessionDep,
+    exhibit_id: str,
+    request: UpdateExhibitRequest,
+    current_user: CurrentAdminUser,
+    http_request: Request,
+) -> ExhibitResponse:
+    """Update an exhibit (admin only)."""
+    import uuid
+
+    # Validate UUID format
+    try:
+        uuid.UUID(exhibit_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid exhibit ID format: {exhibit_id}",
+        ) from None
+
+    service = get_exhibit_service(session)
+
+    try:
+        exhibit = await service.update_exhibit(
+            exhibit_id=exhibit_id,
+            name=request.name,
+            description=request.description,
+            location_x=request.location_x,
+            location_y=request.location_y,
+            floor=request.floor,
+            hall=request.hall,
+            category=request.category,
+            era=request.era,
+            importance=request.importance,
+            estimated_visit_time=request.estimated_visit_time,
+            document_id=request.document_id,
+            is_active=request.is_active,
+        )
+    except EntityNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Exhibit not found: {exhibit_id}",
+        ) from None
+
+    # Update Elasticsearch index based on is_active status
+    try:
+        es_client = http_request.app.state.es_client
+        embeddings = http_request.app.state.embeddings
+        indexing_service = ExhibitIndexingService(es_client, embeddings)
+
+        if exhibit.is_active:
+            # Reindex the exhibit
+            await indexing_service.index_exhibit(exhibit)
+        else:
+            # Remove from index
+            await indexing_service.delete_exhibit_index(exhibit.id.value)
+    except Exception as e:
+        logger.error(f"Failed to update exhibit index {exhibit.id.value}: {e}")
+
+    return ExhibitResponse(
+        id=exhibit.id.value,
+        name=exhibit.name,
+        description=exhibit.description,
+        location_x=exhibit.location.x,
+        location_y=exhibit.location.y,
+        floor=exhibit.location.floor,
+        hall=exhibit.hall,
+        category=exhibit.category,
+        era=exhibit.era,
+        importance=exhibit.importance,
+        estimated_visit_time=exhibit.estimated_visit_time,
+        document_id=exhibit.document_id,
+        is_active=exhibit.is_active,
+        created_at=exhibit.created_at.isoformat(),
+        updated_at=exhibit.updated_at.isoformat(),
+    )
+
+
 @router.delete("/exhibits/{exhibit_id}", response_model=DeleteResponse)
 async def delete_exhibit(
     session: SessionDep,
     exhibit_id: str,
     current_user: CurrentAdminUser,
+    http_request: Request,
 ) -> DeleteResponse:
     """Delete an exhibit (admin only)."""
     service = get_exhibit_service(session)
@@ -171,7 +284,7 @@ async def delete_exhibit(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Exhibit not found: {exhibit_id}",
-        )
+        ) from None
 
     if not success:
         raise HTTPException(
@@ -179,4 +292,45 @@ async def delete_exhibit(
             detail=f"Exhibit not found: {exhibit_id}",
         )
 
+    # Remove from Elasticsearch index
+    try:
+        es_client = http_request.app.state.es_client
+        embeddings = http_request.app.state.embeddings
+        indexing_service = ExhibitIndexingService(es_client, embeddings)
+        await indexing_service.delete_exhibit_index(exhibit_id)
+    except Exception as e:
+        logger.error(f"Failed to delete exhibit index {exhibit_id}: {e}")
+
     return DeleteResponse(status="deleted", exhibit_id=exhibit_id)
+
+
+@router.post("/exhibits/reindex", response_model=ReindexResponse)
+async def reindex_all_exhibits(
+    session: SessionDep,
+    current_user: CurrentAdminUser,
+    http_request: Request,
+) -> ReindexResponse:
+    """Reindex all active exhibits to Elasticsearch (admin only)."""
+    # Get all active exhibits
+    service = get_exhibit_service(session)
+    exhibits = await service.list_all_active()
+
+    # Get es_client and embeddings from app.state
+    if not hasattr(http_request.app.state, "es_client"):
+        raise RuntimeError("Elasticsearch client not initialized. App not started?")
+    if not hasattr(http_request.app.state, "embeddings"):
+        raise RuntimeError("Embeddings not initialized. App not started?")
+
+    es_client = http_request.app.state.es_client
+    embeddings = http_request.app.state.embeddings
+
+    # Use ExhibitIndexingService to reindex
+    indexing_service = ExhibitIndexingService(es_client, embeddings)
+    result = await indexing_service.reindex_all_exhibits(exhibits)
+
+    return ReindexResponse(
+        status="completed",
+        total=result["total"],
+        indexed=result["indexed"],
+        failed=result["failed"],
+    )

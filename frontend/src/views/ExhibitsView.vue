@@ -1,15 +1,55 @@
 <script setup>
-// Exhibits view - will be implemented in Task 4
+import { ref, onMounted } from 'vue'
+import { useExhibits } from '../composables/useExhibits.js'
+import ExhibitList from '../components/exhibits/ExhibitList.vue'
+import ExhibitFilter from '../components/exhibits/ExhibitFilter.vue'
+import FloorMap from '../components/layout/FloorMap.vue'
+
+const { exhibits, loading, fetchExhibits, filterByCategory, filterByHall } = useExhibits()
+
+const selectedExhibit = ref(null)
+const viewMode = ref('list') // 'list' | 'map'
+
+onMounted(() => fetchExhibits())
+
+function handleFilter(filters) {
+  if (filters.category) {
+    filterByCategory(filters.category)
+  } else if (filters.hall) {
+    filterByHall(filters.hall)
+  } else {
+    fetchExhibits()
+  }
+}
 </script>
 
 <template>
   <div class="exhibits-view">
-    <el-card>
-      <template #header>
-        <span>展品浏览</span>
-      </template>
-      <el-empty description="展品浏览功能开发中..." />
-    </el-card>
+    <el-row :gutter="20">
+      <el-col :span="6">
+        <ExhibitFilter @filter="handleFilter" />
+      </el-col>
+
+      <el-col :span="18">
+        <el-tabs v-model="viewMode">
+          <el-tab-pane label="列表视图" name="list">
+            <ExhibitList
+              :exhibits="exhibits"
+              :loading="loading"
+              @select="selectedExhibit = $event"
+            />
+          </el-tab-pane>
+
+          <el-tab-pane label="地图视图" name="map">
+            <FloorMap
+              :exhibits="exhibits"
+              :selected-exhibit="selectedExhibit"
+              @select-exhibit="selectedExhibit = $event"
+            />
+          </el-tab-pane>
+        </el-tabs>
+      </el-col>
+    </el-row>
   </div>
 </template>
 

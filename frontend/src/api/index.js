@@ -169,4 +169,37 @@ export const api = {
       }
     },
   },
+
+  // Exhibits (public API)
+  exhibits: {
+    list: (params = {}) => request(`/exhibits?${new URLSearchParams(params)}`),
+    get: (id) => request(`/exhibits/${id}`),
+  },
+
+  // Admin
+  admin: {
+    // Exhibits
+    listExhibits: (params = {}) => request(`/admin/exhibits?${new URLSearchParams(params)}`),
+    createExhibit: (data) => request('/admin/exhibits', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    updateExhibit: (id, data) => request(`/admin/exhibits/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+    deleteExhibit: (id) => request(`/admin/exhibits/${id}`, { method: 'DELETE' }),
+
+    // Tour Paths
+    listTourPaths: () => request('/admin/tour-paths'),
+    createTourPath: (data) => request('/admin/tour-paths', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    updateTourPath: (id, data) => request(`/admin/tour-paths/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+    deleteTourPath: (id) => request(`/admin/tour-paths/${id}`, { method: 'DELETE' }),
+  },
 }

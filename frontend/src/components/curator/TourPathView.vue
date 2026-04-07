@@ -1,73 +1,88 @@
 <script setup>
 const props = defineProps({
-  path: {
-    type: Object,
-    default: null,
-  },
+  path: Object
 })
 
 const emit = defineEmits(['select-exhibit'])
+
+function getImportanceType(importance) {
+  if (importance >= 5) return 'danger'
+  if (importance >= 4) return 'warning'
+  return 'info'
+}
 </script>
 
 <template>
-  <el-card v-if="path" class="tour-path-view">
+  <el-card v-if="path">
     <template #header>
       <div class="path-header">
         <span>推荐路线</span>
-        <el-tag size="small">约 {{ path.estimated_time || 60 }} 分钟</el-tag>
+        <el-tag type="success">
+          {{ path.exhibit_count }} 个展品 · {{ path.estimated_duration }} 分钟
+        </el-tag>
       </div>
     </template>
 
     <el-timeline>
       <el-timeline-item
-        v-for="(exhibit, index) in path.path || path.exhibits || []"
-        :key="exhibit.id || index"
-        :timestamp="exhibit.location || `第 ${index + 1} 站`"
-        placement="top"
+        v-for="(exhibit, index) in path.path"
+        :key="exhibit.id"
+        :type="index === 0 ? 'primary' : ''"
+        :hollow="index > 0"
       >
-        <el-card
-          shadow="hover"
-          class="exhibit-card"
+        <div
+          class="exhibit-item"
           @click="emit('select-exhibit', exhibit)"
         >
-          <div class="exhibit-name">{{ exhibit.name }}</div>
-          <div class="exhibit-category" v-if="exhibit.category">
-            {{ exhibit.category }}
+          <div class="exhibit-header">
+            <span class="exhibit-name">{{ index + 1 }}. {{ exhibit.name }}</span>
+            <el-tag :type="getImportanceType(exhibit.importance)" size="small">
+              {{ exhibit.category }}
+            </el-tag>
           </div>
-        </el-card>
+          <div class="exhibit-meta">
+            <span>展厅: {{ exhibit.hall }}</span>
+            <span>参观时间: {{ exhibit.estimated_time }} 分钟</span>
+          </div>
+        </div>
       </el-timeline-item>
     </el-timeline>
   </el-card>
 </template>
 
 <style scoped>
-.tour-path-view {
-  max-height: 400px;
-  overflow-y: auto;
-}
-
 .path-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.exhibit-card {
+.exhibit-item {
   cursor: pointer;
-  transition: all 0.3s;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
 }
 
-.exhibit-card:hover {
-  border-color: var(--el-color-primary);
+.exhibit-item:hover {
+  background: #f5f7fa;
+}
+
+.exhibit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
 .exhibit-name {
   font-weight: 500;
 }
 
-.exhibit-category {
+.exhibit-meta {
   font-size: 12px;
-  color: var(--el-text-color-secondary);
-  margin-top: 4px;
+  color: #909399;
+  display: flex;
+  gap: 12px;
 }
 </style>

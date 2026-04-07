@@ -2,46 +2,53 @@
 import { ref } from 'vue'
 
 const props = defineProps({
-  loading: {
-    type: Boolean,
-    default: false,
-  },
+  loading: Boolean
 })
 
 const emit = defineEmits(['plan'])
 
 const availableTime = ref(60)
-const interests = ref([])
+const selectedInterests = ref([])
 
 const interestOptions = [
   { label: '青铜器', value: 'bronze' },
-  { label: '陶瓷', value: 'ceramic' },
   { label: '书画', value: 'painting' },
+  { label: '陶瓷', value: 'ceramics' },
   { label: '玉器', value: 'jade' },
+  { label: '金银器', value: 'gold_silver' },
   { label: '雕塑', value: 'sculpture' },
 ]
 
-function handlePlan() {
+function handleSubmit() {
   emit('plan', {
     availableTime: availableTime.value,
-    interests: interests.value,
+    interests: selectedInterests.value
   })
 }
 </script>
 
 <template>
-  <el-card class="tour-planner">
+  <el-card>
     <template #header>
-      <span>导览规划</span>
+      <div class="card-header">
+        <span>规划您的导览路线</span>
+      </div>
     </template>
 
     <el-form label-position="top">
       <el-form-item label="可用时间（分钟）">
-        <el-slider v-model="availableTime" :min="15" :max="180" :step="15" show-input />
+        <el-slider
+          v-model="availableTime"
+          :min="30"
+          :max="180"
+          :step="15"
+          show-stops
+          show-input
+        />
       </el-form-item>
 
-      <el-form-item label="兴趣方向">
-        <el-checkbox-group v-model="interests">
+      <el-form-item label="感兴趣的类别">
+        <el-checkbox-group v-model="selectedInterests">
           <el-checkbox
             v-for="opt in interestOptions"
             :key="opt.value"
@@ -52,22 +59,20 @@ function handlePlan() {
         </el-checkbox-group>
       </el-form-item>
 
-      <el-form-item>
-        <el-button
-          type="primary"
-          :loading="loading"
-          @click="handlePlan"
-          style="width: 100%"
-        >
-          生成导览路线
-        </el-button>
-      </el-form-item>
+      <el-button
+        type="primary"
+        :loading="loading"
+        :disabled="selectedInterests.length === 0"
+        @click="handleSubmit"
+      >
+        生成路线
+      </el-button>
     </el-form>
   </el-card>
 </template>
 
 <style scoped>
-.tour-planner {
-  margin-bottom: 20px;
+.card-header {
+  font-weight: 500;
 }
 </style>

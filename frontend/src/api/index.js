@@ -172,7 +172,13 @@ export const api = {
 
   // Exhibits (public API)
   exhibits: {
-    list: (params = {}) => request(`/exhibits?${new URLSearchParams(params)}`),
+    list: (params = {}) => {
+      // Filter out null/undefined values to avoid malformed queries
+      const filteredParams = Object.fromEntries(
+        Object.entries(params).filter(([, v]) => v != null)
+      )
+      return request(`/exhibits?${new URLSearchParams(filteredParams)}`)
+    },
     get: (id) => request(`/exhibits/${id}`),
   },
 

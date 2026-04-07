@@ -1,5 +1,7 @@
 <script setup>
-const props = defineProps({
+import { Picture } from '@element-plus/icons-vue'
+
+defineProps({
   exhibits: {
     type: Array,
     default: () => [],
@@ -53,14 +55,6 @@ const emit = defineEmits(['select'])
     </el-row>
   </div>
 </template>
-
-<script>
-import { Picture } from '@element-plus/icons-vue'
-
-export default {
-  components: { Picture },
-}
-</script>
 
 <style scoped>
 .exhibit-list {

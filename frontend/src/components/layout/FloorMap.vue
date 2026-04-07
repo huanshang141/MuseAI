@@ -1,5 +1,7 @@
 <script setup>
-const props = defineProps({
+import { MapLocation, Location } from '@element-plus/icons-vue'
+
+defineProps({
   path: {
     type: Array,
     default: () => [],
@@ -52,14 +54,6 @@ const emit = defineEmits(['select-exhibit'])
     </div>
   </el-card>
 </template>
-
-<script>
-import { MapLocation, Location } from '@element-plus/icons-vue'
-
-export default {
-  components: { MapLocation, Location },
-}
-</script>
 
 <style scoped>
 .floor-map {

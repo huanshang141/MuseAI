@@ -8,45 +8,87 @@ export function useAdmin() {
   // Exhibit management
   async function createExhibit(data) {
     loading.value = true
-    const result = await api.admin.createExhibit(data)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.createExhibit(data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '创建展品失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
   async function updateExhibit(id, data) {
     loading.value = true
-    const result = await api.admin.updateExhibit(id, data)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.updateExhibit(id, data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '更新展品失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
   async function deleteExhibit(id) {
     loading.value = true
-    const result = await api.admin.deleteExhibit(id)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.deleteExhibit(id)
+      if (!result.ok) {
+        error.value = result.data?.detail || '删除展品失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
-  // Tour path management
+  // Tour path management (backend endpoints to be implemented)
   async function createTourPath(data) {
     loading.value = true
-    const result = await api.admin.createTourPath(data)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.createTourPath(data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '创建路线失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
   async function updateTourPath(id, data) {
     loading.value = true
-    const result = await api.admin.updateTourPath(id, data)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.updateTourPath(id, data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '更新路线失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
   async function deleteTourPath(id) {
     loading.value = true
-    const result = await api.admin.deleteTourPath(id)
-    loading.value = false
-    return result
+    error.value = null
+    try {
+      const result = await api.admin.deleteTourPath(id)
+      if (!result.ok) {
+        error.value = result.data?.detail || '删除路线失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
   }
 
   return {

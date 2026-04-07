@@ -13,13 +13,13 @@ const viewMode = ref('list') // 'list' | 'map'
 onMounted(() => fetchExhibits())
 
 function handleFilter(filters) {
-  if (filters.category) {
-    filterByCategory(filters.category)
-  } else if (filters.hall) {
-    filterByHall(filters.hall)
-  } else {
-    fetchExhibits()
-  }
+  // Build params object with all filters
+  const params = {}
+  if (filters.category) params.category = filters.category
+  if (filters.hall) params.hall = filters.hall
+  if (filters.keyword) params.search = filters.keyword
+
+  fetchExhibits(params)
 }
 </script>
 

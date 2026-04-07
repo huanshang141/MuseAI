@@ -1,133 +1,208 @@
 <script setup>
-import { MapLocation, Location } from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
 
-defineProps({
-  path: {
-    type: Array,
-    default: () => [],
-  },
-  exhibits: {
-    type: Array,
-    default: () => [],
-  },
-  selectedExhibit: {
-    type: Object,
-    default: null,
-  },
+const props = defineProps({
+  exhibits: Array,
+  path: Array,
+  selectedExhibit: Object
 })
 
 const emit = defineEmits(['select-exhibit'])
+
+const currentFloor = ref(1)
+const scale = ref(1)
+
+// Map dimensions (in SVG units)
+const MAP_WIDTH = 800
+const MAP_HEIGHT = 600
+
+const filteredExhibits = computed(() => {
+  const all = props.exhibits || props.path || []
+  return all.filter(e => (e.floor || e.location?.floor || 1) === currentFloor.value)
+})
+
+const pathData = computed(() => {
+  if (!props.path || props.path.length < 2) return ''
+
+  const points = props.path
+    .filter(e => (e.floor || e.location?.floor || 1) === currentFloor.value)
+    .map(e => {
+      const x = e.location?.x || e.x || 0
+      const y = e.location?.y || e.y || 0
+      return `${x * scale.value},${y * scale.value}`
+    })
+
+  if (points.length < 2) return ''
+  return `M ${points.join(' L ')}`
+})
+
+function getExhibitPosition(exhibit) {
+  const x = exhibit.location?.x || exhibit.x || 0
+  const y = exhibit.location?.y || exhibit.y || 0
+  return {
+    x: x * scale.value,
+    y: y * scale.value
+  }
+}
+
+function isSelected(exhibit) {
+  return props.selectedExhibit?.id === exhibit.id
+}
+
+function isInPath(exhibit) {
+  return props.path?.some(e => e.id === exhibit.id)
+}
 </script>
 
 <template>
-  <el-card class="floor-map">
+  <el-card class="floor-map-card">
     <template #header>
-      <span>楼层导览图</span>
+      <div class="map-header">
+        <span>展厅地图</span>
+        <div class="map-controls">
+          <el-radio-group v-model="currentFloor" size="small">
+            <el-radio-button :label="1">一楼</el-radio-button>
+            <el-radio-button :label="2">二楼</el-radio-button>
+            <el-radio-button :label="3">三楼</el-radio-button>
+          </el-radio-group>
+          <el-slider v-model="scale" :min="0.5" :max="2" :step="0.1" style="width: 100px; margin-left: 16px;" />
+        </div>
+      </div>
     </template>
 
     <div class="map-container">
-      <!-- Placeholder for floor map visualization -->
-      <div class="map-placeholder">
-        <el-icon :size="60"><MapLocation /></el-icon>
-        <p>楼层导览图</p>
-        <p class="hint">点击展品标记查看详情</p>
+      <svg
+        :viewBox="`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`"
+        class="floor-map"
+      >
+        <!-- Background -->
+        <rect width="100%" height="100%" fill="#f5f7fa" />
 
-        <!-- Show path stops if available -->
-        <div v-if="path && path.length" class="path-indicator">
-          <el-tag type="success">当前路线: {{ path.length }} 站</el-tag>
-        </div>
-      </div>
+        <!-- Grid lines -->
+        <g stroke="#e4e7ed" stroke-width="1">
+          <line v-for="i in 9" :key="`h${i}`" x1="0" :y1="i * 60" x2="800" :y2="i * 60" />
+          <line v-for="i in 13" :key="`v${i}`" :x1="i * 60" y1="0" :x2="i * 60" y2="600" />
+        </g>
 
-      <!-- Show exhibits list when no actual map -->
-      <div v-if="exhibits && exhibits.length && !path?.length" class="exhibits-grid">
-        <div
-          v-for="exhibit in exhibits.slice(0, 9)"
+        <!-- Path line -->
+        <path
+          v-if="pathData"
+          :d="pathData"
+          fill="none"
+          stroke="#409eff"
+          stroke-width="3"
+          stroke-dasharray="5,5"
+        />
+
+        <!-- Exhibits -->
+        <g
+          v-for="exhibit in filteredExhibits"
           :key="exhibit.id"
           class="exhibit-marker"
-          :class="{ selected: selectedExhibit?.id === exhibit.id }"
+          :class="{
+            'is-selected': isSelected(exhibit),
+            'in-path': isInPath(exhibit)
+          }"
           @click="emit('select-exhibit', exhibit)"
         >
-          <el-icon><Location /></el-icon>
-          <span>{{ exhibit.name }}</span>
-        </div>
+          <circle
+            :cx="getExhibitPosition(exhibit).x"
+            :cy="getExhibitPosition(exhibit).y"
+            r="12"
+            :fill="isSelected(exhibit) ? '#f56c6c' : isInPath(exhibit) ? '#409eff' : '#67c23a'"
+            stroke="#fff"
+            stroke-width="2"
+            class="marker-circle"
+          />
+          <text
+            :x="getExhibitPosition(exhibit).x"
+            :y="getExhibitPosition(exhibit).y + 25"
+            text-anchor="middle"
+            font-size="12"
+            fill="#606266"
+          >
+            {{ exhibit.name }}
+          </text>
+        </g>
+      </svg>
+    </div>
+
+    <div class="map-legend">
+      <div class="legend-item">
+        <span class="legend-dot" style="background: #67c23a;"></span>
+        <span>普通展品</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="background: #409eff;"></span>
+        <span>路线中的展品</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot" style="background: #f56c6c;"></span>
+        <span>当前选中</span>
       </div>
     </div>
   </el-card>
 </template>
 
 <style scoped>
-.floor-map {
+.floor-map-card {
   height: 100%;
-  min-height: 400px;
+}
+
+.map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.map-controls {
+  display: flex;
+  align-items: center;
 }
 
 .map-container {
+  height: 500px;
+  overflow: auto;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+}
+
+.floor-map {
+  width: 100%;
   height: 100%;
-  min-height: 350px;
-  display: flex;
-  flex-direction: column;
-}
-
-.map-placeholder {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--el-fill-color-light);
-  border-radius: 8px;
-  color: var(--el-text-color-secondary);
-}
-
-.map-placeholder p {
-  margin: 8px 0;
-}
-
-.map-placeholder .hint {
-  font-size: 12px;
-  opacity: 0.7;
-}
-
-.path-indicator {
-  margin-top: 16px;
-}
-
-.exhibits-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 16px;
 }
 
 .exhibit-marker {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px;
-  background: var(--el-bg-color);
-  border: 1px solid var(--el-border-color);
-  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.3s;
 }
 
-.exhibit-marker:hover {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-9);
+.marker-circle {
+  transition: all 0.2s;
 }
 
-.exhibit-marker.selected {
-  border-color: var(--el-color-primary);
-  background: var(--el-color-primary-light-8);
+.exhibit-marker:hover .marker-circle {
+  r: 15;
 }
 
-.exhibit-marker span {
+.map-legend {
+  display: flex;
+  gap: 20px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e4e7ed;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
-  margin-top: 4px;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
+  color: #606266;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
 }
 </style>

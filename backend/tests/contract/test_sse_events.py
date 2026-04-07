@@ -104,9 +104,14 @@ async def test_stream_ask_success(db_session, auth_token):
         events = parse_sse_events(response.text)
         assert len(events) >= 4
 
-        thinking_events = [e for e in events if e["type"] == "thinking"]
-        assert len(thinking_events) >= 1
-        assert thinking_events[0]["stage"] == "retrieve"
+        # Check for rag_step events (new format)
+        rag_step_events = [e for e in events if e["type"] == "rag_step"]
+        assert len(rag_step_events) >= 1
+
+        # Check for retrieve step
+        retrieve_events = [e for e in rag_step_events if e["step"] == "retrieve"]
+        assert len(retrieve_events) >= 1
+        assert retrieve_events[0]["status"] in ["running", "completed"]
 
         chunk_events = [e for e in events if e["type"] == "chunk"]
         assert len(chunk_events) >= 1

@@ -59,14 +59,14 @@ const router = createRouter({
 
 // Navigation guards
 router.beforeEach((to, from, next) => {
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, isAdmin } = useAuth()
 
   if (to.meta.requiresAuth && !isAuthenticated.value) {
     next('/')
     return
   }
 
-  if (to.meta.requiresAdmin && user.value?.email !== 'admin@museai.com') {
+  if (to.meta.requiresAdmin && !isAdmin.value) {
     next('/')
     return
   }

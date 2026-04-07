@@ -1,7 +1,7 @@
 <script setup>
 import ChatPanel from '../components/ChatPanel.vue'
 import { useAuth } from '../composables/useAuth.js'
-import { ref, inject } from 'vue'
+import { inject } from 'vue'
 
 const { isAuthenticated } = useAuth()
 const showAuthModal = inject('showAuthModal')

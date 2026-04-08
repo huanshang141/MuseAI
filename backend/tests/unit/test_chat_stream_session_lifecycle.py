@@ -73,12 +73,21 @@ async def test_stream_generator_does_not_hold_request_session_for_entire_stream(
     mock_request_session.execute.return_value = mock_result
 
     mock_llm = AsyncMock()
+
+    async def mock_stream(*args):
+        for chunk in ["这是", "一个", "流式回答"]:
+            yield chunk
+
+    mock_llm.generate_stream = mock_stream
+
     mock_rag = AsyncMock()
     mock_rag.run.return_value = {
         "documents": [],
         "retrieval_score": 0.95,
         "answer": "这是一个流式回答",
     }
+    # Mock prompt_gateway to use fallback prompt
+    mock_rag.prompt_gateway = None
 
     # Collect all events from the stream
     # Pass session_maker to enable decoupled persistence
@@ -214,12 +223,21 @@ async def test_stream_ownership_check_before_streaming(db_session, session_maker
     mock_request_session.execute = tracked_execute
 
     mock_llm = AsyncMock()
+
+    async def mock_stream(*args):
+        for chunk in ["测试回答"]:
+            yield chunk
+
+    mock_llm.generate_stream = mock_stream
+
     mock_rag = AsyncMock()
     mock_rag.run.return_value = {
         "documents": [],
         "retrieval_score": 0.9,
         "answer": "测试回答",
     }
+    # Mock prompt_gateway to use fallback prompt
+    mock_rag.prompt_gateway = None
 
     # Collect events
     events = []

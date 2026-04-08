@@ -1,6 +1,5 @@
 """Test user creation and authentication helpers."""
 import asyncio
-import hashlib
 from typing import Any
 
 import httpx

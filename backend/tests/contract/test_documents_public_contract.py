@@ -6,9 +6,13 @@ formalizing the public document read contract.
 
 import os
 import tempfile
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.api.deps import get_db_session as original_get_db_session
+from app.api.deps import (
+    get_db_session as original_get_db_session,
+    get_unified_indexing_service_dep as original_get_unified_indexing_service,
+)
 from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, User
@@ -67,6 +71,15 @@ async def doc_id(db_session):
         yield doc.id
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.fixture
+def mock_unified_indexing_service():
+    """Create a mock unified indexing service for testing."""
+    mock = MagicMock()
+    mock.index_source = AsyncMock(return_value=10)
+    mock.delete_source = AsyncMock(return_value=None)
+    return mock
 
 
 @pytest.mark.asyncio
@@ -197,7 +210,7 @@ async def test_authenticated_user_document_list_uses_public_field_whitelist(db_s
 
 
 @pytest.mark.asyncio
-async def test_admin_upload_response_includes_error_field(db_session):
+async def test_admin_upload_response_includes_error_field(db_session, mock_unified_indexing_service):
     """Test that admin upload response still includes error field for operational needs."""
     from app.config.settings import get_settings
     from app.infra.security.jwt_handler import JWTHandler
@@ -205,7 +218,11 @@ async def test_admin_upload_response_includes_error_field(db_session):
     async def override_get_db():
         yield db_session
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         # Get admin token

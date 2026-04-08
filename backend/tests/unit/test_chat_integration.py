@@ -5,7 +5,7 @@ import pytest
 
 class TestChatAPIIntegration:
     def test_get_rag_agent_function_exists(self):
-        from app.api.chat import get_rag_agent
+        from app.api.deps import get_rag_agent
 
         assert callable(get_rag_agent)
 

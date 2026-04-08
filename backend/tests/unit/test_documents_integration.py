@@ -3,19 +3,19 @@ from unittest.mock import MagicMock
 
 class TestDocumentsAPIIntegration:
     def test_get_unified_indexing_service_function_exists(self):
-        from app.api.documents import get_unified_indexing_service
+        from app.api.deps import get_unified_indexing_service_dep
 
-        assert callable(get_unified_indexing_service)
+        assert callable(get_unified_indexing_service_dep)
 
     def test_get_es_client_function_exists(self):
-        from app.api.documents import get_es_client
+        from app.api.deps import get_es_client_dep
 
-        assert callable(get_es_client)
+        assert callable(get_es_client_dep)
 
     def test_get_embeddings_function_exists(self):
-        from app.api.documents import get_embeddings
+        from app.api.deps import get_embeddings_dep
 
-        assert callable(get_embeddings)
+        assert callable(get_embeddings_dep)
 
     def test_process_document_background_function_exists(self):
         from app.api.documents import process_document_background

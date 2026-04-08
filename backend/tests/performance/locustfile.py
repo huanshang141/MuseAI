@@ -98,6 +98,10 @@ class BaseChatUser(HttpUser):
             if not line:
                 continue
 
+            # Handle bytes from Locust's streaming response
+            if isinstance(line, bytes):
+                line = line.decode("utf-8")
+
             if line.startswith("data: "):
                 data_str = line[6:]  # Remove "data: " prefix
 

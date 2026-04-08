@@ -20,9 +20,13 @@ This suite tests the performance of chat endpoints under various load conditions
    uv run uvicorn backend.app.main:app --reload
    ```
 
-2. **Test Dependencies**:
+2. **Install Test Dependencies**:
    ```bash
-   uv add locust
+   # Install dev dependencies (includes locust)
+   uv sync --extra dev
+   
+   # Or install only performance testing dependencies
+   uv sync --extra performance
    ```
 
 ## Quick Start

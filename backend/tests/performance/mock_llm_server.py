@@ -124,8 +124,8 @@ async def stream_response(
     yield "data: [DONE]\n\n"
 
 
-@app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest) -> StreamingResponse | ChatCompletionResponse:
+@app.post("/v1/chat/completions", response_model=None)
+async def chat_completions(request: ChatCompletionRequest):
     """Handle chat completion requests (OpenAI-compatible)."""
     response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())

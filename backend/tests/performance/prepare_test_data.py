@@ -97,8 +97,8 @@ async def create_test_documents(
                 "name": base_doc["title"],
                 "category": base_doc["category"],
             },
-            # Generate random embedding vector (768 dims for nomic-embed-text)
-            "content_vector": [0.1] * 768,  # Simplified for testing
+            # Generate random embedding vector (4096 dims as configured in ES index)
+            "content_vector": [0.1] * 4096,  # Simplified for testing
         }
 
         try:

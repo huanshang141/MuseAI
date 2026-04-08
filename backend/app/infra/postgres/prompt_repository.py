@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.domain.entities import Prompt, PromptVersion
 from app.domain.value_objects import PromptId
@@ -49,7 +50,9 @@ class PromptRepository:
     async def get_by_key(self, key: str) -> Prompt | None:
         """Get a prompt by its unique key."""
         result = await self._session.execute(
-            select(PromptORM).where(PromptORM.key == key)
+            select(PromptORM)
+            .options(selectinload(PromptORM.versions))
+            .where(PromptORM.key == key)
         )
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
@@ -57,7 +60,9 @@ class PromptRepository:
     async def get_by_id(self, prompt_id: str) -> Prompt | None:
         """Get a prompt by its ID."""
         result = await self._session.execute(
-            select(PromptORM).where(PromptORM.id == prompt_id)
+            select(PromptORM)
+            .options(selectinload(PromptORM.versions))
+            .where(PromptORM.id == prompt_id)
         )
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
@@ -76,7 +81,7 @@ class PromptRepository:
         Returns:
             List of Prompt entities
         """
-        query = select(PromptORM)
+        query = select(PromptORM).options(selectinload(PromptORM.versions))
 
         if category is not None:
             query = query.where(PromptORM.category == category)

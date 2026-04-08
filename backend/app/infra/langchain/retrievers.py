@@ -47,6 +47,70 @@ class RRFRetriever(BaseRetriever):
         return documents
 
 
+class UnifiedRetriever(BaseRetriever):
+    """统一检索器，支持搜索所有内容类型（文档、展品等）"""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    es_client: Any
+    embeddings: Any
+    top_k: int = 5
+    rrf_k: int = 60
+    source_types: list[str] | None = None
+
+    def _get_relevant_documents(self, query: str) -> list[Document]:
+        raise NotImplementedError(
+            "Sync retrieval not supported in async context. Use _aget_relevant_documents instead."
+        )
+
+    async def _aget_relevant_documents(self, query: str) -> list[Document]:
+        """异步检索所有内容类型，使用 RRF 融合 dense 和 BM25 结果
+
+        Args:
+            query: 查询文本
+
+        Returns:
+            包含各种内容类型的 Document 列表，按 RRF 分数排序
+        """
+        query_vector = await self.embeddings.aembed_query(query)
+
+        # 搜索所有内容类型（使用 RRF 融合 dense + BM25）
+        dense_results = await self.es_client.search_dense(
+            query_vector, self.top_k * 2, source_types=self.source_types
+        )
+        bm25_results = await self.es_client.search_bm25(
+            query, self.top_k * 2, source_types=self.source_types
+        )
+        fused_results = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
+
+        documents = []
+        for item in fused_results[: self.top_k]:
+            doc = self._to_document(item)
+            documents.append(doc)
+
+        return documents
+
+    def _to_document(self, item: dict[str, Any]) -> Document:
+        """将 ES 结果转换为 LangChain Document
+
+        Args:
+            item: ES 搜索结果项
+
+        Returns:
+            LangChain Document 对象
+        """
+        return Document(
+            page_content=item.get("content", ""),
+            metadata={
+                "chunk_id": item.get("chunk_id"),
+                "source_id": item.get("source_id"),
+                "source_type": item.get("source_type"),
+                "chunk_level": item.get("chunk_level"),
+                "rrf_score": item.get("rrf_score"),
+            },
+        )
+
+
 class ExhibitAwareRetriever(BaseRetriever):
     """展品感知检索器，支持文档块和展品信息的混合检索"""
 

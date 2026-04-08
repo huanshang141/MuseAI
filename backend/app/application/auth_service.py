@@ -1,24 +1,30 @@
 # backend/app/application/auth_service.py
+"""Authentication service with dependency on repository port.
+
+This service implements authentication business logic without depending
+on infrastructure layer modules. It uses repository ports (protocols)
+that are implemented by adapters in the infrastructure layer.
+"""
+
 import uuid
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.infra.postgres.models import User
+if TYPE_CHECKING:
+    from app.infra.postgres.models import User
 
 
 async def register_user(
-    session: AsyncSession,
+    user_repo: "UserRepositoryPort",
     email: str,
     password: str,
     hash_password_func: Callable[[str], str],
     admin_emails: list[str] | None = None,
-) -> User:
+) -> "User":
     """Register a new user with the given email and password.
 
     Args:
-        session: AsyncSession for database operations.
+        user_repo: Repository implementing UserRepositoryPort for database operations.
         email: The user's email address.
         password: The user's plain text password.
         hash_password_func: Function to hash the password.
@@ -28,6 +34,9 @@ async def register_user(
     Returns:
         The newly created User instance.
     """
+    # Import User model locally to avoid module-level infra dependency
+    from app.infra.postgres.models import User
+
     user_id = str(uuid.uuid4())
     password_hash = hash_password_func(password)
 
@@ -42,52 +51,46 @@ async def register_user(
         password_hash=password_hash,
         role=role,
     )
-    session.add(user)
-    await session.flush()
-    await session.refresh(user)
+    await user_repo.add(user)
     return user
 
 
-async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+async def get_user_by_email(user_repo: "UserRepositoryPort", email: str) -> "User | None":
     """Retrieve a user by their email address.
 
     Args:
-        session: AsyncSession for database operations.
+        user_repo: Repository implementing UserRepositoryPort for database operations.
         email: The email address to search for.
 
     Returns:
         The User instance if found, None otherwise.
     """
-    stmt = select(User).where(User.email == email)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+    return await user_repo.get_by_email(email)
 
 
-async def get_user_by_id(session: AsyncSession, user_id: str) -> User | None:
+async def get_user_by_id(user_repo: "UserRepositoryPort", user_id: str) -> "User | None":
     """Retrieve a user by their unique identifier.
 
     Args:
-        session: AsyncSession for database operations.
+        user_repo: Repository implementing UserRepositoryPort for database operations.
         user_id: The unique identifier of the user.
 
     Returns:
         The User instance if found, None otherwise.
     """
-    stmt = select(User).where(User.id == user_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+    return await user_repo.get_by_id(user_id)
 
 
 async def authenticate_user(
-    session: AsyncSession,
+    user_repo: "UserRepositoryPort",
     email: str,
     password: str,
     verify_password_func: Callable[[str, str], bool],
-) -> User | None:
+) -> "User | None":
     """Authenticate a user by verifying their email and password.
 
     Args:
-        session: AsyncSession for database operations.
+        user_repo: Repository implementing UserRepositoryPort for database operations.
         email: The user's email address.
         password: The user's plain text password.
         verify_password_func: Function to verify the password against a hash.
@@ -95,7 +98,7 @@ async def authenticate_user(
     Returns:
         The User instance if authentication succeeds, None otherwise.
     """
-    user = await get_user_by_email(session, email)
+    user = await user_repo.get_by_email(email)
 
     if user is None:
         return None
@@ -130,3 +133,17 @@ def verify_token(token: str, jwt_handler) -> str | None:
         The user_id string if the token is valid, None otherwise.
     """
     return jwt_handler.verify_token(token)
+
+
+# Import the protocol for type hints
+from app.application.ports.repositories import UserRepositoryPort  # noqa: E402
+
+__all__ = [
+    "register_user",
+    "get_user_by_email",
+    "get_user_by_id",
+    "authenticate_user",
+    "create_access_token",
+    "verify_token",
+    "UserRepositoryPort",
+]

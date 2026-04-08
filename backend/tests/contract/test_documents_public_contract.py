@@ -9,6 +9,7 @@ import tempfile
 
 import pytest
 from app.api.deps import get_db_session as original_get_db_session
+from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, User
 from app.main import app
@@ -60,7 +61,8 @@ async def doc_id(db_session):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "public-test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "public-test.pdf", TEST_USER_ID)
         await db_session.commit()
         yield doc.id
     finally:
@@ -79,7 +81,8 @@ async def test_guest_document_list_uses_public_field_whitelist(db_session):
 
     try:
         # Create a test document
-        doc = await create_document(db_session, "public-list-test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "public-list-test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -159,7 +162,8 @@ async def test_authenticated_user_document_list_uses_public_field_whitelist(db_s
 
     try:
         # Create a test document
-        doc = await create_document(db_session, "auth-list-test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "auth-list-test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         # Get auth token

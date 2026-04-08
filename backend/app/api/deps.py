@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.auth_service import get_user_by_id
 from app.config.settings import get_settings
 from app.infra.cache.prompt_cache import PromptCache
+from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
 from app.infra.postgres.database import get_session
 from app.infra.redis.cache import RedisCache
 from app.infra.security.jwt_handler import JWTHandler
@@ -97,7 +98,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = await get_user_by_id(session, user_id)
+    user_repo = PostgresUserRepository(session)
+    user = await get_user_by_id(user_repo, user_id)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -137,7 +139,8 @@ async def get_optional_user(
     if user_id is None:
         return None
 
-    user = await get_user_by_id(session, user_id)
+    user_repo = PostgresUserRepository(session)
+    user = await get_user_by_id(user_repo, user_id)
     if user is None:
         return None
 

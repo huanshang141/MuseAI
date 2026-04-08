@@ -11,6 +11,7 @@ from app.application.auth_service import (
     register_user,
 )
 from app.config.settings import get_settings
+from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
 from app.infra.security import hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -61,7 +62,8 @@ async def register(
     session: SessionDep,
     _: AuthRateLimitDep,  # Add rate limiting
 ):
-    existing_user = await get_user_by_email(session, request.email)
+    user_repo = PostgresUserRepository(session)
+    existing_user = await get_user_by_email(user_repo, request.email)
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -70,7 +72,7 @@ async def register(
 
     settings = get_settings()
     user = await register_user(
-        session=session,
+        user_repo=user_repo,
         email=request.email,
         password=request.password,
         hash_password_func=hash_password,
@@ -93,8 +95,9 @@ async def login(
     jwt_handler: JWTHandlerDep,
     _: AuthRateLimitDep,  # Add rate limiting
 ):
+    user_repo = PostgresUserRepository(session)
     user = await authenticate_user(
-        session=session,
+        user_repo=user_repo,
         email=request.email,
         password=request.password,
         verify_password_func=verify_password,

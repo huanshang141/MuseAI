@@ -1,146 +1,216 @@
-import uuid
+# backend/app/application/document_service.py
+"""Document service with dependency on repository port.
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+This service implements document business logic without depending
+on infrastructure layer modules at the module level. It uses repository
+ports (protocols) that are implemented by adapters in the infrastructure layer.
+"""
 
-from app.infra.postgres.models import Document, IngestionJob
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models import Document, IngestionJob
 
 
-async def create_document(session: AsyncSession, filename: str, size: int, user_id: str) -> Document:
-    doc_id = str(uuid.uuid4())
-    document = Document(
-        id=doc_id,
-        user_id=user_id,
-        filename=filename,
-        status="pending",
-    )
-    session.add(document)
+async def create_document(
+    doc_repo: "DocumentRepositoryPort", filename: str, user_id: str
+) -> "Document":
+    """Create a new document with associated ingestion job.
 
-    job_id = str(uuid.uuid4())
-    ingestion_job = IngestionJob(
-        id=job_id,
-        document_id=doc_id,
-        status="pending",
-        chunk_count=0,
-    )
-    session.add(ingestion_job)
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        filename: Name of the uploaded file.
+        user_id: ID of the user uploading the file.
 
-    await session.flush()
-    await session.refresh(document)
-
+    Returns:
+        The newly created Document instance.
+    """
+    document, _ = await doc_repo.create(filename, user_id)
     return document
 
 
 async def get_documents_by_user(
-    session: AsyncSession, user_id: str, limit: int = 20, offset: int = 0
-) -> list[Document]:
-    """Get documents for a user with pagination."""
-    stmt = (
-        select(Document)
-        .where(Document.user_id == user_id)
-        .order_by(Document.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    doc_repo: "DocumentRepositoryPort",
+    user_id: str,
+    limit: int = 20,
+    offset: int = 0,
+) -> list["Document"]:
+    """Get documents for a user with pagination.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        user_id: User ID to filter by.
+        limit: Maximum number of documents to return.
+        offset: Number of documents to skip.
+
+    Returns:
+        List of Document instances.
+    """
+    return await doc_repo.get_by_user_id(user_id, limit=limit, offset=offset)
 
 
-async def count_documents_by_user(session: AsyncSession, user_id: str) -> int:
-    """Count total documents for a user."""
-    stmt = select(func.count()).select_from(Document).where(Document.user_id == user_id)
-    result = await session.execute(stmt)
-    return result.scalar() or 0
+async def count_documents_by_user(doc_repo: "DocumentRepositoryPort", user_id: str) -> int:
+    """Count total documents for a user.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        user_id: User ID to count documents for.
+
+    Returns:
+        Total document count for the user.
+    """
+    return await doc_repo.count_by_user_id(user_id)
 
 
-async def get_document_by_id(session: AsyncSession, doc_id: str, user_id: str) -> Document | None:
-    stmt = select(Document).where(Document.id == doc_id, Document.user_id == user_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+async def get_document_by_id(
+    doc_repo: "DocumentRepositoryPort", doc_id: str, user_id: str
+) -> "Document | None":
+    """Get a document by ID, filtered by user ownership.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to retrieve.
+        user_id: User ID that must own the document.
+
+    Returns:
+        Document if found and owned by user, None otherwise.
+    """
+    document = await doc_repo.get_by_id(doc_id)
+    if document is not None and document.user_id == user_id:
+        return document
+    return None
 
 
-async def get_ingestion_job_by_document(session: AsyncSession, doc_id: str) -> IngestionJob | None:
-    stmt = select(IngestionJob).where(IngestionJob.document_id == doc_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+async def get_ingestion_job_by_document(
+    doc_repo: "DocumentRepositoryPort", doc_id: str
+) -> "IngestionJob | None":
+    """Get ingestion job for a document.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to get ingestion job for.
+
+    Returns:
+        IngestionJob if found, None otherwise.
+    """
+    return await doc_repo.get_ingestion_job_by_document(doc_id)
 
 
-async def delete_document(session: AsyncSession, doc_id: str, user_id: str) -> bool:
-    document = await get_document_by_id(session, doc_id, user_id)
-    if document is None:
+async def delete_document(
+    doc_repo: "DocumentRepositoryPort", doc_id: str, user_id: str
+) -> bool:
+    """Delete a document by ID, filtered by user ownership.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to delete.
+        user_id: User ID that must own the document.
+
+    Returns:
+        True if deleted, False if not found or not owned.
+    """
+    document = await doc_repo.get_by_id(doc_id)
+    if document is None or document.user_id != user_id:
         return False
-    await session.delete(document)
-    await session.commit()
-    return True
+    return await doc_repo.delete(doc_id)
 
 
 async def update_document_status(
-    session: AsyncSession,
+    doc_repo: "DocumentRepositoryPort",
     doc_id: str,
     status: str,
     error: str | None = None,
     chunk_count: int | None = None,
-) -> Document | None:
+) -> "Document | None":
     """Update document status and optionally set error message.
 
     Also updates the associated IngestionJob if chunk_count is provided.
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to update.
+        status: New status value.
+        error: Optional error message.
+        chunk_count: Optional chunk count for ingestion job.
+
+    Returns:
+        Updated Document instance, or None if not found.
     """
-    stmt = select(Document).where(Document.id == doc_id)
-    result = await session.execute(stmt)
-    document = result.scalar_one_or_none()
-    if document is None:
-        return None
-    document.status = status
-    document.error = error
-    await session.flush()
-    await session.refresh(document)
-
-    # Also update the IngestionJob
-    job_stmt = select(IngestionJob).where(IngestionJob.document_id == doc_id)
-    job_result = await session.execute(job_stmt)
-    ingestion_job = job_result.scalar_one_or_none()
-    if ingestion_job is not None:
-        ingestion_job.status = status
-        ingestion_job.error = error
-        if chunk_count is not None:
-            ingestion_job.chunk_count = chunk_count
-
-    return document
+    return await doc_repo.update_status(doc_id, status, error, chunk_count)
 
 
 async def get_all_documents(
-    session: AsyncSession, limit: int = 20, offset: int = 0
-) -> list[Document]:
-    """Get all documents with pagination (admin access)."""
-    stmt = (
-        select(Document)
-        .order_by(Document.created_at.desc())
-        .limit(limit)
-        .offset(offset)
-    )
-    result = await session.execute(stmt)
-    return list(result.scalars().all())
+    doc_repo: "DocumentRepositoryPort", limit: int = 20, offset: int = 0
+) -> list["Document"]:
+    """Get all documents with pagination (admin access).
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        limit: Maximum number of documents to return.
+        offset: Number of documents to skip.
+
+    Returns:
+        List of Document instances.
+    """
+    return await doc_repo.get_all(limit=limit, offset=offset)
 
 
-async def count_all_documents(session: AsyncSession) -> int:
-    """Count total documents across all users (admin access)."""
-    stmt = select(func.count()).select_from(Document)
-    result = await session.execute(stmt)
-    return result.scalar() or 0
+async def count_all_documents(doc_repo: "DocumentRepositoryPort") -> int:
+    """Count total documents across all users (admin access).
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+
+    Returns:
+        Total document count.
+    """
+    return await doc_repo.count_all()
 
 
-async def get_document_by_id_public(session: AsyncSession, doc_id: str) -> Document | None:
-    """Get document by ID without user filtering (admin access)."""
-    stmt = select(Document).where(Document.id == doc_id)
-    result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+async def get_document_by_id_public(
+    doc_repo: "DocumentRepositoryPort", doc_id: str
+) -> "Document | None":
+    """Get document by ID without user filtering (admin access).
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to retrieve.
+
+    Returns:
+        Document if found, None otherwise.
+    """
+    return await doc_repo.get_by_id(doc_id)
 
 
-async def delete_document_by_id(session: AsyncSession, doc_id: str) -> bool:
-    """Delete document by ID without user filtering (admin access)."""
-    document = await get_document_by_id_public(session, doc_id)
-    if document is None:
-        return False
-    await session.delete(document)
-    await session.commit()
-    return True
+async def delete_document_by_id(
+    doc_repo: "DocumentRepositoryPort", doc_id: str
+) -> bool:
+    """Delete document by ID without user filtering (admin access).
+
+    Args:
+        doc_repo: Repository implementing DocumentRepositoryPort.
+        doc_id: Document ID to delete.
+
+    Returns:
+        True if deleted, False if not found.
+    """
+    return await doc_repo.delete(doc_id)
+
+
+# Import the protocol for type hints
+from app.application.ports.repositories import DocumentRepositoryPort  # noqa: E402
+
+__all__ = [
+    "create_document",
+    "get_documents_by_user",
+    "count_documents_by_user",
+    "get_document_by_id",
+    "get_ingestion_job_by_document",
+    "delete_document",
+    "update_document_status",
+    "get_all_documents",
+    "count_all_documents",
+    "get_document_by_id_public",
+    "delete_document_by_id",
+    "DocumentRepositoryPort",
+]

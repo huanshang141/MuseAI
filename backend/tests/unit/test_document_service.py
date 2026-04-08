@@ -5,6 +5,21 @@ from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone
 
 
+def create_mock_doc_repo():
+    """Create a mock document repository for testing."""
+    mock_repo = MagicMock()
+    mock_repo.create = AsyncMock()
+    mock_repo.get_by_id = AsyncMock(return_value=None)
+    mock_repo.get_by_user_id = AsyncMock(return_value=[])
+    mock_repo.get_all = AsyncMock(return_value=[])
+    mock_repo.count_all = AsyncMock(return_value=0)
+    mock_repo.count_by_user_id = AsyncMock(return_value=0)
+    mock_repo.update_status = AsyncMock(return_value=None)
+    mock_repo.delete = AsyncMock(return_value=False)
+    mock_repo.get_ingestion_job_by_document = AsyncMock(return_value=None)
+    return mock_repo
+
+
 class TestCreateDocument:
     """Tests for create_document function."""
 
@@ -13,23 +28,24 @@ class TestCreateDocument:
         """create_document should create document and associated ingestion job."""
         from app.application.document_service import create_document
 
-        mock_session = AsyncMock()
-        added_objects = []
-        mock_session.add = lambda obj: added_objects.append(obj)
-        mock_session.flush = AsyncMock()
-        mock_session.refresh = AsyncMock()
+        mock_doc = MagicMock()
+        mock_doc.id = "doc-123"
+        mock_doc.filename = "test.pdf"
+
+        mock_job = MagicMock()
+        mock_job.id = "job-123"
+
+        mock_repo = create_mock_doc_repo()
+        mock_repo.create = AsyncMock(return_value=(mock_doc, mock_job))
 
         result = await create_document(
-            session=mock_session,
+            doc_repo=mock_repo,
             filename="test.pdf",
-            size=1024,
             user_id="user-123",
         )
 
-        # Should have added document and ingestion job
-        assert len(added_objects) == 2
-        assert mock_session.flush.called
-        assert mock_session.refresh.called
+        assert result.id == "doc-123"
+        mock_repo.create.assert_called_once_with("test.pdf", "user-123")
 
 
 class TestGetDocumentsByUser:
@@ -44,12 +60,10 @@ class TestGetDocumentsByUser:
         mock_document.id = "doc-123"
         mock_document.filename = "test.pdf"
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_document]
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_user_id = AsyncMock(return_value=[mock_document])
 
-        result = await get_documents_by_user(mock_session, "user-123")
+        result = await get_documents_by_user(mock_repo, "user-123")
 
         assert len(result) == 1
         assert result[0].id == "doc-123"
@@ -59,12 +73,10 @@ class TestGetDocumentsByUser:
         """get_documents_by_user should return empty list when no documents."""
         from app.application.document_service import get_documents_by_user
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_user_id = AsyncMock(return_value=[])
 
-        result = await get_documents_by_user(mock_session, "user-123")
+        result = await get_documents_by_user(mock_repo, "user-123")
 
         assert result == []
 
@@ -81,12 +93,10 @@ class TestGetDocumentById:
         mock_document.id = "doc-123"
         mock_document.user_id = "user-123"
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=mock_document)
 
-        result = await get_document_by_id(mock_session, "doc-123", "user-123")
+        result = await get_document_by_id(mock_repo, "doc-123", "user-123")
 
         assert result.id == "doc-123"
 
@@ -95,12 +105,10 @@ class TestGetDocumentById:
         """get_document_by_id should return None if document not found."""
         from app.application.document_service import get_document_by_id
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await get_document_by_id(mock_session, "nonexistent", "user-123")
+        result = await get_document_by_id(mock_repo, "nonexistent", "user-123")
 
         assert result is None
 
@@ -109,13 +117,14 @@ class TestGetDocumentById:
         """get_document_by_id should return None if not owned by user."""
         from app.application.document_service import get_document_by_id
 
-        # Query filters by user_id, so returns None for different user
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_document = MagicMock()
+        mock_document.id = "doc-123"
+        mock_document.user_id = "different-user"
 
-        result = await get_document_by_id(mock_session, "doc-123", "different-user")
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=mock_document)
+
+        result = await get_document_by_id(mock_repo, "doc-123", "user-123")
 
         assert result is None
 
@@ -133,12 +142,10 @@ class TestGetIngestionJobByDocument:
         mock_job.document_id = "doc-123"
         mock_job.status = "completed"
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_job
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_ingestion_job_by_document = AsyncMock(return_value=mock_job)
 
-        result = await get_ingestion_job_by_document(mock_session, "doc-123")
+        result = await get_ingestion_job_by_document(mock_repo, "doc-123")
 
         assert result.id == "job-123"
 
@@ -147,12 +154,10 @@ class TestGetIngestionJobByDocument:
         """get_ingestion_job_by_document should return None if not found."""
         from app.application.document_service import get_ingestion_job_by_document
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_ingestion_job_by_document = AsyncMock(return_value=None)
 
-        result = await get_ingestion_job_by_document(mock_session, "nonexistent")
+        result = await get_ingestion_job_by_document(mock_repo, "nonexistent")
 
         assert result is None
 
@@ -167,34 +172,46 @@ class TestDeleteDocument:
 
         mock_document = MagicMock()
         mock_document.id = "doc-123"
+        mock_document.user_id = "user-123"
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.delete = AsyncMock()
-        mock_session.commit = AsyncMock()
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=mock_document)
+        mock_repo.delete = AsyncMock(return_value=True)
 
-        result = await delete_document(mock_session, "doc-123", "user-123")
+        result = await delete_document(mock_repo, "doc-123", "user-123")
 
         assert result is True
-        mock_session.delete.assert_called_once()
-        mock_session.commit.assert_called_once()
+        mock_repo.delete.assert_called_once_with("doc-123")
 
     @pytest.mark.asyncio
     async def test_returns_false_if_not_found(self):
         """delete_document should return False if document not found."""
         from app.application.document_service import delete_document
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await delete_document(mock_session, "nonexistent", "user-123")
+        result = await delete_document(mock_repo, "nonexistent", "user-123")
 
         assert result is False
-        mock_session.delete.assert_not_called()
+        mock_repo.delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_if_not_owner(self):
+        """delete_document should return False if user is not owner."""
+        from app.application.document_service import delete_document
+
+        mock_document = MagicMock()
+        mock_document.id = "doc-123"
+        mock_document.user_id = "different-user"
+
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=mock_document)
+
+        result = await delete_document(mock_repo, "doc-123", "user-123")
+
+        assert result is False
+        mock_repo.delete.assert_not_called()
 
 
 class TestUpdateDocumentStatus:
@@ -210,22 +227,17 @@ class TestUpdateDocumentStatus:
         mock_document.status = "pending"
         mock_document.error = None
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.flush = AsyncMock()
-        mock_session.refresh = AsyncMock()
+        mock_repo = create_mock_doc_repo()
+        mock_repo.update_status = AsyncMock(return_value=mock_document)
 
         result = await update_document_status(
-            mock_session,
+            mock_repo,
             "doc-123",
             "failed",
             "Processing error",
         )
 
-        assert mock_document.status == "failed"
-        assert mock_document.error == "Processing error"
+        mock_repo.update_status.assert_called_once_with("doc-123", "failed", "Processing error", None)
         assert result == mock_document
 
     @pytest.mark.asyncio
@@ -233,13 +245,11 @@ class TestUpdateDocumentStatus:
         """update_document_status should return None if document not found."""
         from app.application.document_service import update_document_status
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.update_status = AsyncMock(return_value=None)
 
         result = await update_document_status(
-            mock_session,
+            mock_repo,
             "nonexistent",
             "completed",
         )
@@ -256,22 +266,17 @@ class TestUpdateDocumentStatus:
         mock_document.status = "failed"
         mock_document.error = "Previous error"
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.flush = AsyncMock()
-        mock_session.refresh = AsyncMock()
+        mock_repo = create_mock_doc_repo()
+        mock_repo.update_status = AsyncMock(return_value=mock_document)
 
         result = await update_document_status(
-            mock_session,
+            mock_repo,
             "doc-123",
             "completed",
             None,
         )
 
-        assert mock_document.status == "completed"
-        assert mock_document.error is None
+        mock_repo.update_status.assert_called_once_with("doc-123", "completed", None, None)
 
 
 class TestGetAllDocuments:
@@ -292,12 +297,10 @@ class TestGetAllDocuments:
         mock_document2.filename = "test2.pdf"
         mock_document2.user_id = "user-456"
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_document1, mock_document2]
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_all = AsyncMock(return_value=[mock_document1, mock_document2])
 
-        result = await get_all_documents(mock_session)
+        result = await get_all_documents(mock_repo)
 
         assert len(result) == 2
         assert result[0].id == "doc-1"
@@ -308,12 +311,10 @@ class TestGetAllDocuments:
         """get_all_documents should return empty list when no documents exist."""
         from app.application.document_service import get_all_documents
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_all = AsyncMock(return_value=[])
 
-        result = await get_all_documents(mock_session)
+        result = await get_all_documents(mock_repo)
 
         assert result == []
 
@@ -323,14 +324,13 @@ class TestGetAllDocuments:
         from app.application.document_service import get_all_documents
 
         mock_document = MagicMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_document]
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_all = AsyncMock(return_value=[mock_document])
 
-        result = await get_all_documents(mock_session, limit=5, offset=10)
+        result = await get_all_documents(mock_repo, limit=5, offset=10)
 
         assert len(result) == 1
+        mock_repo.get_all.assert_called_once_with(limit=5, offset=10)
 
 
 class TestCountAllDocuments:
@@ -341,12 +341,10 @@ class TestCountAllDocuments:
         """count_all_documents should return total document count."""
         from app.application.document_service import count_all_documents
 
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 42
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.count_all = AsyncMock(return_value=42)
 
-        result = await count_all_documents(mock_session)
+        result = await count_all_documents(mock_repo)
 
         assert result == 42
 
@@ -355,12 +353,10 @@ class TestCountAllDocuments:
         """count_all_documents should return 0 when no documents exist."""
         from app.application.document_service import count_all_documents
 
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.count_all = AsyncMock(return_value=0)
 
-        result = await count_all_documents(mock_session)
+        result = await count_all_documents(mock_repo)
 
         assert result == 0
 
@@ -377,12 +373,10 @@ class TestGetDocumentByIdPublic:
         mock_document.id = "doc-123"
         mock_document.user_id = "user-456"
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=mock_document)
 
-        result = await get_document_by_id_public(mock_session, "doc-123")
+        result = await get_document_by_id_public(mock_repo, "doc-123")
 
         assert result.id == "doc-123"
         assert result.user_id == "user-456"
@@ -392,12 +386,10 @@ class TestGetDocumentByIdPublic:
         """get_document_by_id_public should return None if document not found."""
         from app.application.document_service import get_document_by_id_public
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.get_by_id = AsyncMock(return_value=None)
 
-        result = await get_document_by_id_public(mock_session, "nonexistent")
+        result = await get_document_by_id_public(mock_repo, "nonexistent")
 
         assert result is None
 
@@ -410,54 +402,64 @@ class TestDeleteDocumentById:
         """delete_document_by_id should return True when document deleted."""
         from app.application.document_service import delete_document_by_id
 
-        mock_document = MagicMock()
-        mock_document.id = "doc-123"
+        mock_repo = create_mock_doc_repo()
+        mock_repo.delete = AsyncMock(return_value=True)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.delete = AsyncMock()
-        mock_session.commit = AsyncMock()
-
-        result = await delete_document_by_id(mock_session, "doc-123")
+        result = await delete_document_by_id(mock_repo, "doc-123")
 
         assert result is True
-        mock_session.delete.assert_called_once()
-        mock_session.commit.assert_called_once()
+        mock_repo.delete.assert_called_once_with("doc-123")
 
     @pytest.mark.asyncio
     async def test_returns_false_if_not_found(self):
         """delete_document_by_id should return False if document not found."""
         from app.application.document_service import delete_document_by_id
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_repo = create_mock_doc_repo()
+        mock_repo.delete = AsyncMock(return_value=False)
 
-        result = await delete_document_by_id(mock_session, "nonexistent")
+        result = await delete_document_by_id(mock_repo, "nonexistent")
 
         assert result is False
-        mock_session.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_deletes_without_user_check(self):
         """delete_document_by_id should delete document regardless of user."""
         from app.application.document_service import delete_document_by_id
 
-        mock_document = MagicMock()
-        mock_document.id = "doc-123"
-        mock_document.user_id = "different-user"
+        mock_repo = create_mock_doc_repo()
+        mock_repo.delete = AsyncMock(return_value=True)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_document
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_session.delete = AsyncMock()
-        mock_session.commit = AsyncMock()
-
-        result = await delete_document_by_id(mock_session, "doc-123")
+        result = await delete_document_by_id(mock_repo, "doc-123")
 
         assert result is True
-        mock_session.delete.assert_called_once_with(mock_document)
+        mock_repo.delete.assert_called_once_with("doc-123")
+
+
+class TestCountDocumentsByUser:
+    """Tests for count_documents_by_user function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_count_for_user(self):
+        """count_documents_by_user should return count for specific user."""
+        from app.application.document_service import count_documents_by_user
+
+        mock_repo = create_mock_doc_repo()
+        mock_repo.count_by_user_id = AsyncMock(return_value=5)
+
+        result = await count_documents_by_user(mock_repo, "user-123")
+
+        assert result == 5
+        mock_repo.count_by_user_id.assert_called_once_with("user-123")
+
+    @pytest.mark.asyncio
+    async def test_returns_zero_when_no_documents(self):
+        """count_documents_by_user should return 0 when user has no documents."""
+        from app.application.document_service import count_documents_by_user
+
+        mock_repo = create_mock_doc_repo()
+        mock_repo.count_by_user_id = AsyncMock(return_value=0)
+
+        result = await count_documents_by_user(mock_repo, "user-123")
+
+        assert result == 0

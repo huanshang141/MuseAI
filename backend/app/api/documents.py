@@ -20,6 +20,7 @@ from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import create_embeddings
+from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -182,8 +183,9 @@ async def process_document_background(
 
     async with get_session(session_maker) as session:
         try:
+            doc_repo = PostgresDocumentRepository(session)
             # Update status to processing
-            await update_document_status(session, document_id, "processing", None)
+            await update_document_status(doc_repo, document_id, "processing", None)
             await session.commit()
 
             # Use UnifiedIndexingService for indexing
@@ -196,13 +198,14 @@ async def process_document_background(
             chunk_count = await unified_indexing_service.index_source(source)
 
             # Update status to completed
-            await update_document_status(session, document_id, "completed", None, chunk_count)
+            await update_document_status(doc_repo, document_id, "completed", None, chunk_count)
             await session.commit()
 
             logger.info(f"Document {document_id} indexed: {chunk_count} chunks")
         except Exception as e:
             logger.exception(f"Failed to process document {document_id}: {e}")
-            await update_document_status(session, document_id, "failed", str(e))
+            doc_repo = PostgresDocumentRepository(session)
+            await update_document_status(doc_repo, document_id, "failed", str(e))
             await session.commit()
 
 
@@ -225,7 +228,8 @@ async def upload_document(
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
-    document = await create_document(session, file.filename, file_size, current_admin["id"])
+    doc_repo = PostgresDocumentRepository(session)
+    document = await create_document(doc_repo, file.filename, current_admin["id"])
     await session.commit()
 
     try:
@@ -261,8 +265,9 @@ async def list_documents(
     This endpoint is accessible to guests (unauthenticated) and authenticated users.
     Only whitelisted public fields are exposed in the response.
     """
-    documents = await get_all_documents(session, limit=limit, offset=offset)
-    total = await count_all_documents(session)
+    doc_repo = PostgresDocumentRepository(session)
+    documents = await get_all_documents(doc_repo, limit=limit, offset=offset)
+    total = await count_all_documents(doc_repo)
     return PublicDocumentListResponse(
         documents=[
             PublicDocumentResponse(
@@ -286,7 +291,8 @@ async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> Pub
     This endpoint is accessible to guests (unauthenticated) and authenticated users.
     Only whitelisted public fields are exposed in the response.
     """
-    document = await get_document_by_id_public(session, doc_id)
+    doc_repo = PostgresDocumentRepository(session)
+    document = await get_document_by_id_public(doc_repo, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
@@ -307,11 +313,12 @@ async def get_document_status(
     This endpoint is accessible to guests (unauthenticated) and authenticated users.
     Only whitelisted public fields are exposed in the response.
     """
-    document = await get_document_by_id_public(session, doc_id)
+    doc_repo = PostgresDocumentRepository(session)
+    document = await get_document_by_id_public(doc_repo, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    ingestion_job = await get_ingestion_job_by_document(session, doc_id)
+    ingestion_job = await get_ingestion_job_by_document(doc_repo, doc_id)
     if ingestion_job is None:
         raise HTTPException(status_code=404, detail="Ingestion job not found")
 
@@ -331,7 +338,8 @@ async def delete_document_endpoint(
     doc_id: str,
     current_admin: CurrentAdmin,
 ) -> DeleteResponse:
-    success = await delete_document_by_id(session, doc_id)
+    doc_repo = PostgresDocumentRepository(session)
+    success = await delete_document_by_id(doc_repo, doc_id)
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
 

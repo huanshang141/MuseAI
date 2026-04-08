@@ -13,18 +13,24 @@ from app.application.auth_service import (
 from pydantic import ValidationError
 
 
+def create_mock_user_repo():
+    """Create a mock user repository for testing."""
+    mock_repo = MagicMock()
+    mock_repo.add = AsyncMock()
+    mock_repo.get_by_email = AsyncMock(return_value=None)
+    mock_repo.get_by_id = AsyncMock(return_value=None)
+    return mock_repo
+
+
 @pytest.mark.asyncio
 async def test_register_user():
     """Test successful user registration."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="test@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
@@ -34,6 +40,7 @@ async def test_register_user():
     assert user.email == "test@example.com"
     assert user.password_hash == "hashed_password_123"
     mock_hash_func.assert_called_once_with("password123")
+    mock_repo.add.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -41,18 +48,14 @@ async def test_register_user_duplicate_email():
     """Test that registering with a duplicate email raises an integrity error."""
     from sqlalchemy.exc import IntegrityError
 
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock(
-        side_effect=IntegrityError("duplicate key", {}, None)
-    )
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
+    mock_repo.add = AsyncMock(side_effect=IntegrityError("duplicate key", {}, None))
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     with pytest.raises(IntegrityError):
         await register_user(
-            session=mock_session,
+            user_repo=mock_repo,
             email="duplicate@example.com",
             password="password123",
             hash_password_func=mock_hash_func,
@@ -67,15 +70,13 @@ async def test_authenticate_user_success():
     mock_user.email = "test@example.com"
     mock_user.password_hash = "hashed_password_123"
 
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_user
-    mock_session.execute.return_value = mock_result
+    mock_repo = create_mock_user_repo()
+    mock_repo.get_by_email = AsyncMock(return_value=mock_user)
 
     mock_verify = MagicMock(return_value=True)
 
     user = await authenticate_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="test@example.com",
         password="password123",
         verify_password_func=mock_verify,
@@ -93,15 +94,13 @@ async def test_authenticate_user_wrong_password():
     mock_user.id = "user-123"
     mock_user.password_hash = "hashed_password_123"
 
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_user
-    mock_session.execute.return_value = mock_result
+    mock_repo = create_mock_user_repo()
+    mock_repo.get_by_email = AsyncMock(return_value=mock_user)
 
     mock_verify = MagicMock(return_value=False)
 
     user = await authenticate_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="test@example.com",
         password="wrong_password",
         verify_password_func=mock_verify,
@@ -114,15 +113,12 @@ async def test_authenticate_user_wrong_password():
 @pytest.mark.asyncio
 async def test_authenticate_user_not_found():
     """Test authentication failure when user is not found."""
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
-    mock_session.execute.return_value = mock_result
+    mock_repo = create_mock_user_repo()
 
     mock_verify = MagicMock(return_value=True)
 
     user = await authenticate_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="notfound@example.com",
         password="password123",
         verify_password_func=mock_verify,
@@ -173,12 +169,10 @@ async def test_get_user_by_id_found():
     mock_user.id = "user-123"
     mock_user.email = "test@example.com"
 
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = mock_user
-    mock_session.execute.return_value = mock_result
+    mock_repo = create_mock_user_repo()
+    mock_repo.get_by_id = AsyncMock(return_value=mock_user)
 
-    user = await get_user_by_id(session=mock_session, user_id="user-123")
+    user = await get_user_by_id(user_repo=mock_repo, user_id="user-123")
 
     assert user is not None
     assert user.id == "user-123"
@@ -188,12 +182,9 @@ async def test_get_user_by_id_found():
 @pytest.mark.asyncio
 async def test_get_user_by_id_not_found():
     """Test retrieving a user by ID when user does not exist."""
-    mock_session = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalar_one_or_none.return_value = None
-    mock_session.execute.return_value = mock_result
+    mock_repo = create_mock_user_repo()
 
-    user = await get_user_by_id(session=mock_session, user_id="nonexistent-user")
+    user = await get_user_by_id(user_repo=mock_repo, user_id="nonexistent-user")
 
     assert user is None
 
@@ -254,15 +245,12 @@ def test_password_validation_error_messages_clear():
 @pytest.mark.asyncio
 async def test_register_user_assigns_admin_role():
     """Test that user gets admin role when email is in admin_emails list."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="admin@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
@@ -278,15 +266,12 @@ async def test_register_user_assigns_admin_role():
 @pytest.mark.asyncio
 async def test_register_user_assigns_user_role_when_not_in_admin_list():
     """Test that user gets user role when email is not in admin_emails list."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="regular@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
@@ -301,15 +286,12 @@ async def test_register_user_assigns_user_role_when_not_in_admin_list():
 @pytest.mark.asyncio
 async def test_register_user_assigns_user_role_when_admin_emails_none():
     """Test that user gets user role when admin_emails is None."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="regular@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
@@ -324,15 +306,12 @@ async def test_register_user_assigns_user_role_when_admin_emails_none():
 @pytest.mark.asyncio
 async def test_register_user_assigns_user_role_when_admin_emails_empty():
     """Test that user gets user role when admin_emails is empty list."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="regular@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
@@ -347,16 +326,13 @@ async def test_register_user_assigns_user_role_when_admin_emails_empty():
 @pytest.mark.asyncio
 async def test_register_user_role_case_sensitive_email():
     """Test that admin email matching is case-sensitive."""
-    mock_session = MagicMock()
-    mock_session.add = MagicMock()
-    mock_session.flush = AsyncMock()
-    mock_session.refresh = AsyncMock()
+    mock_repo = create_mock_user_repo()
 
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     # Email with different case should not match
     user = await register_user(
-        session=mock_session,
+        user_repo=mock_repo,
         email="Admin@Example.com",
         password="password123",
         hash_password_func=mock_hash_func,

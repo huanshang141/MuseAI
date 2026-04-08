@@ -3,6 +3,7 @@ import tempfile
 
 import pytest
 from app.api.deps import get_db_session as original_get_db_session
+from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, User
 from app.main import app
@@ -138,7 +139,8 @@ async def test_get_document(db_session, auth_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -186,7 +188,8 @@ async def test_get_document_status(db_session, auth_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "status-test.pdf", 2048, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "status-test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -235,7 +238,8 @@ async def test_delete_document(db_session, admin_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "to-delete.pdf", 512, TEST_ADMIN_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "to-delete.pdf", TEST_ADMIN_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -373,11 +377,12 @@ async def test_document_error_field_not_exposed_in_public_response(db_session, a
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "error-test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "error-test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         # Update document to failed status with error
-        await update_document_status(db_session, doc.id, "failed", "Processing failed: test error")
+        await update_document_status(doc_repo, doc.id, "failed", "Processing failed: test error")
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -407,11 +412,12 @@ async def test_document_list_does_not_show_error_field(db_session, auth_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "error-list-test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "error-list-test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         # Update document to failed status with error
-        await update_document_status(db_session, doc.id, "failed", "Test error message")
+        await update_document_status(doc_repo, doc.id, "failed", "Test error message")
         await db_session.commit()
 
         transport = ASGITransport(app=app)
@@ -438,11 +444,12 @@ async def test_update_document_status_function(db_session):
     """Test that update_document_status correctly updates the document."""
     from app.application.document_service import create_document, get_document_by_id, update_document_status
 
-    doc = await create_document(db_session, "status-update-test.pdf", 1024, TEST_USER_ID)
+    doc_repo = PostgresDocumentRepository(db_session)
+    doc = await create_document(doc_repo, "status-update-test.pdf", TEST_USER_ID)
     await db_session.commit()
 
     # Update the document status
-    updated_doc = await update_document_status(db_session, doc.id, "failed", "Test error")
+    updated_doc = await update_document_status(doc_repo, doc.id, "failed", "Test error")
     await db_session.commit()
 
     assert updated_doc is not None
@@ -450,7 +457,7 @@ async def test_update_document_status_function(db_session):
     assert updated_doc.error == "Test error"
 
     # Verify the update persisted
-    fetched_doc = await get_document_by_id(db_session, doc.id, TEST_USER_ID)
+    fetched_doc = await get_document_by_id(doc_repo, doc.id, TEST_USER_ID)
     assert fetched_doc is not None
     assert fetched_doc.status == "failed"
     assert fetched_doc.error == "Test error"
@@ -517,7 +524,8 @@ async def test_delete_requires_admin(db_session, auth_token):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
-        doc = await create_document(db_session, "test.pdf", 1024, TEST_USER_ID)
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "test.pdf", TEST_USER_ID)
         await db_session.commit()
 
         transport = ASGITransport(app=app)

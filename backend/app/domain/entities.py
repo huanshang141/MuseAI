@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
+from .exceptions import PromptVariableError
 from .value_objects import DocumentId, JobId, SessionId, UserId, ExhibitId, TourPathId, ProfileId, Location
 
 
@@ -112,3 +113,39 @@ class VisitorProfile:
     feedback_history: List[str]
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass
+class Prompt:
+    id: str
+    key: str
+    name: str
+    description: str | None
+    category: str
+    content: str
+    variables: list[dict[str, str]]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    current_version: int = 1
+
+    def render(self, variables: dict[str, str]) -> str:
+        """Render the prompt template with provided variables."""
+        try:
+            return self.content.format(**variables)
+        except KeyError as e:
+            missing_var = str(e).strip("'")
+            raise PromptVariableError(
+                f"Missing required variable: {missing_var}"
+            ) from e
+
+
+@dataclass
+class PromptVersion:
+    id: str
+    prompt_id: str
+    version: int
+    content: str
+    changed_by: str | None
+    change_reason: str | None
+    created_at: datetime

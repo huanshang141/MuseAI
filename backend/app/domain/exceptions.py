@@ -21,3 +21,13 @@ class RetrievalError(DomainError):
 
 class LLMError(DomainError):
     status_code: int = 503
+
+
+class PromptNotFoundError(DomainError):
+    """Raised when a prompt is not found."""
+    pass
+
+
+class PromptVariableError(DomainError):
+    """Raised when a required prompt variable is missing."""
+    pass

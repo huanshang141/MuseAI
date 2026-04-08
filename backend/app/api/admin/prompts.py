@@ -107,7 +107,7 @@ def get_prompt_repository(session: SessionDep) -> PostgresPromptRepository:
     return PostgresPromptRepository(session)
 
 
-@router.get("/", response_model=PromptListResponse)
+@router.get("", response_model=PromptListResponse)
 async def list_prompts(
     session: SessionDep,
     current_user: CurrentAdminUser,

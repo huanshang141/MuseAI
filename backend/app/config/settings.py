@@ -1,9 +1,17 @@
+from pathlib import Path
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Project root directory (where .env file is located)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=str(PROJECT_ROOT / ".env"),
+        env_file_encoding="utf-8",
+    )
 
     APP_NAME: str = "MuseAI"
     APP_ENV: str = "development"

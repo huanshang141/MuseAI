@@ -219,6 +219,10 @@ def create_rerank_provider(settings: Settings) -> BaseRerankProvider | None:
         - "cohere": Cohere API（使用OpenAI兼容模式）
         - "mock": 模拟提供者（用于测试）
     """
+    logger.info(f"create_rerank_provider called: RERANK_PROVIDER={settings.RERANK_PROVIDER}, "
+                f"RERANK_API_KEY={'***' + settings.RERANK_API_KEY[-4:] if settings.RERANK_API_KEY else 'None'}, "
+                f"RERANK_MODEL={settings.RERANK_MODEL}")
+
     provider_type = settings.RERANK_PROVIDER.lower()
 
     # 如果没有配置api_key且不是mock，返回None
@@ -228,10 +232,12 @@ def create_rerank_provider(settings: Settings) -> BaseRerankProvider | None:
 
     if provider_type == "siliconflow":
         logger.info(f"Creating SiliconFlow rerank provider with model: {settings.RERANK_MODEL}")
-        return SiliconFlowRerankProvider(
+        provider = SiliconFlowRerankProvider(
             api_key=settings.RERANK_API_KEY,
             model=settings.RERANK_MODEL,
         )
+        logger.info(f"SiliconFlow rerank provider created successfully, base_url: {provider.base_url}")
+        return provider
     elif provider_type in ("openai", "cohere", "custom"):
         logger.info(f"Creating OpenAI-compatible rerank provider: {provider_type}")
         if not settings.RERANK_BASE_URL:
@@ -336,6 +342,7 @@ class SiliconFlowRerankProvider(BaseRerankProvider):
         if not documents:
             return []
 
+        logger.info(f"SiliconFlow rerank called: query='{query[:50]}...', docs_count={len(documents)}, top_n={top_n}")
         start_time = time.time()
         last_error: Exception | None = None
 
@@ -347,6 +354,7 @@ class SiliconFlowRerankProvider(BaseRerankProvider):
             "top_n": min(top_n, len(documents)),
             "return_documents": True,
         }
+        logger.debug(f"SiliconFlow rerank request: model={self.model}, docs_count={len(documents)}")
 
         for attempt in range(self.max_retries):
             try:
@@ -357,10 +365,12 @@ class SiliconFlowRerankProvider(BaseRerankProvider):
                 response.raise_for_status()
 
                 duration_ms = int((time.time() - start_time) * 1000)
-                logger.debug(f"SiliconFlow rerank completed in {duration_ms}ms")
+                logger.info(f"SiliconFlow rerank API call succeeded in {duration_ms}ms, status={response.status_code}")
 
                 data = response.json()
+                logger.debug(f"SiliconFlow rerank response: {len(data.get('results', []))} results")
                 results = self._parse_response(data)
+                logger.info(f"SiliconFlow rerank parsed {len(results)} results, returning top {top_n}")
                 return results[:top_n]
 
             except httpx.HTTPStatusError as e:

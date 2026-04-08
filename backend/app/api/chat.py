@@ -120,6 +120,9 @@ def get_rag_agent() -> Any:
     # Fallback: create from settings (used in standalone mode)
     global _rag_agent
     if _rag_agent is None:
+        from app.infra.langchain import create_rerank_provider
+        from app.infra.providers.llm import OpenAICompatibleProvider
+
         settings = get_settings()
         es_client = ElasticsearchClient(
             hosts=[settings.ELASTICSEARCH_URL],
@@ -128,7 +131,14 @@ def get_rag_agent() -> Any:
         embeddings = create_embeddings(settings)
         llm = create_llm(settings)
         retriever = create_retriever(es_client, embeddings, settings)
-        _rag_agent = create_rag_agent(llm, retriever, settings)
+        rerank_provider = create_rerank_provider(settings)
+        llm_provider = OpenAICompatibleProvider.from_settings(settings)
+        from app.infra.langchain import create_query_rewriter
+
+        query_rewriter = create_query_rewriter(llm_provider)
+        _rag_agent = create_rag_agent(
+            llm, retriever, settings, rerank_provider=rerank_provider, query_rewriter=query_rewriter
+        )
     return _rag_agent
 
 

@@ -152,13 +152,18 @@ class RAGAgent:
         documents = state["documents"]
         query = state.get("rewritten_query") or state["query"]
 
+        logger.debug(f"Rerank node called: documents_count={len(documents)}, rerank_provider={self.rerank_provider is not None}")
+
         # 如果没有Rerank服务或没有文档，直接返回原结果
         if not self.rerank_provider or not documents:
+            logger.info(f"Rerank skipped: rerank_provider={'configured' if self.rerank_provider else 'None'}, docs_count={len(documents)}")
             return {"reranked_documents": documents}
 
         try:
             # 提取文档内容用于rerank
             doc_contents = [doc.page_content for doc in documents]
+
+            logger.info(f"Calling rerank service: query='{query[:50]}...', docs_count={len(documents)}")
 
             # 调用rerank服务
             rerank_results: list[RerankResult] = await self.rerank_provider.rerank(
@@ -179,7 +184,7 @@ class RAGAgent:
                 )
                 reranked_docs.append(reranked_doc)
 
-            logger.info(f"Reranked {len(reranked_docs)} documents")
+            logger.info(f"Reranked {len(reranked_docs)} documents successfully")
             return {"reranked_documents": reranked_docs}
 
         except Exception as e:

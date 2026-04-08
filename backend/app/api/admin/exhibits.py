@@ -1,6 +1,6 @@
-# backend/app/api/admin.py
+"""Admin API endpoints for exhibit management."""
+
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from loguru import logger
@@ -13,7 +13,7 @@ from app.application.unified_indexing_service import UnifiedIndexingService
 from app.domain.exceptions import EntityNotFoundError
 from app.infra.postgres.repositories import PostgresExhibitRepository
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin/exhibits", tags=["admin-exhibits"])
 
 
 class CreateExhibitRequest(BaseModel):
@@ -58,18 +58,18 @@ class ExhibitListResponse(BaseModel):
 
 
 class UpdateExhibitRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    location_x: Optional[float] = None
-    location_y: Optional[float] = None
-    floor: Optional[int] = None
-    hall: Optional[str] = None
-    category: Optional[str] = None
-    era: Optional[str] = None
-    importance: Optional[int] = None
-    estimated_visit_time: Optional[int] = None
-    document_id: Optional[str] = None
-    is_active: Optional[bool] = None
+    name: str | None = None
+    description: str | None = None
+    location_x: float | None = None
+    location_y: float | None = None
+    floor: int | None = None
+    hall: str | None = None
+    category: str | None = None
+    era: str | None = None
+    importance: int | None = None
+    estimated_visit_time: int | None = None
+    document_id: str | None = None
+    is_active: bool | None = None
 
 
 class DeleteResponse(BaseModel):
@@ -90,7 +90,7 @@ def get_exhibit_service(session: SessionDep) -> ExhibitService:
     return ExhibitService(repository)
 
 
-@router.post("/exhibits", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED)
 async def create_exhibit(
     session: SessionDep,
     request: CreateExhibitRequest,
@@ -159,14 +159,14 @@ async def create_exhibit(
     )
 
 
-@router.get("/exhibits", response_model=ExhibitListResponse)
+@router.get("/", response_model=ExhibitListResponse)
 async def list_exhibits(
     session: SessionDep,
     current_user: CurrentAdminUser,
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
-    category: Optional[str] = None,
-    hall: Optional[str] = None,
+    category: str | None = None,
+    hall: str | None = None,
 ) -> ExhibitListResponse:
     """List all exhibits with optional filtering (admin only)."""
     service = get_exhibit_service(session)
@@ -209,7 +209,7 @@ async def list_exhibits(
     )
 
 
-@router.put("/exhibits/{exhibit_id}", response_model=ExhibitResponse)
+@router.put("/{exhibit_id}", response_model=ExhibitResponse)
 async def update_exhibit(
     session: SessionDep,
     exhibit_id: str,
@@ -300,7 +300,7 @@ async def update_exhibit(
     )
 
 
-@router.delete("/exhibits/{exhibit_id}", response_model=DeleteResponse)
+@router.delete("/{exhibit_id}", response_model=DeleteResponse)
 async def delete_exhibit(
     session: SessionDep,
     exhibit_id: str,
@@ -336,7 +336,7 @@ async def delete_exhibit(
     return DeleteResponse(status="deleted", exhibit_id=exhibit_id)
 
 
-@router.post("/exhibits/reindex", response_model=ReindexResponse)
+@router.post("/reindex", response_model=ReindexResponse)
 async def reindex_all_exhibits(
     session: SessionDep,
     current_user: CurrentAdminUser,

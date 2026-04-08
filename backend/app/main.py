@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api.admin import router as admin_router
+from app.api.admin import exhibits_router as admin_exhibits_router
+from app.api.admin import prompts_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.curator import router as curator_router
@@ -16,6 +17,7 @@ from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
 from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
+from app.infra.cache.prompt_cache import PromptCache
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import (
     create_embeddings,
@@ -25,7 +27,8 @@ from app.infra.langchain import (
     create_rerank_provider,
     create_retriever,
 )
-from app.infra.postgres.database import close_database, init_database
+from app.infra.postgres.database import close_database, get_session, init_database
+from app.infra.postgres.prompt_repository import PostgresPromptRepository
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware
@@ -105,6 +108,14 @@ async def lifespan(app: FastAPI):
         app.state.ingestion_service = ingestion_service
         app.state.unified_indexing_service = unified_indexing_service
         app.state.settings = settings
+
+        # Initialize PromptCache
+        prompt_cache = PromptCache()
+        async with get_session() as session:
+            prompt_repository = PostgresPromptRepository(session)
+            prompt_cache.set_repository(prompt_repository)
+            await prompt_cache.load_all()
+        app.state.prompt_cache = prompt_cache
 
         yield
 
@@ -202,6 +213,13 @@ def get_context_manager() -> ConversationContextManager:
     raise RuntimeError("Context manager not initialized. App not started?")
 
 
+def get_prompt_cache() -> PromptCache:
+    """Get prompt cache from app.state."""
+    if hasattr(app.state, "prompt_cache"):
+        return app.state.prompt_cache
+    raise RuntimeError("Prompt cache not initialized. App not started?")
+
+
 # Get settings for CORS configuration
 _settings = get_settings()
 cors_origins = _settings.get_cors_origins()
@@ -224,7 +242,8 @@ app.include_router(health_router, prefix="/api/v1", tags=["health"])
 app.include_router(documents_router, prefix="/api/v1", tags=["documents"])
 app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
 app.include_router(auth_router, prefix="/api/v1")
-app.include_router(admin_router, prefix="/api/v1")
+app.include_router(admin_exhibits_router, prefix="/api/v1")
+app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(curator_router, prefix="/api/v1")
 app.include_router(profile_router, prefix="/api/v1")
 app.include_router(exhibits_router, prefix="/api/v1")

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.auth_service import get_user_by_id
 from app.config.settings import get_settings
+from app.infra.cache.prompt_cache import PromptCache
 from app.infra.postgres.database import get_session
 from app.infra.redis.cache import RedisCache
 from app.infra.security.jwt_handler import JWTHandler
@@ -45,6 +46,16 @@ def get_redis_cache(request: Request) -> RedisCache:
 
 
 RedisCacheDep = Annotated[RedisCache, Depends(get_redis_cache)]
+
+
+def get_prompt_cache(request: Request) -> PromptCache:
+    """Get PromptCache from app.state singleton via Request."""
+    if hasattr(request.app.state, "prompt_cache"):
+        return request.app.state.prompt_cache
+    raise RuntimeError("Prompt cache not initialized. App not started?")
+
+
+PromptCacheDep = Annotated[PromptCache, Depends(get_prompt_cache)]
 
 
 async def get_current_user(

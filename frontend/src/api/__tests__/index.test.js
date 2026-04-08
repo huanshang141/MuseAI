@@ -51,4 +51,27 @@ describe('api request hardening', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(result.ok).toBe(true)
   })
+
+  it('verifies logger is called during api requests', async () => {
+    // Mock the logger module to verify it's being called
+    const loggerMock = {
+      log: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    }
+
+    vi.doMock('../../utils/logger.js', () => loggerMock)
+
+    // Re-import api to get the mocked logger
+    const { api: apiMocked } = await import('../index.js?logger-test')
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ status: 'ok' }) }))
+
+    await apiMocked.health()
+
+    // Logger.log should be called for request logging
+    expect(loggerMock.log).toHaveBeenCalled()
+
+    vi.doUnmock('../../utils/logger.js')
+  })
 })

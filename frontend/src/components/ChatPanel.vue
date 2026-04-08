@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick, watch, computed } from 'vue'
 import { useChat } from '../composables/useChat.js'
 import MessageItem from './chat/MessageItem.vue'
 import SourceCard from './chat/SourceCard.vue'
+import { log, error as logError } from '../utils/logger.js'
 
 const {
   sessions,
@@ -59,10 +60,10 @@ const messagesContainer = ref(null)
 
 async function handleCreateSession() {
   const title = `会话 ${new Date().toLocaleString('zh-CN')}`
-  console.log('[ChatPanel] Creating session:', title)
+  log('[ChatPanel] Creating session:', title)
   const result = await createSession(title)
-  console.log('[ChatPanel] Create session result:', result)
-  console.log('[ChatPanel] currentSession after create:', currentSession.value)
+  log('[ChatPanel] Create session result:', result)
+  log('[ChatPanel] currentSession after create:', currentSession.value)
 }
 
 async function handleSendMessage() {
@@ -122,7 +123,7 @@ async function handleSendMessage() {
       }
     }
   } catch (e) {
-    console.error('Stream error:', e)
+    logError('Stream error:', e)
     messages.value.push({
       role: 'assistant',
       content: `错误: ${e.message}`,
@@ -148,7 +149,7 @@ onMounted(fetchSessions)
 
 // Watch for currentSession changes to debug reactivity
 watch(currentSession, (newVal, oldVal) => {
-  console.log('[ChatPanel] currentSession changed:', { from: oldVal, to: newVal })
+  log('[ChatPanel] currentSession changed:', { from: oldVal, to: newVal })
 }, { immediate: true })
 </script>
 

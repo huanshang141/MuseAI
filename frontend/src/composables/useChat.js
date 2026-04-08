@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { api } from '../api/index.js'
 import { useAuth } from './useAuth.js'
+import { log, error as logError } from '../utils/logger.js'
 
 const sessions = ref([])
 const currentSession = ref(null)
@@ -70,20 +71,20 @@ export function useChat() {
       return { ok: true, status: 200, data: tempSession }
     }
 
-    console.log('[useChat] Creating session with title:', title)
+    log('[useChat] Creating session with title:', title)
     const result = await api.chat.createSession(title)
-    console.log('[useChat] Create session result:', result)
+    log('[useChat] Create session result:', result)
 
     if (!result.ok) {
-      console.error('[useChat] Create session failed:', result)
+      logError('[useChat] Create session failed:', result)
       return handleError(result)
     }
 
-    console.log('[useChat] Setting currentSession to:', result.data)
+    log('[useChat] Setting currentSession to:', result.data)
     sessions.value.unshift(result.data)
     currentSession.value = result.data
     messages.value = []
-    console.log('[useChat] currentSession is now:', currentSession.value)
+    log('[useChat] currentSession is now:', currentSession.value)
     return result
   }
 

@@ -1,3 +1,5 @@
+import { log, warn, error as logError } from '../utils/logger.js'
+
 const BASE_URL = '/api/v1'
 
 function getToken() {
@@ -27,7 +29,7 @@ async function request(path, options = {}) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  console.log(`[API] ${options.method || 'GET'} ${path}`, options.body || '')
+  log(`[API] ${options.method || 'GET'} ${path}`, options.body || '')
 
   let response
   try {
@@ -36,12 +38,12 @@ async function request(path, options = {}) {
       ...options,
     })
   } catch (error) {
-    console.error(`[API] Network error for ${path}:`, error)
+    logError(`[API] Network error for ${path}:`, error)
     return normalizeNetworkError(error)
   }
 
   const data = await response.json().catch(() => ({}))
-  console.log(`[API] Response for ${path}:`, { status: response.status, ok: response.ok, data })
+  log(`[API] Response for ${path}:`, { status: response.status, ok: response.ok, data })
 
   if (response.status === 401) {
     clearAuthState()
@@ -162,7 +164,7 @@ export const api = {
             try {
               yield JSON.parse(data)
             } catch {
-              console.warn('Parse error:', data)
+              warn('Parse error:', data)
             }
           }
         }
@@ -206,7 +208,7 @@ export const api = {
               parsed.session_id = newSessionId
               yield parsed
             } catch {
-              console.warn('Parse error:', data)
+              warn('Parse error:', data)
             }
           }
         }

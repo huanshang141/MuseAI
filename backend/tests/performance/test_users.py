@@ -1,10 +1,16 @@
 """Test user creation and authentication helpers."""
 import asyncio
+import sys
+from pathlib import Path
 from typing import Any
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 import httpx
 
-from .config import TestConfig
+from backend.tests.performance.config import TestConfig
 
 
 async def create_test_user(

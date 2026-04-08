@@ -5,7 +5,13 @@ Seeds Elasticsearch with test documents and creates test users.
 """
 import argparse
 import asyncio
+import sys
 import uuid
+from pathlib import Path
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from loguru import logger
 
@@ -15,7 +21,7 @@ from app.infra.postgres.database import get_session, init_database
 from app.infra.postgres.models import User
 from app.infra.security.password import hash_password
 
-from .config import TestConfig, get_config
+from backend.tests.performance.config import TestConfig, get_config
 
 
 # Sample museum content for testing

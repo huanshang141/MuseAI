@@ -4,14 +4,20 @@ Tests both authenticated and guest chat endpoints with SSE streaming.
 """
 import json
 import random
+import sys
 import time
+from pathlib import Path
 from typing import Any
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 import httpx
 from locust import HttpUser, between, events, task
 
-from .config import TestConfig, get_config
-from .test_users import UserTokenPool
+from backend.tests.performance.config import TestConfig, get_config
+from backend.tests.performance.test_users import UserTokenPool
 
 
 # Global config and token pool

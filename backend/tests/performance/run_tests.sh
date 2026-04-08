@@ -5,7 +5,7 @@ set -e
 # Usage: ./run_tests.sh [scenario] [options]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 # Default values
 SCENARIO="${1:-load}"
@@ -75,13 +75,13 @@ echo -e "${GREEN}✓ API server is running${NC}"
 # Step 2: Prepare test data
 echo -e "${YELLOW}Step 2: Preparing test data...${NC}"
 cd "$PROJECT_ROOT"
-uv run python -m backend.tests.performance.prepare_test_data --scenario "$SCENARIO"
+uv run python backend/tests/performance/prepare_test_data.py --scenario "$SCENARIO"
 echo -e "${GREEN}✓ Test data prepared${NC}"
 
 # Step 3: Start mock LLM server (in background)
 echo -e "${YELLOW}Step 3: Starting mock LLM server...${NC}"
 MOCK_LLM_LOG="/tmp/mock_llm_server.log"
-uv run python -m backend.tests.performance.mock_llm_server > "$MOCK_LLM_LOG" 2>&1 &
+uv run python backend/tests/performance/mock_llm_server.py > "$MOCK_LLM_LOG" 2>&1 &
 MOCK_PID=$!
 echo "Mock LLM server PID: $MOCK_PID"
 
@@ -145,4 +145,4 @@ echo "Report saved to: $REPORT_FILE"
 # Step 6: Analyze results
 echo ""
 echo -e "${YELLOW}Step 6: Analyzing results...${NC}"
-uv run python -m backend.tests.performance.analyze_results "$REPORT_FILE"
+uv run python backend/tests/performance/analyze_results.py "$REPORT_FILE"

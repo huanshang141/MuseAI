@@ -4,16 +4,22 @@ Simulates an OpenAI-compatible API with configurable delays.
 """
 import asyncio
 import random
+import sys
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
+
+# Add project root to path for imports
+project_root = Path(__file__).parent.parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .config import TestConfig, get_config
+from backend.tests.performance.config import TestConfig, get_config
 
 app = FastAPI(title="Mock LLM Server")
 

@@ -97,8 +97,9 @@ echo -e "${GREEN}✓ Mock LLM server running on port 8099${NC}"
 # Trap to cleanup on exit
 cleanup() {
     echo -e "${YELLOW}Cleaning up...${NC}"
-    if kill -0 $MOCK_PID 2>/dev/null; then
-        kill $MOCK_PID
+    if kill -0 "$MOCK_PID" 2>/dev/null; then
+        kill "$MOCK_PID"
+        wait "$MOCK_PID" 2>/dev/null
         echo "Stopped mock LLM server"
     fi
 }

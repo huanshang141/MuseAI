@@ -1,48 +1,52 @@
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
-def test_ingest_method_has_max_concurrency_parameter():
-    """The ingest method should have a max_concurrency parameter for controlling parallelism."""
+def test_index_source_method_has_max_concurrency_parameter():
+    """The index_source method should have a max_concurrency parameter for controlling parallelism."""
     import inspect
-    from app.application.ingestion_service import IngestionService
 
-    sig = inspect.signature(IngestionService.ingest)
+    from app.application.unified_indexing_service import UnifiedIndexingService
+
+    sig = inspect.signature(UnifiedIndexingService.index_source)
     params = list(sig.parameters.keys())
 
-    assert "max_concurrency" in params, "ingest should have max_concurrency parameter"
+    assert "max_concurrency" in params, "index_source should have max_concurrency parameter"
 
 
-def test_ingest_uses_gather():
-    """The ingest method should use asyncio.gather for parallel indexing."""
+def test_index_source_uses_gather():
+    """The index_source method should use asyncio.gather for parallel indexing."""
     import inspect
-    from app.application.ingestion_service import IngestionService
 
-    source = inspect.getsource(IngestionService.ingest)
+    from app.application.unified_indexing_service import UnifiedIndexingService
+
+    source = inspect.getsource(UnifiedIndexingService.index_source)
 
     assert "asyncio.gather" in source or "gather(" in source, \
-        "ingest should use asyncio.gather for parallel indexing"
+        "index_source should use asyncio.gather for parallel indexing"
 
 
-def test_ingest_uses_semaphore_pattern():
-    """The ingest method should use a semaphore to limit concurrent operations."""
+def test_index_source_uses_semaphore_pattern():
+    """The index_source method should use a semaphore to limit concurrent operations."""
     import inspect
-    from app.application.ingestion_service import IngestionService
 
-    source = inspect.getsource(IngestionService.ingest)
+    from app.application.unified_indexing_service import UnifiedIndexingService
 
-    assert "Semaphore" in source, "ingest should use asyncio.Semaphore for concurrency control"
+    source = inspect.getsource(UnifiedIndexingService.index_source)
+
+    assert "Semaphore" in source, "index_source should use asyncio.Semaphore for concurrency control"
 
 
 @pytest.mark.asyncio
-async def test_ingestion_parallel_behavior():
-    """Test that ingestion actually performs parallel indexing."""
-    from app.application.ingestion_service import IngestionService
-    from app.application.chunking import ChunkConfig, TextChunker, Chunk
+async def test_unified_indexing_parallel_behavior():
+    """Test that unified indexing actually performs parallel indexing."""
+    from app.application.chunking import ChunkConfig, TextChunker
+    from app.application.content_source import ContentMetadata, ContentSource
+    from app.application.unified_indexing_service import UnifiedIndexingService
 
     # Track timing of each index call
-    start_time = asyncio.get_event_loop().time()
     call_times = []
 
     async def mock_index_chunk(doc):
@@ -53,27 +57,37 @@ async def test_ingestion_parallel_behavior():
     mock_es.index_chunk = mock_index_chunk
     mock_es.create_index = AsyncMock()
 
-    mock_embeddings = MagicMock()
-    mock_embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 768] * 10)
-
-    service = IngestionService(es_client=mock_es, embeddings=mock_embeddings)
-
-    # Chunk manually to get multiple chunks
     config = ChunkConfig(level=1, window_size=100, overlap=10)
-    chunker = TextChunker(config)
-
-    # Create a long enough text to generate multiple chunks
     content = "This is a test. " * 100
-    document_id = "test-doc-123"
-    source = "test-source.txt"
 
-    chunks = chunker.chunk(text=content, document_id=document_id, source=source)
+    # Pre-calculate chunk count to return correct number of embeddings
+    chunker = TextChunker(config)
+    test_chunks = chunker.chunk(text=content, document_id="test-doc-123", source="document")
+
+    mock_embeddings = MagicMock()
+    # Return embeddings for each chunk
+    mock_embeddings.aembed_documents = AsyncMock(
+        return_value=[[0.1] * 768 for _ in range(len(test_chunks))]
+    )
+
+    service = UnifiedIndexingService(
+        es_client=mock_es,
+        embeddings=mock_embeddings,
+        chunk_configs=[config],
+    )
+
+    source = ContentSource(
+        source_id="test-doc-123",
+        source_type="document",
+        content=content,
+        metadata=ContentMetadata(filename="test-source.txt"),
+    )
 
     # Should have multiple chunks
-    assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
+    assert len(test_chunks) > 1, f"Expected multiple chunks, got {len(test_chunks)}"
 
     # Run ingestion
-    chunk_count = await service.ingest(document_id, content, source, max_concurrency=5)
+    await service.index_source(source, max_concurrency=5)
 
     # If parallel, all calls should start roughly at the same time
     # If sequential, each call would start 0.05s after the previous
@@ -94,10 +108,11 @@ async def test_ingestion_parallel_behavior():
 
 
 @pytest.mark.asyncio
-async def test_ingestion_respects_max_concurrency():
+async def test_unified_indexing_respects_max_concurrency():
     """Test that max_concurrency actually limits concurrent operations."""
-    from app.application.ingestion_service import IngestionService
     from app.application.chunking import ChunkConfig, TextChunker
+    from app.application.content_source import ContentMetadata, ContentSource
+    from app.application.unified_indexing_service import UnifiedIndexingService
 
     concurrent_count = 0
     max_concurrent = 0
@@ -118,22 +133,34 @@ async def test_ingestion_respects_max_concurrency():
     mock_es.index_chunk = mock_index_chunk
     mock_es.create_index = AsyncMock()
 
-    mock_embeddings = MagicMock()
-    mock_embeddings.aembed_documents = AsyncMock(return_value=[[0.1] * 768] * 20)
+    config = ChunkConfig(level=1, window_size=100, overlap=10)
+    content = "Test chunk content. " * 100
 
-    service = IngestionService(
-        es_client=mock_es,
-        embeddings=mock_embeddings,
-        chunk_configs=[ChunkConfig(level=1, window_size=100, overlap=10)]
+    # Pre-calculate chunk count to return correct number of embeddings
+    chunker = TextChunker(config)
+    test_chunks = chunker.chunk(text=content, document_id="test-doc-456", source="document")
+
+    mock_embeddings = MagicMock()
+    # Return embeddings for each chunk
+    mock_embeddings.aembed_documents = AsyncMock(
+        return_value=[[0.1] * 768 for _ in range(len(test_chunks))]
     )
 
-    # Create content that will produce many chunks
-    content = "Test chunk content. " * 100
-    document_id = "test-doc-456"
-    source = "test.txt"
+    service = UnifiedIndexingService(
+        es_client=mock_es,
+        embeddings=mock_embeddings,
+        chunk_configs=[config],
+    )
+
+    source = ContentSource(
+        source_id="test-doc-456",
+        source_type="document",
+        content=content,
+        metadata=ContentMetadata(filename="test.txt"),
+    )
 
     # Run with max_concurrency=3
-    await service.ingest(document_id, content, source, max_concurrency=3)
+    await service.index_source(source, max_concurrency=3)
 
     # Max concurrent should not exceed 3
     assert max_concurrent <= 3, \

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { api } from '../api/index.js'
+import { api } from '../../api/index.js'
 
 const loading = ref(false)
 const saving = ref(false)

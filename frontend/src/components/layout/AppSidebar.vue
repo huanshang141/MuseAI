@@ -3,11 +3,14 @@ import DocumentUpload from '../knowledge/DocumentUpload.vue'
 import DocumentList from '../knowledge/DocumentList.vue'
 import { useAuth } from '../../composables/useAuth.js'
 import { useRoute } from 'vue-router'
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { MapLocation, Collection, Setting, Document } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const { isAuthenticated } = useAuth()
+
+// Inject showAuthModal from App.vue's provide
+const showAuthModal = inject('showAuthModal', () => {})
 
 // Determine sidebar content based on route
 const sidebarMode = computed(() => {
@@ -19,8 +22,7 @@ const sidebarMode = computed(() => {
 })
 
 function handleLogin() {
-  // Emit event to show auth modal via App.vue's provide
-  // This will be handled by the parent component
+  showAuthModal(true)
 }
 </script>
 

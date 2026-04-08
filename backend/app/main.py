@@ -100,6 +100,7 @@ async def lifespan(app: FastAPI):
         app.state.es_client = es_client
         app.state.embeddings = embeddings
         app.state.llm = llm
+        app.state.llm_provider = llm_provider
         app.state.retriever = retriever
         app.state.rag_agent = rag_agent
         app.state.rerank_provider = rerank_provider

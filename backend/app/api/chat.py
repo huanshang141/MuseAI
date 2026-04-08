@@ -1,13 +1,19 @@
-import sys
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Annotated, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, RateLimitDep, RedisCacheDep, SessionDep
+from app.api.deps import (
+    CurrentUser,
+    LLMProviderDep,
+    RagAgentDep,
+    RateLimitDep,
+    RedisCacheDep,
+    SessionDep,
+)
 from app.application.chat_service import (
     ask_question,
     ask_question_stream_guest,
@@ -20,10 +26,6 @@ from app.application.chat_service import (
     get_session_by_id,
     get_sessions_by_user,
 )
-from app.config.settings import get_settings
-from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.langchain import create_embeddings, create_llm, create_rag_agent, create_retriever
-from app.infra.providers.llm import OpenAICompatibleProvider
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -80,71 +82,6 @@ class MessageListResponse(BaseModel):
     total: int
     limit: int
     offset: int
-
-
-_llm_provider: OpenAICompatibleProvider | None = None
-_rag_agent = None
-
-
-def _get_app_state_attr(attr_name: str) -> Any:
-    """Get attribute from app.state if available, without late import."""
-    main_module = sys.modules.get("app.main")
-    if main_module and hasattr(main_module, "app"):
-        app = main_module.app
-        if hasattr(app.state, attr_name):
-            return getattr(app.state, attr_name)
-    return None
-
-
-def get_llm_provider() -> OpenAICompatibleProvider:
-    """Get LLM provider - cached singleton that can be overridden for tests."""
-    global _llm_provider
-    if _llm_provider is None:
-        settings = get_settings()
-        _llm_provider = OpenAICompatibleProvider.from_settings(settings)
-    return _llm_provider
-
-
-def get_rag_agent() -> Any:
-    """Get RAG agent from app.state or create fallback.
-
-    Priority:
-    1. app.state.rag_agent (set by lifespan or mocked in tests)
-    2. Module-level _rag_agent fallback (created on first call)
-    """
-    # Check app.state first (for production and mocked tests)
-    agent = _get_app_state_attr("rag_agent")
-    if agent is not None:
-        return agent
-
-    # Fallback: create from settings (used in standalone mode)
-    global _rag_agent
-    if _rag_agent is None:
-        from app.infra.langchain import create_rerank_provider
-        from app.infra.providers.llm import OpenAICompatibleProvider
-
-        settings = get_settings()
-        es_client = ElasticsearchClient(
-            hosts=[settings.ELASTICSEARCH_URL],
-            index_name=settings.ELASTICSEARCH_INDEX,
-        )
-        embeddings = create_embeddings(settings)
-        llm = create_llm(settings)
-        retriever = create_retriever(es_client, embeddings, settings)
-        rerank_provider = create_rerank_provider(settings)
-        llm_provider = OpenAICompatibleProvider.from_settings(settings)
-        from app.infra.langchain import create_query_rewriter
-
-        query_rewriter = create_query_rewriter(llm_provider)
-        _rag_agent = create_rag_agent(
-            llm, retriever, settings, rerank_provider=rerank_provider, query_rewriter=query_rewriter
-        )
-    return _rag_agent
-
-
-# Dependency types (must be defined after get_rag_agent and get_llm_provider)
-RagAgentDep = Annotated[Any, Depends(get_rag_agent)]
-LLMProviderDep = Annotated[OpenAICompatibleProvider, Depends(get_llm_provider)]
 
 
 @router.post("/sessions", response_model=SessionResponse)
@@ -254,13 +191,12 @@ async def ask_stream_endpoint(
     ask_request: AskRequest,
     current_user: CurrentUser,
     _: RateLimitDep,
+    llm_provider: LLMProviderDep = None,  # type: ignore[assignment]
+    rag_agent: RagAgentDep = None,  # type: ignore[assignment]
 ) -> StreamingResponse:
     chat_session = await get_session_by_id(session, ask_request.session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    llm_provider = get_llm_provider()
-    rag_agent = get_rag_agent()
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in ask_question_stream_with_rag(

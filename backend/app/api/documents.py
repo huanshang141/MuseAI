@@ -1,11 +1,8 @@
-import sys
-from typing import Any
-
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
-from app.api.deps import CurrentAdmin, OptionalUser, RateLimitDep, SessionDep
+from app.api.deps import CurrentAdmin, OptionalUser, RateLimitDep, SessionDep, UnifiedIndexingServiceDep
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.document_service import (
     count_all_documents,
@@ -17,9 +14,6 @@ from app.application.document_service import (
     update_document_status,
 )
 from app.application.unified_indexing_service import UnifiedIndexingService
-from app.config.settings import get_settings
-from app.infra.elasticsearch.client import ElasticsearchClient
-from app.infra.langchain import create_embeddings
 from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 
@@ -120,57 +114,6 @@ class IngestionJobResponse(BaseModel):
 MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
-def _get_app_state_attr(attr_name: str) -> Any:
-    """Get attribute from app.state if available, without late import."""
-    main_module = sys.modules.get("app.main")
-    if main_module and hasattr(main_module, "app"):
-        app = main_module.app
-        if hasattr(app.state, attr_name):
-            return getattr(app.state, attr_name)
-    return None
-
-
-# Dependency functions - check app.state first for mocks/singletons
-def get_unified_indexing_service() -> UnifiedIndexingService:
-    """Get unified indexing service from app.state or create fallback."""
-    # Check app.state first (for production and mocked tests)
-    service = _get_app_state_attr("unified_indexing_service")
-    if service is not None:
-        return service
-
-    # Fallback: create from settings (used in standalone mode)
-    settings = get_settings()
-    es_client = ElasticsearchClient(
-        hosts=[settings.ELASTICSEARCH_URL],
-        index_name=settings.ELASTICSEARCH_INDEX,
-    )
-    embeddings = create_embeddings(settings)
-    return UnifiedIndexingService(es_client=es_client, embeddings=embeddings)
-
-
-def get_es_client() -> ElasticsearchClient:
-    """Get ES client from app.state or create fallback."""
-    client = _get_app_state_attr("es_client")
-    if client is not None:
-        return client
-
-    settings = get_settings()
-    return ElasticsearchClient(
-        hosts=[settings.ELASTICSEARCH_URL],
-        index_name=settings.ELASTICSEARCH_INDEX,
-    )
-
-
-def get_embeddings() -> Any:
-    """Get embeddings from app.state or create fallback."""
-    emb = _get_app_state_attr("embeddings")
-    if emb is not None:
-        return emb
-
-    settings = get_settings()
-    return create_embeddings(settings)
-
-
 async def process_document_background(
     document_id: str,
     content: str,
@@ -178,6 +121,8 @@ async def process_document_background(
     unified_indexing_service: UnifiedIndexingService,
 ):
     """Background task to process uploaded document."""
+    from app.config.settings import get_settings
+
     settings = get_settings()
     session_maker = get_session_maker(settings.DATABASE_URL)
 
@@ -215,7 +160,7 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     current_admin: CurrentAdmin,
     _: RateLimitDep,
-    unified_indexing_service: UnifiedIndexingService = Depends(get_unified_indexing_service),  # noqa: B008
+    unified_indexing_service: UnifiedIndexingServiceDep,
     file: UploadFile = File(...),  # noqa: B008
 ) -> DocumentResponse:
     if not file.filename:
@@ -337,6 +282,7 @@ async def delete_document_endpoint(
     session: SessionDep,
     doc_id: str,
     current_admin: CurrentAdmin,
+    unified_indexing_service: UnifiedIndexingServiceDep,
 ) -> DeleteResponse:
     doc_repo = PostgresDocumentRepository(session)
     success = await delete_document_by_id(doc_repo, doc_id)
@@ -345,8 +291,7 @@ async def delete_document_endpoint(
 
     # Delete from Elasticsearch
     try:
-        indexing_service = get_unified_indexing_service()
-        await indexing_service.delete_source(doc_id, source_type="document")
+        await unified_indexing_service.delete_source(doc_id, source_type="document")
     except Exception as e:
         logger.error(f"Failed to delete document chunks from ES {doc_id}: {e}")
 

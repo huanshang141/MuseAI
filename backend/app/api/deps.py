@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -8,8 +8,10 @@ from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.auth_service import get_user_by_id
+from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
 from app.infra.cache.prompt_cache import PromptCache
+from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
 from app.infra.postgres.database import get_session
 from app.infra.redis.cache import RedisCache
@@ -267,3 +269,73 @@ async def check_auth_rate_limit(
 
 
 AuthRateLimitDep = Annotated[None, Depends(check_auth_rate_limit)]
+
+
+# ============================================================================
+# Strict app.state dependency accessors (no fallback construction)
+# ============================================================================
+
+
+def get_rag_agent(request: Request) -> Any:
+    """Get RAG agent from app.state singleton via Request.
+
+    Raises HTTPException 503 if not initialized - no fallback construction.
+    """
+    if hasattr(request.app.state, "rag_agent"):
+        return request.app.state.rag_agent
+    raise HTTPException(status_code=503, detail="RAG agent not initialized")
+
+
+RagAgentDep = Annotated[Any, Depends(get_rag_agent)]
+
+
+def get_llm_provider(request: Request) -> Any:
+    """Get LLM provider from app.state singleton via Request.
+
+    Raises HTTPException 503 if not initialized - no fallback construction.
+    """
+    if hasattr(request.app.state, "llm_provider"):
+        return request.app.state.llm_provider
+    raise HTTPException(status_code=503, detail="LLM provider not initialized")
+
+
+LLMProviderDep = Annotated[Any, Depends(get_llm_provider)]
+
+
+def get_es_client_dep(request: Request) -> ElasticsearchClient:
+    """Get Elasticsearch client from app.state singleton via Request.
+
+    Raises HTTPException 503 if not initialized - no fallback construction.
+    """
+    if hasattr(request.app.state, "es_client"):
+        return request.app.state.es_client
+    raise HTTPException(status_code=503, detail="Elasticsearch client not initialized")
+
+
+ESClientDep = Annotated[ElasticsearchClient, Depends(get_es_client_dep)]
+
+
+def get_embeddings_dep(request: Request) -> Any:
+    """Get embeddings from app.state singleton via Request.
+
+    Raises HTTPException 503 if not initialized - no fallback construction.
+    """
+    if hasattr(request.app.state, "embeddings"):
+        return request.app.state.embeddings
+    raise HTTPException(status_code=503, detail="Embeddings not initialized")
+
+
+EmbeddingsDep = Annotated[Any, Depends(get_embeddings_dep)]
+
+
+def get_unified_indexing_service_dep(request: Request) -> UnifiedIndexingService:
+    """Get unified indexing service from app.state singleton via Request.
+
+    Raises HTTPException 503 if not initialized - no fallback construction.
+    """
+    if hasattr(request.app.state, "unified_indexing_service"):
+        return request.app.state.unified_indexing_service
+    raise HTTPException(status_code=503, detail="Unified indexing service not initialized")
+
+
+UnifiedIndexingServiceDep = Annotated[UnifiedIndexingService, Depends(get_unified_indexing_service_dep)]

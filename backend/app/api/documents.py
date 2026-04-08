@@ -28,7 +28,59 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 
 
+# ============================================================================
+# Public Response Models (whitelisted fields for unauthenticated/guest access)
+# ============================================================================
+
+
+class PublicDocumentResponse(BaseModel):
+    """Public document response with whitelisted fields only.
+
+    This model formalizes the public document read contract, exposing only
+    fields that are safe for unauthenticated/guest access.
+    """
+
+    id: str
+    filename: str
+    status: str
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class PublicDocumentListResponse(BaseModel):
+    """Public document list response with whitelisted fields."""
+
+    documents: list[PublicDocumentResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class PublicIngestionJobResponse(BaseModel):
+    """Public ingestion job response with whitelisted fields only.
+
+    This model formalizes the public ingestion status read contract.
+    """
+
+    id: str
+    document_id: str
+    status: str
+    chunk_count: int
+    created_at: str
+    updated_at: str
+
+    model_config = {"from_attributes": True}
+
+
+# ============================================================================
+# Admin/Full Response Models (include error field for operational needs)
+# ============================================================================
+
+
 class DocumentResponse(BaseModel):
+    """Full document response including error field for admin/operational use."""
+
     id: str
     filename: str
     status: str
@@ -51,6 +103,8 @@ class DeleteResponse(BaseModel):
 
 
 class IngestionJobResponse(BaseModel):
+    """Full ingestion job response including error field for admin/operational use."""
+
     id: str
     document_id: str
     status: str
@@ -195,22 +249,26 @@ async def upload_document(
     )
 
 
-@router.get("", response_model=DocumentListResponse)
+@router.get("", response_model=PublicDocumentListResponse)
 async def list_documents(
     session: SessionDep,
     _: OptionalUser,
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
-) -> DocumentListResponse:
+) -> PublicDocumentListResponse:
+    """List all documents with public field whitelist.
+
+    This endpoint is accessible to guests (unauthenticated) and authenticated users.
+    Only whitelisted public fields are exposed in the response.
+    """
     documents = await get_all_documents(session, limit=limit, offset=offset)
     total = await count_all_documents(session)
-    return DocumentListResponse(
+    return PublicDocumentListResponse(
         documents=[
-            DocumentResponse(
+            PublicDocumentResponse(
                 id=doc.id,
                 filename=doc.filename,
                 status=doc.status,
-                error=doc.error,
                 created_at=doc.created_at.isoformat(),
             )
             for doc in documents
@@ -221,23 +279,34 @@ async def list_documents(
     )
 
 
-@router.get("/{doc_id}", response_model=DocumentResponse)
-async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> DocumentResponse:
+@router.get("/{doc_id}", response_model=PublicDocumentResponse)
+async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> PublicDocumentResponse:
+    """Get a single document with public field whitelist.
+
+    This endpoint is accessible to guests (unauthenticated) and authenticated users.
+    Only whitelisted public fields are exposed in the response.
+    """
     document = await get_document_by_id_public(session, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    return DocumentResponse(
+    return PublicDocumentResponse(
         id=document.id,
         filename=document.filename,
         status=document.status,
-        error=document.error,
         created_at=document.created_at.isoformat(),
     )
 
 
-@router.get("/{doc_id}/status", response_model=IngestionJobResponse)
-async def get_document_status(session: SessionDep, doc_id: str, _: OptionalUser) -> IngestionJobResponse:
+@router.get("/{doc_id}/status", response_model=PublicIngestionJobResponse)
+async def get_document_status(
+    session: SessionDep, doc_id: str, _: OptionalUser
+) -> PublicIngestionJobResponse:
+    """Get document ingestion status with public field whitelist.
+
+    This endpoint is accessible to guests (unauthenticated) and authenticated users.
+    Only whitelisted public fields are exposed in the response.
+    """
     document = await get_document_by_id_public(session, doc_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -246,12 +315,11 @@ async def get_document_status(session: SessionDep, doc_id: str, _: OptionalUser)
     if ingestion_job is None:
         raise HTTPException(status_code=404, detail="Ingestion job not found")
 
-    return IngestionJobResponse(
+    return PublicIngestionJobResponse(
         id=ingestion_job.id,
         document_id=ingestion_job.document_id,
         status=ingestion_job.status,
         chunk_count=ingestion_job.chunk_count,
-        error=ingestion_job.error,
         created_at=ingestion_job.created_at.isoformat(),
         updated_at=ingestion_job.updated_at.isoformat(),
     )

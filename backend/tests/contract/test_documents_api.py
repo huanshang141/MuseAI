@@ -363,8 +363,8 @@ async def test_upload_rate_limit_allows_requests_within_limit(db_session, admin_
 
 
 @pytest.mark.asyncio
-async def test_document_error_field_accessible_via_api(db_session, auth_token):
-    """Test that the error field is accessible via the API when set."""
+async def test_document_error_field_not_exposed_in_public_response(db_session, auth_token):
+    """Test that the error field is NOT exposed in public document responses."""
     from app.application.document_service import create_document, update_document_status
 
     async def override_get_db():
@@ -390,14 +390,15 @@ async def test_document_error_field_accessible_via_api(db_session, auth_token):
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "failed"
-        assert data["error"] == "Processing failed: test error"
+        # Error field should NOT be present in public response
+        assert "error" not in data
     finally:
         app.dependency_overrides = {}
 
 
 @pytest.mark.asyncio
-async def test_document_list_shows_error_field(db_session, auth_token):
-    """Test that the error field is included in document list responses."""
+async def test_document_list_does_not_show_error_field(db_session, auth_token):
+    """Test that the error field is NOT included in public document list responses."""
     from app.application.document_service import create_document, update_document_status
 
     async def override_get_db():
@@ -426,7 +427,8 @@ async def test_document_list_shows_error_field(db_session, auth_token):
         doc_data = next((d for d in data["documents"] if d["id"] == doc.id), None)
         assert doc_data is not None
         assert doc_data["status"] == "failed"
-        assert doc_data["error"] == "Test error message"
+        # Error field should NOT be present in public response
+        assert "error" not in doc_data
     finally:
         app.dependency_overrides = {}
 

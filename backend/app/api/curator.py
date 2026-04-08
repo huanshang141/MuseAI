@@ -1,10 +1,10 @@
 # backend/app/api/curator.py
-from typing import List, Optional
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from app.api.deps import CurrentUser, RateLimitDep, SessionDep
+from app.api.deps import OptionalUser, RateLimitDep, SessionDep
 from app.application.curator_service import CuratorService
 from app.application.exhibit_service import ExhibitService
 from app.application.profile_service import ProfileService
@@ -18,14 +18,14 @@ router = APIRouter(prefix="/curator", tags=["curator"])
 
 class PlanTourRequest(BaseModel):
     available_time: int
-    interests: Optional[List[str]] = None
+    interests: list[str] | None = None
 
 
 class PlanTourResponse(BaseModel):
     user_id: str
     available_time: int
-    interests: List[str]
-    visited_exhibit_ids: List[str]
+    interests: list[str]
+    visited_exhibit_ids: list[str]
     plan: str
     session_id: str
 
@@ -85,8 +85,6 @@ def get_curator_service(session: SessionDep, request: Request) -> CuratorService
     )
 
     # Create curator agent
-    import uuid
-
     curator_agent = CuratorAgent(
         llm=llm,
         tools=tools,
@@ -101,19 +99,32 @@ def get_curator_service(session: SessionDep, request: Request) -> CuratorService
     )
 
 
+def get_user_id(current_user: OptionalUser) -> str:
+    """Get user ID from authenticated user or generate a guest ID."""
+    if current_user:
+        return current_user["id"]
+    # Generate a temporary guest ID for anonymous users
+    return f"guest-{uuid.uuid4()}"
+
+
 @router.post("/plan-tour", response_model=PlanTourResponse)
 async def plan_tour(
     session: SessionDep,
     request: PlanTourRequest,
-    current_user: CurrentUser,
+    current_user: OptionalUser,
     http_request: Request,
     _: RateLimitDep,
 ) -> PlanTourResponse:
-    """Plan a museum tour based on available time and interests."""
+    """Plan a museum tour based on available time and interests.
+
+    Supports both authenticated users and guests.
+    Guests get a temporary profile that won't persist.
+    """
     service = get_curator_service(session, http_request)
+    user_id = get_user_id(current_user)
 
     result = await service.plan_tour(
-        user_id=current_user["id"],
+        user_id=user_id,
         available_time=request.available_time,
         interests=request.interests,
     )
@@ -125,23 +136,27 @@ async def plan_tour(
 async def generate_narrative(
     session: SessionDep,
     request: NarrativeRequest,
-    current_user: CurrentUser,
+    current_user: OptionalUser,
     http_request: Request,
     _: RateLimitDep,
 ) -> NarrativeResponse:
-    """Generate narrative content for an exhibit."""
+    """Generate narrative content for an exhibit.
+
+    Supports both authenticated users and guests.
+    """
     service = get_curator_service(session, http_request)
+    user_id = get_user_id(current_user)
 
     try:
         result = await service.generate_narrative(
-            user_id=current_user["id"],
+            user_id=user_id,
             exhibit_id=request.exhibit_id,
         )
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from None
 
     return NarrativeResponse(**result)
 
@@ -150,22 +165,26 @@ async def generate_narrative(
 async def get_reflection_prompts(
     session: SessionDep,
     request: ReflectionRequest,
-    current_user: CurrentUser,
+    current_user: OptionalUser,
     http_request: Request,
     _: RateLimitDep,
 ) -> ReflectionResponse:
-    """Get reflection prompts for an exhibit."""
+    """Get reflection prompts for an exhibit.
+
+    Supports both authenticated users and guests.
+    """
     service = get_curator_service(session, http_request)
+    user_id = get_user_id(current_user)
 
     try:
         result = await service.get_reflection_prompts(
-            user_id=current_user["id"],
+            user_id=user_id,
             exhibit_id=request.exhibit_id,
         )
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from None
 
     return ReflectionResponse(**result)

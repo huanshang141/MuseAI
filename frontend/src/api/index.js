@@ -168,6 +168,50 @@ export const api = {
         }
       }
     },
+    // Guest chat - no authentication required
+    guestMessage: async function* (sessionId, message) {
+      const headers = { 'Content-Type': 'application/json' }
+      const body = { message }
+      if (sessionId) {
+        body.session_id = sessionId
+      }
+
+      const response = await fetch(`${BASE_URL}/chat/guest/message`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      // Get session ID from response header for subsequent requests
+      const newSessionId = response.headers.get('X-Session-Id')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') return
+            try {
+              const parsed = JSON.parse(data)
+              parsed.session_id = newSessionId
+              yield parsed
+            } catch {
+              console.warn('Parse error:', data)
+            }
+          }
+        }
+      }
+    },
   },
 
   // Exhibits (public API)

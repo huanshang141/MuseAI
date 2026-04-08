@@ -470,8 +470,8 @@ async def test_update_profile_partial(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_curator_endpoints_require_auth(db_session):
-    """Test that curator endpoints require authentication."""
+async def test_curator_endpoints_support_guest_access(db_session):
+    """Test that curator endpoints support guest access (no authentication required)."""
     async def override_get_db():
         yield db_session
 
@@ -481,28 +481,32 @@ async def test_curator_endpoints_require_auth(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Test plan-tour without auth - should return 401 (Unauthorized)
+            # Test plan-tour without auth - should succeed (guest mode)
             response = await client.post(
                 "/api/v1/curator/plan-tour",
                 json={"available_time": 60},
             )
-            assert response.status_code == 401
+            assert response.status_code == 200
+            data = response.json()
+            assert data["user_id"].startswith("guest-")  # Guest user ID
 
-            # Test narrative without auth - should return 401 (Unauthorized)
+            # Test narrative without auth - may fail with 404 if exhibit not found
+            # but should not fail with 401 (auth required)
             response = await client.post(
                 "/api/v1/curator/narrative",
                 json={"exhibit_id": "some-id"},
             )
-            assert response.status_code == 401
+            assert response.status_code in [200, 404]  # Not 401
 
-            # Test reflection without auth - should return 401 (Unauthorized)
+            # Test reflection without auth - may fail with 404 if exhibit not found
+            # but should not fail with 401 (auth required)
             response = await client.post(
                 "/api/v1/curator/reflection",
                 json={"exhibit_id": "some-id"},
             )
-            assert response.status_code == 401
+            assert response.status_code in [200, 404]  # Not 401
 
-            # Test profile without auth - should return 401 (Unauthorized)
+            # Test profile without auth - should return 401 (profile still requires auth)
             response = await client.get("/api/v1/profile")
             assert response.status_code == 401
     finally:

@@ -21,6 +21,9 @@ const RAG_STEP_CONFIG = {
   generate: { label: '生成回答', icon: '✨' },
 }
 
+// Guest session ID stored in memory (lost on page close)
+let guestSessionId = null
+
 export function useChat() {
   const { isAuthenticated } = useAuth()
 
@@ -35,8 +38,9 @@ export function useChat() {
 
   async function fetchSessions() {
     if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
+      // Guest mode: no session persistence
+      sessions.value = []
+      return { ok: true, status: 200, data: { sessions: [], total: 0 } }
     }
 
     loading.value.sessions = true
@@ -54,8 +58,16 @@ export function useChat() {
 
   async function createSession(title) {
     if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
+      // Guest mode: create a temporary session ID
+      const tempSession = {
+        id: guestSessionId || crypto.randomUUID(),
+        title: title || '新对话',
+        created_at: new Date().toISOString(),
+      }
+      guestSessionId = tempSession.id
+      currentSession.value = tempSession
+      messages.value = []
+      return { ok: true, status: 200, data: tempSession }
     }
 
     console.log('[useChat] Creating session with title:', title)
@@ -77,13 +89,19 @@ export function useChat() {
 
   async function selectSession(session) {
     currentSession.value = session
-    await fetchMessages(session.id)
+    if (isAuthenticated.value) {
+      await fetchMessages(session.id)
+    } else {
+      // Guest mode: no message history
+      messages.value = []
+    }
   }
 
   async function fetchMessages(sessionId) {
     if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
+      // Guest mode: no message history
+      messages.value = []
+      return { ok: true, status: 200, data: { messages: [], total: 0 } }
     }
 
     loading.value.messages = true
@@ -101,8 +119,13 @@ export function useChat() {
 
   async function deleteSession(sessionId) {
     if (!isAuthenticated.value) {
-      error.value = '请先登录'
-      return { ok: false, status: 401, data: { detail: '未认证' } }
+      // Guest mode: just clear current session
+      if (currentSession.value?.id === sessionId) {
+        currentSession.value = null
+        messages.value = []
+        guestSessionId = null
+      }
+      return { ok: true, status: 200, data: { status: 'deleted', session_id: sessionId } }
     }
 
     const result = await api.chat.deleteSession(sessionId)
@@ -119,13 +142,55 @@ export function useChat() {
   }
 
   async function* sendMessage(sessionId, message) {
-    if (!isAuthenticated.value) {
-      throw new Error('请先登录')
-    }
-
     // 重置RAG步骤状态
     ragSteps.value = []
 
+    // Use guest endpoint for unauthenticated users
+    if (!isAuthenticated.value) {
+      // Ensure we have a session
+      const effectiveSessionId = sessionId || guestSessionId
+
+      for await (const event of api.chat.guestMessage(effectiveSessionId, message)) {
+        // Store session ID for subsequent messages
+        if (event.session_id && !guestSessionId) {
+          guestSessionId = event.session_id
+          if (!currentSession.value) {
+            currentSession.value = {
+              id: event.session_id,
+              title: '新对话',
+              created_at: new Date().toISOString(),
+            }
+          }
+        }
+
+        // 处理rag_step事件
+        if (event.type === 'rag_step') {
+          const stepIndex = ragSteps.value.findIndex(s => s.step === event.step)
+          const stepConfig = RAG_STEP_CONFIG[event.step] || { label: event.step, icon: '•' }
+
+          if (stepIndex >= 0) {
+            ragSteps.value[stepIndex] = {
+              ...ragSteps.value[stepIndex],
+              status: event.status,
+              message: event.message,
+            }
+          } else {
+            ragSteps.value.push({
+              step: event.step,
+              label: stepConfig.label,
+              icon: stepConfig.icon,
+              status: event.status,
+              message: event.message,
+            })
+          }
+        }
+
+        yield event
+      }
+      return
+    }
+
+    // Authenticated flow
     for await (const event of api.chat.askStream(sessionId, message)) {
       // 处理rag_step事件
       if (event.type === 'rag_step') {

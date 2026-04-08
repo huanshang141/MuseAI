@@ -8,7 +8,7 @@ and manage user preferences.
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
@@ -71,6 +71,49 @@ class CuratorAgent:
         Returns:
             系统提示词字符串（中文）
         """
+        # 尝试从PromptService获取
+        try:
+            import asyncio
+            import concurrent.futures
+
+            from app.application.prompt_service import PromptService
+            from app.infra.postgres.database import get_session
+            from app.infra.postgres.prompt_repository import PostgresPromptRepository
+            from app.main import get_prompt_cache
+
+            prompt_cache = get_prompt_cache()
+
+            async def get_prompt():
+                async with get_session() as session:
+                    repository = PostgresPromptRepository(session)
+                    service = PromptService(repository, prompt_cache)
+                    prompt = await service.get_prompt("curator_system")
+                    return prompt.content if prompt else None
+
+            # 如果在异步上下文中，需要特殊处理
+            try:
+                asyncio.get_running_loop()
+                # 已经在异步上下文中，创建任务
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, get_prompt())
+                    result = future.result()
+                    if result:
+                        return result
+            except RuntimeError:
+                # 没有运行的事件循环，直接运行
+                result = asyncio.run(get_prompt())
+                if result:
+                    return result
+        except RuntimeError:
+            # app state not initialized (e.g., in unit tests)
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to get curator system prompt: {e}, using fallback")
+
+        return self._get_fallback_system_prompt()
+
+    def _get_fallback_system_prompt(self) -> str:
+        """获取备用系统提示词。"""
         return """你是MuseAI博物馆智能导览系统的数字策展人。你的职责是为参观者提供个性化、有深度的博物馆参观体验。
 
 ## 你的角色

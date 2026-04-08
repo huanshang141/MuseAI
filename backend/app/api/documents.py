@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.api.deps import CurrentAdmin, OptionalUser, RateLimitDep, SessionDep, UnifiedIndexingServiceDep
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.document_service import (
+    SANITIZED_ERROR_MESSAGE,
     count_all_documents,
     create_document,
     delete_document_by_id,
@@ -150,7 +151,8 @@ async def process_document_background(
         except Exception as e:
             logger.exception(f"Failed to process document {document_id}: {e}")
             doc_repo = PostgresDocumentRepository(session)
-            await update_document_status(doc_repo, document_id, "failed", str(e))
+            # Use sanitized error message to prevent internal exception leakage
+            await update_document_status(doc_repo, document_id, "failed", SANITIZED_ERROR_MESSAGE)
             await session.commit()
 
 

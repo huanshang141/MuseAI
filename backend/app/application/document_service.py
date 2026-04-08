@@ -12,6 +12,34 @@ if TYPE_CHECKING:
     from app.infra.postgres.models import Document, IngestionJob
 
 
+# Sanitized error message for public exposure
+SANITIZED_ERROR_MESSAGE = "processing_failed"
+
+
+def sanitize_error_message(error: str | None) -> str | None:
+    """Sanitize error messages to prevent internal exception leakage.
+
+    Raw exception messages can contain sensitive information like:
+    - Internal file paths
+    - Stack traces
+    - Connection URLs
+    - API keys or secrets
+    - Internal hostnames
+
+    This function returns a sanitized generic message instead of the raw error.
+
+    Args:
+        error: The raw error message to sanitize.
+
+    Returns:
+        A sanitized error message safe for storage and potential exposure.
+    """
+    if error is None:
+        return None
+    # Always return a generic sanitized message to prevent any leakage
+    return SANITIZED_ERROR_MESSAGE
+
+
 async def create_document(
     doc_repo: "DocumentRepositoryPort", filename: str, user_id: str
 ) -> "Document":
@@ -130,13 +158,15 @@ async def update_document_status(
         doc_repo: Repository implementing DocumentRepositoryPort.
         doc_id: Document ID to update.
         status: New status value.
-        error: Optional error message.
+        error: Optional error message (will be sanitized before storage).
         chunk_count: Optional chunk count for ingestion job.
 
     Returns:
         Updated Document instance, or None if not found.
     """
-    return await doc_repo.update_status(doc_id, status, error, chunk_count)
+    # Sanitize error message to prevent internal exception leakage
+    sanitized_error = sanitize_error_message(error)
+    return await doc_repo.update_status(doc_id, status, sanitized_error, chunk_count)
 
 
 async def get_all_documents(
@@ -213,4 +243,6 @@ __all__ = [
     "get_document_by_id_public",
     "delete_document_by_id",
     "DocumentRepositoryPort",
+    "sanitize_error_message",
+    "SANITIZED_ERROR_MESSAGE",
 ]

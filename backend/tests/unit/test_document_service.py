@@ -219,8 +219,11 @@ class TestUpdateDocumentStatus:
 
     @pytest.mark.asyncio
     async def test_updates_status_and_error(self):
-        """update_document_status should update status and error."""
-        from app.application.document_service import update_document_status
+        """update_document_status should update status and sanitize error."""
+        from app.application.document_service import (
+            SANITIZED_ERROR_MESSAGE,
+            update_document_status,
+        )
 
         mock_document = MagicMock()
         mock_document.id = "doc-123"
@@ -237,7 +240,8 @@ class TestUpdateDocumentStatus:
             "Processing error",
         )
 
-        mock_repo.update_status.assert_called_once_with("doc-123", "failed", "Processing error", None)
+        # Error should be sanitized to prevent internal exception leakage
+        mock_repo.update_status.assert_called_once_with("doc-123", "failed", SANITIZED_ERROR_MESSAGE, None)
         assert result == mock_document
 
     @pytest.mark.asyncio

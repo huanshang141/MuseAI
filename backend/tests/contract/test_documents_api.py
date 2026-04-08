@@ -1,8 +1,12 @@
 import os
 import tempfile
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.api.deps import get_db_session as original_get_db_session
+from app.api.deps import (
+    get_db_session as original_get_db_session,
+    get_unified_indexing_service_dep as original_get_unified_indexing_service,
+)
 from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, User
@@ -74,12 +78,25 @@ async def admin_token(db_session):
     return jwt_handler.create_token(TEST_ADMIN_ID)
 
 
+@pytest.fixture
+def mock_unified_indexing_service():
+    """Create a mock unified indexing service for testing."""
+    mock = MagicMock()
+    mock.index_source = AsyncMock(return_value=10)
+    mock.delete_source = AsyncMock(return_value=None)
+    return mock
+
+
 @pytest.mark.asyncio
-async def test_upload_document(db_session, admin_token):
+async def test_upload_document(db_session, admin_token, mock_unified_indexing_service):
     async def override_get_db():
         yield db_session
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
@@ -229,13 +246,17 @@ async def test_get_document_status_document_not_found(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_delete_document(db_session, admin_token):
+async def test_delete_document(db_session, admin_token, mock_unified_indexing_service):
     from app.application.document_service import create_document
 
     async def override_get_db():
         yield db_session
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         doc_repo = PostgresDocumentRepository(db_session)
@@ -258,11 +279,15 @@ async def test_delete_document(db_session, admin_token):
 
 
 @pytest.mark.asyncio
-async def test_delete_document_not_found(db_session, admin_token):
+async def test_delete_document_not_found(db_session, admin_token, mock_unified_indexing_service):
     async def override_get_db():
         yield db_session
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         transport = ASGITransport(app=app)
@@ -278,10 +303,8 @@ async def test_delete_document_not_found(db_session, admin_token):
 
 
 @pytest.mark.asyncio
-async def test_upload_rate_limit_exceeded(db_session, admin_token):
+async def test_upload_rate_limit_exceeded(db_session, admin_token, mock_unified_indexing_service):
     """Test that rate limit returns 429 when exceeded."""
-    from unittest.mock import AsyncMock
-
     from app.api.deps import get_redis_cache
 
     async def override_get_db():
@@ -295,8 +318,12 @@ async def test_upload_rate_limit_exceeded(db_session, admin_token):
     def override_redis():
         return mock_redis
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
     app.dependency_overrides[get_redis_cache] = override_redis
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
@@ -321,10 +348,8 @@ async def test_upload_rate_limit_exceeded(db_session, admin_token):
 
 
 @pytest.mark.asyncio
-async def test_upload_rate_limit_allows_requests_within_limit(db_session, admin_token):
+async def test_upload_rate_limit_allows_requests_within_limit(db_session, admin_token, mock_unified_indexing_service):
     """Test that rate limit allows requests within limit."""
-    from unittest.mock import AsyncMock
-
     from app.api.deps import get_redis_cache
 
     async def override_get_db():
@@ -338,8 +363,12 @@ async def test_upload_rate_limit_allows_requests_within_limit(db_session, admin_
     def override_redis():
         return mock_redis
 
+    def override_unified_indexing_service():
+        return mock_unified_indexing_service
+
     app.dependency_overrides[original_get_db_session] = override_get_db
     app.dependency_overrides[get_redis_cache] = override_redis
+    app.dependency_overrides[original_get_unified_indexing_service] = override_unified_indexing_service
 
     try:
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
@@ -442,25 +471,31 @@ async def test_document_list_does_not_show_error_field(db_session, auth_token):
 @pytest.mark.asyncio
 async def test_update_document_status_function(db_session):
     """Test that update_document_status correctly updates the document."""
-    from app.application.document_service import create_document, get_document_by_id, update_document_status
+    from app.application.document_service import (
+        SANITIZED_ERROR_MESSAGE,
+        create_document,
+        get_document_by_id,
+        update_document_status,
+    )
 
     doc_repo = PostgresDocumentRepository(db_session)
     doc = await create_document(doc_repo, "status-update-test.pdf", TEST_USER_ID)
     await db_session.commit()
 
-    # Update the document status
+    # Update the document status - error should be sanitized
     updated_doc = await update_document_status(doc_repo, doc.id, "failed", "Test error")
     await db_session.commit()
 
     assert updated_doc is not None
     assert updated_doc.status == "failed"
-    assert updated_doc.error == "Test error"
+    # Error should be sanitized to prevent internal exception leakage
+    assert updated_doc.error == SANITIZED_ERROR_MESSAGE
 
     # Verify the update persisted
     fetched_doc = await get_document_by_id(doc_repo, doc.id, TEST_USER_ID)
     assert fetched_doc is not None
     assert fetched_doc.status == "failed"
-    assert fetched_doc.error == "Test error"
+    assert fetched_doc.error == SANITIZED_ERROR_MESSAGE
 
 
 @pytest.mark.asyncio

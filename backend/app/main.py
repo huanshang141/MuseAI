@@ -15,6 +15,7 @@ from app.api.health import router as health_router
 from app.api.profile import router as profile_router
 from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
+from app.application.prompt_service_adapter import PromptServiceAdapter
 from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
 from app.infra.cache.prompt_cache import PromptCache
@@ -32,6 +33,7 @@ from app.infra.postgres.prompt_repository import PostgresPromptRepository
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware
+from app.workflows.reflection_prompts import set_prompt_gateway
 
 
 @asynccontextmanager
@@ -66,11 +68,25 @@ async def lifespan(app: FastAPI):
         # Initialize rerank and query rewriter
         rerank_provider = create_rerank_provider(settings)
 
+        # Initialize PromptCache first (needed for PromptGateway)
+        prompt_cache = PromptCache()
+        async with get_session() as session:
+            prompt_repository = PostgresPromptRepository(session)
+            prompt_cache.set_repository(prompt_repository)
+            await prompt_cache.load_all()
+        app.state.prompt_cache = prompt_cache
+
+        # Create PromptGateway adapter for dependency injection
+        prompt_gateway = PromptServiceAdapter(prompt_cache)
+
+        # Set the prompt gateway for reflection_prompts module
+        set_prompt_gateway(prompt_gateway)
+
         # Create LLM provider for query rewriter
         from app.infra.providers.llm import OpenAICompatibleProvider
 
         llm_provider = OpenAICompatibleProvider.from_settings(settings)
-        query_rewriter = create_query_rewriter(llm_provider)
+        query_rewriter = create_query_rewriter(llm_provider, prompt_gateway=prompt_gateway)
 
         # Create RAG agent with enhanced capabilities
         rag_agent = create_rag_agent(
@@ -79,6 +95,7 @@ async def lifespan(app: FastAPI):
             settings=settings,
             rerank_provider=rerank_provider,
             query_rewriter=query_rewriter,
+            prompt_gateway=prompt_gateway,
         )
 
         ingestion_service = IngestionService(
@@ -109,14 +126,7 @@ async def lifespan(app: FastAPI):
         app.state.ingestion_service = ingestion_service
         app.state.unified_indexing_service = unified_indexing_service
         app.state.settings = settings
-
-        # Initialize PromptCache
-        prompt_cache = PromptCache()
-        async with get_session() as session:
-            prompt_repository = PostgresPromptRepository(session)
-            prompt_cache.set_repository(prompt_repository)
-            await prompt_cache.load_all()
-        app.state.prompt_cache = prompt_cache
+        app.state.prompt_gateway = prompt_gateway
 
         yield
 

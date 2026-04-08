@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from typing import TYPE_CHECKING
 
+from app.application.prompt_gateway import PromptGateway
 from app.domain.value_objects import ExhibitId, UserId
 from loguru import logger
 
@@ -292,6 +293,9 @@ class NarrativeGenerationTool(BaseTool):
     )
 
     llm: Any = Field(..., description="Language model for generation (BaseChatModel)")
+    prompt_gateway: Any = Field(
+        default=None, description="Prompt gateway for fetching prompts (PromptGateway protocol)"
+    )
 
     # Hardcoded fallback prompts (ClassVar to avoid Pydantic field interpretation)
     LEVEL_PROMPTS_FALLBACK: ClassVar[dict[str, str]] = {
@@ -321,7 +325,7 @@ Guidelines:
 Please generate the narrative:"""
 
     async def _get_prompt_content(self, key: str) -> str | None:
-        """Fetch prompt content from PromptService.
+        """Fetch prompt content from PromptGateway.
 
         Args:
             key: Unique prompt key
@@ -329,25 +333,9 @@ Please generate the narrative:"""
         Returns:
             Prompt content if found, None otherwise
         """
-        try:
-            from app.application.prompt_service import PromptService
-            from app.infra.postgres.database import get_session
-            from app.infra.postgres.prompt_repository import PostgresPromptRepository
-            from app.main import get_prompt_cache
-
-            prompt_cache = get_prompt_cache()
-            async with get_session() as session:
-                repository = PostgresPromptRepository(session)
-                service = PromptService(repository, prompt_cache)
-                prompt = await service.get_prompt(key)
-                return prompt.content if prompt else None
-        except RuntimeError:
-            # Prompt cache or database not initialized (e.g., during tests)
-            logger.debug(f"PromptService unavailable for key '{key}', using fallback")
-            return None
-        except Exception as e:
-            logger.warning(f"Failed to get prompt '{key}': {e}")
-            return None
+        if self.prompt_gateway:
+            return await self.prompt_gateway.get(key)
+        return None
 
     async def _get_level_guidance(self, level: str) -> str:
         """Get knowledge level guidance prompt.
@@ -621,6 +609,7 @@ def create_curator_tools(
     profile_repository: Any,
     rag_agent: Any,
     llm: Any,
+    prompt_gateway: PromptGateway | None = None,
 ) -> list[BaseTool]:
     """Create curator tool set.
 
@@ -629,6 +618,7 @@ def create_curator_tools(
         profile_repository: Repository for visitor profiles
         rag_agent: RAG Agent instance for knowledge retrieval
         llm: Language model for narrative generation
+        prompt_gateway: Prompt gateway for fetching prompts
 
     Returns:
         List of curator tools
@@ -636,7 +626,7 @@ def create_curator_tools(
     return [
         PathPlanningTool(exhibit_repository=exhibit_repository),
         KnowledgeRetrievalTool(rag_agent=rag_agent),
-        NarrativeGenerationTool(llm=llm),
+        NarrativeGenerationTool(llm=llm, prompt_gateway=prompt_gateway),
         ReflectionPromptTool(),
         PreferenceManagementTool(profile_repository=profile_repository),
     ]

@@ -13,6 +13,8 @@ from langchain_core.tools import BaseTool
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
 
+from app.application.prompt_gateway import PromptGateway
+
 
 class CuratorAgent:
     """博物馆策展人智能体，使用ReAct模式进行推理和行动。
@@ -30,6 +32,7 @@ class CuratorAgent:
         llm: BaseChatModel,
         tools: list[BaseTool],
         session_id: str,
+        prompt_gateway: PromptGateway | None = None,
         verbose: bool = False,
     ):
         """初始化策展人智能体。
@@ -38,11 +41,13 @@ class CuratorAgent:
             llm: 语言模型实例
             tools: 工具列表
             session_id: 会话ID
+            prompt_gateway: Prompt网关（可选）
             verbose: 是否启用详细日志
         """
         self.llm = llm
         self.tools = tools
         self.session_id = session_id
+        self.prompt_gateway = prompt_gateway
         self.verbose = verbose
         self._agent = self._create_agent()
 
@@ -71,44 +76,31 @@ class CuratorAgent:
         Returns:
             系统提示词字符串（中文）
         """
-        # 尝试从PromptService获取
-        try:
+        # Try to get from PromptGateway if available
+        if self.prompt_gateway:
             import asyncio
             import concurrent.futures
 
-            from app.application.prompt_service import PromptService
-            from app.infra.postgres.database import get_session
-            from app.infra.postgres.prompt_repository import PostgresPromptRepository
-            from app.main import get_prompt_cache
-
-            prompt_cache = get_prompt_cache()
-
             async def get_prompt() -> str | None:
-                async with get_session() as session:
-                    repository = PostgresPromptRepository(session)
-                    service = PromptService(repository, prompt_cache)
-                    prompt = await service.get_prompt("curator_system")
-                    return prompt.content if prompt else None
+                return await self.prompt_gateway.get("curator_system")
 
-            # 如果在异步上下文中，需要特殊处理
             try:
-                asyncio.get_running_loop()
-                # 已经在异步上下文中，创建任务
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, get_prompt())
-                    result = future.result()
+                # Check if we're in an async context
+                try:
+                    asyncio.get_running_loop()
+                    # Already in async context, need to run in a separate thread
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, get_prompt())
+                        result = future.result()
+                        if result:
+                            return result
+                except RuntimeError:
+                    # No running event loop, can run directly
+                    result = asyncio.run(get_prompt())
                     if result:
                         return result
-            except RuntimeError:
-                # 没有运行的事件循环，直接运行
-                result = asyncio.run(get_prompt())
-                if result:
-                    return result
-        except RuntimeError:
-            # app state not initialized (e.g., in unit tests)
-            pass
-        except Exception as e:
-            logger.warning(f"Failed to get curator system prompt: {e}, using fallback")
+            except Exception as e:
+                logger.warning(f"Failed to get curator system prompt: {e}, using fallback")
 
         return self._get_fallback_system_prompt()
 

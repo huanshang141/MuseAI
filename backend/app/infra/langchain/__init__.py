@@ -7,6 +7,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
+from app.application.prompt_gateway import PromptGateway
 from app.config.settings import Settings
 from app.infra.langchain.agents import RAGAgent
 from app.infra.langchain.curator_agent import CuratorAgent
@@ -71,16 +72,20 @@ def create_rerank_provider(settings: Settings) -> Any:
     return _create_rerank_provider_impl(settings)
 
 
-def create_query_rewriter(llm_provider: Any) -> ConversationAwareQueryRewriter:
+def create_query_rewriter(
+    llm_provider: Any,
+    prompt_gateway: PromptGateway | None = None,
+) -> ConversationAwareQueryRewriter:
     """创建查询重写器实例。
 
     Args:
         llm_provider: LLM提供者实例
+        prompt_gateway: Prompt网关（可选）
 
     Returns:
         查询重写器实例
     """
-    return ConversationAwareQueryRewriter(llm_provider)
+    return ConversationAwareQueryRewriter(llm_provider, prompt_gateway=prompt_gateway)
 
 
 def create_rag_agent(
@@ -89,6 +94,7 @@ def create_rag_agent(
     settings: Settings,
     rerank_provider: Any | None = None,
     query_rewriter: ConversationAwareQueryRewriter | None = None,
+    prompt_gateway: PromptGateway | None = None,
 ) -> RAGAgent:
     """创建RAG Agent实例。
 
@@ -98,6 +104,7 @@ def create_rag_agent(
         settings: 应用配置
         rerank_provider: Rerank提供者（可选）
         query_rewriter: 查询重写器（可选）
+        prompt_gateway: Prompt网关（可选）
 
     Returns:
         RAG Agent实例
@@ -107,6 +114,7 @@ def create_rag_agent(
         retriever=retriever,
         rerank_provider=rerank_provider,
         query_rewriter=query_rewriter,
+        prompt_gateway=prompt_gateway,
         score_threshold=0.7,
         max_attempts=3,
         rerank_top_n=settings.RERANK_TOP_N,
@@ -119,6 +127,7 @@ def create_curator_agent(
     exhibit_repository: Any,
     profile_repository: Any,
     session_id: str,
+    prompt_gateway: PromptGateway | None = None,
     verbose: bool = False,
 ) -> CuratorAgent:
     """创建Curator Agent实例。
@@ -129,6 +138,7 @@ def create_curator_agent(
         exhibit_repository: 展品数据仓库
         profile_repository: 参观者画像仓库
         session_id: 会话ID
+        prompt_gateway: Prompt网关（可选）
         verbose: 是否启用详细日志
 
     Returns:
@@ -139,12 +149,14 @@ def create_curator_agent(
         profile_repository=profile_repository,
         rag_agent=rag_agent,
         llm=llm,
+        prompt_gateway=prompt_gateway,
     )
 
     return CuratorAgent(
         llm=llm,
         tools=tools,
         session_id=session_id,
+        prompt_gateway=prompt_gateway,
         verbose=verbose,
     )
 

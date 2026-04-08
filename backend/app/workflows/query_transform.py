@@ -4,7 +4,7 @@ from typing import Any, Protocol
 
 from loguru import logger
 
-from app.domain.exceptions import PromptNotFoundError, PromptVariableError
+from app.application.prompt_gateway import PromptGateway
 
 
 class QueryTransformStrategy(Enum):
@@ -28,33 +28,6 @@ class LLMResponseProtocol(Protocol):
     content: str
 
 
-async def _get_prompt(key: str, variables: dict[str, str]) -> str | None:
-    """Fetch a prompt from PromptService and render it with variables.
-
-    Args:
-        key: Unique prompt key
-        variables: Dictionary of variables to substitute in the template
-
-    Returns:
-        Rendered prompt content if found, None otherwise
-    """
-    try:
-        from app.application.prompt_service import PromptService
-        from app.infra.postgres.database import get_session
-        from app.infra.postgres.prompt_repository import PostgresPromptRepository
-        from app.main import get_prompt_cache
-
-        prompt_cache = get_prompt_cache()
-        async with get_session() as session:
-            repository = PostgresPromptRepository(session)
-            service = PromptService(repository, prompt_cache)
-            return await service.render_prompt(key, variables)
-    except (PromptNotFoundError, PromptVariableError, RuntimeError) as e:
-        # RuntimeError: Prompt cache or database not initialized (e.g., during tests)
-        logger.warning(f"Failed to get prompt '{key}' from service: {e}")
-        return None
-
-
 class ConversationAwareQueryRewriter:
     """基于多轮对话历史的查询重写器。"""
 
@@ -68,8 +41,13 @@ class ConversationAwareQueryRewriter:
 请根据对话历史，将用户的问题改写为一个独立、完整的问题，使其能够独立理解而不需要之前的上下文。
 只输出改写后的问题，不要解释："""
 
-    def __init__(self, llm_provider: LLMProviderProtocol):
+    def __init__(
+        self,
+        llm_provider: LLMProviderProtocol,
+        prompt_gateway: PromptGateway | None = None,
+    ):
         self.llm_provider = llm_provider
+        self.prompt_gateway = prompt_gateway
 
     def _format_conversation_history(self, history: list[dict[str, str]]) -> str:
         """格式化对话历史为可读文本。"""
@@ -103,13 +81,15 @@ class ConversationAwareQueryRewriter:
 
         formatted_history = self._format_conversation_history(conversation_history)
 
-        # Try to get prompt from PromptService
-        prompt = await _get_prompt(
-            "query_rewrite",
-            {"conversation_history": formatted_history, "query": query},
-        )
+        prompt = None
+        # Try to get prompt from PromptGateway if available
+        if self.prompt_gateway:
+            prompt = await self.prompt_gateway.render(
+                "query_rewrite",
+                {"conversation_history": formatted_history, "query": query},
+            )
 
-        # Fall back to hardcoded prompt if PromptService fails
+        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.REWRITE_PROMPT.format(
                 conversation_history=formatted_history,
@@ -142,14 +122,21 @@ class QueryTransformer:
 
 请生成3个相关问题："""
 
-    def __init__(self, llm_provider: Any):
+    def __init__(
+        self,
+        llm_provider: Any,
+        prompt_gateway: PromptGateway | None = None,
+    ):
         self.llm_provider = llm_provider
+        self.prompt_gateway = prompt_gateway
 
     async def transform_step_back(self, query: str) -> str:
-        # Try to get prompt from PromptService
-        prompt = await _get_prompt("query_step_back", {"query": query})
+        prompt = None
+        # Try to get prompt from PromptGateway if available
+        if self.prompt_gateway:
+            prompt = await self.prompt_gateway.render("query_step_back", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptService fails
+        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.STEP_BACK_PROMPT.format(query=query)
 
@@ -157,10 +144,12 @@ class QueryTransformer:
         return str(response.content).strip()
 
     async def transform_hyde(self, query: str) -> str:
-        # Try to get prompt from PromptService
-        prompt = await _get_prompt("query_hyde", {"query": query})
+        prompt = None
+        # Try to get prompt from PromptGateway if available
+        if self.prompt_gateway:
+            prompt = await self.prompt_gateway.render("query_hyde", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptService fails
+        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.HYDE_PROMPT.format(query=query)
 
@@ -168,10 +157,12 @@ class QueryTransformer:
         return str(response.content).strip()
 
     async def transform_multi_query(self, query: str) -> list[str]:
-        # Try to get prompt from PromptService
-        prompt = await _get_prompt("query_multi", {"query": query})
+        prompt = None
+        # Try to get prompt from PromptGateway if available
+        if self.prompt_gateway:
+            prompt = await self.prompt_gateway.render("query_multi", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptService fails
+        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.MULTI_QUERY_PROMPT.format(query=query)
 

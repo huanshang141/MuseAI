@@ -3,7 +3,7 @@
 This module provides reflection prompts for different knowledge levels,
 categories, and narrative styles to guide user reflection on museum exhibits.
 
-Prompts are loaded from the versioned PromptService (database-backed) with
+Prompts are loaded from the PromptGateway (database-backed) with
 fallback to hardcoded values for resilience.
 """
 
@@ -11,6 +11,8 @@ from enum import Enum
 from typing import List
 
 from loguru import logger
+
+from app.application.prompt_gateway import PromptGateway
 
 
 class KnowledgeLevel(Enum):
@@ -135,8 +137,25 @@ def _parse_multiline_prompts(content: str) -> List[str]:
     return prompts
 
 
+# Module-level prompt gateway (set during initialization)
+_prompt_gateway: PromptGateway | None = None
+
+
+def set_prompt_gateway(gateway: PromptGateway | None) -> None:
+    """Set the module-level prompt gateway.
+
+    This should be called during application startup to inject
+    the PromptGateway without importing from app.main.
+
+    Args:
+        gateway: The PromptGateway instance to use
+    """
+    global _prompt_gateway
+    _prompt_gateway = gateway
+
+
 async def _get_prompt_content(key: str) -> str | None:
-    """Fetch prompt content from PromptService.
+    """Fetch prompt content from PromptGateway.
 
     Args:
         key: Unique prompt key
@@ -144,25 +163,9 @@ async def _get_prompt_content(key: str) -> str | None:
     Returns:
         Prompt content if found, None otherwise
     """
-    try:
-        from app.application.prompt_service import PromptService
-        from app.infra.postgres.database import get_session
-        from app.infra.postgres.prompt_repository import PostgresPromptRepository
-        from app.main import get_prompt_cache
-
-        prompt_cache = get_prompt_cache()
-        async with get_session() as session:
-            repository = PostgresPromptRepository(session)
-            service = PromptService(repository, prompt_cache)
-            prompt = await service.get_prompt(key)
-            return prompt.content if prompt else None
-    except RuntimeError:
-        # Prompt cache or database not initialized (e.g., during tests)
-        logger.debug(f"PromptService unavailable for key '{key}', using fallback")
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to get prompt '{key}': {e}")
-        return None
+    if _prompt_gateway:
+        return await _prompt_gateway.get(key)
+    return None
 
 
 async def get_reflection_prompts(

@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List
 
 from .exceptions import PromptVariableError
-from .value_objects import DocumentId, JobId, SessionId, UserId, ExhibitId, TourPathId, ProfileId, Location
+from .value_objects import DocumentId, JobId, SessionId, UserId, ExhibitId, TourPathId, ProfileId, PromptId, Location
 
 
 @dataclass
@@ -117,7 +117,7 @@ class VisitorProfile:
 
 @dataclass
 class Prompt:
-    id: str
+    id: PromptId
     key: str
     name: str
     description: str | None
@@ -143,7 +143,7 @@ class Prompt:
 @dataclass
 class PromptVersion:
     id: str
-    prompt_id: str
+    prompt_id: PromptId
     version: int
     content: str
     changed_by: str | None

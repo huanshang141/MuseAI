@@ -48,6 +48,11 @@ class ProfileId:
 
 
 @dataclass(frozen=True)
+class PromptId:
+    value: str
+
+
+@dataclass(frozen=True)
 class Location:
     x: float
     y: float

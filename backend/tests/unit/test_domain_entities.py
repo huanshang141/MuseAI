@@ -2,30 +2,29 @@
 from datetime import datetime
 
 import pytest
-
 from app.domain.entities import (
     ChatMessage,
     ChatSession,
     Document,
-    IngestionJob,
-    User,
     Exhibit,
-    TourPath,
-    VisitorProfile,
+    IngestionJob,
     Prompt,
     PromptVersion,
+    TourPath,
+    User,
+    VisitorProfile,
 )
 from app.domain.exceptions import PromptVariableError
 from app.domain.value_objects import (
     DocumentId,
-    JobId,
-    SessionId,
-    UserId,
     ExhibitId,
-    TourPathId,
+    JobId,
+    Location,
     ProfileId,
     PromptId,
-    Location,
+    SessionId,
+    TourPathId,
+    UserId,
 )
 
 

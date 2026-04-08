@@ -1,10 +1,9 @@
 # backend/app/domain/entities.py
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List
 
 from .exceptions import PromptVariableError
-from .value_objects import DocumentId, JobId, SessionId, UserId, ExhibitId, TourPathId, ProfileId, PromptId, Location
+from .value_objects import DocumentId, ExhibitId, JobId, Location, ProfileId, PromptId, SessionId, TourPathId, UserId
 
 
 @dataclass
@@ -94,7 +93,7 @@ class TourPath:
     description: str
     theme: str
     estimated_duration: int
-    exhibit_ids: List[ExhibitId]
+    exhibit_ids: list[ExhibitId]
     is_active: bool
     created_by: UserId
     created_at: datetime
@@ -105,12 +104,12 @@ class TourPath:
 class VisitorProfile:
     id: ProfileId
     user_id: UserId
-    interests: List[str]
+    interests: list[str]
     knowledge_level: str
     narrative_preference: str
     reflection_depth: str
-    visited_exhibit_ids: List[ExhibitId]
-    feedback_history: List[str]
+    visited_exhibit_ids: list[ExhibitId]
+    feedback_history: list[str]
     created_at: datetime
     updated_at: datetime
 

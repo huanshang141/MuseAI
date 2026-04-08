@@ -308,22 +308,48 @@ async def ask_question_stream_with_rag(
         # RAG步骤：生成答案
         yield _rag_event('generate', 'running', '正在生成回答...')
 
-        answer = result.get("answer", "")
-        answer_content = answer
+        # Build prompt from retrieved context for true token streaming
+        docs = result.get("reranked_documents") or result.get("documents", [])
+        context = "\n\n".join(doc.page_content for doc in docs)
 
-        for chunk in [answer[i : i + 50] for i in range(0, len(answer), 50)]:
+        # Use prompt from RAG agent's prompt_gateway or fallback
+        prompt = None
+        if hasattr(rag_agent, 'prompt_gateway') and rag_agent.prompt_gateway:
+            prompt = await rag_agent.prompt_gateway.render(
+                "rag_answer_generation",
+                {"context": context, "query": message}
+            )
+
+        if prompt is None:
+            # Use fallback prompt similar to RAG agent
+            prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
+如果上下文中没有相关信息，请礼貌地说明无法回答，并建议用户咨询工作人员。
+
+上下文：
+{context}
+
+用户问题：{message}
+
+请提供准确、友好的回答："""
+
+        messages = [{"role": "user", "content": prompt}]
+
+        # Stream tokens directly from LLM provider
+        answer_content = ""
+        async for chunk in llm_provider.generate_stream(messages):
+            answer_content += chunk
             yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
 
         # Persist messages using short-lived session if session_maker is provided
         # This decouples DB session lifecycle from SSE stream lifecycle
         if session_maker is not None:
             await persist_stream_result(
-                session_maker, session_id, message, answer, trace_id
+                session_maker, session_id, message, answer_content, trace_id
             )
         else:
             # Fallback: use request session (legacy behavior, not recommended)
             await add_message(session, session_id, "user", message)
-            await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
+            await add_message(session, session_id, "assistant", answer_content, trace_id=trace_id)
             await session.commit()
 
         # 优先使用rerank后的文档，按rerank分数排序
@@ -427,9 +453,36 @@ async def ask_question_stream_guest(
         eval_msg = f"检索评分: {retrieval_score:.2f}"
         yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': eval_msg})}\n\n"
 
-        answer = result.get("answer", "")
+        # Build prompt from retrieved context for true token streaming
+        docs = result.get("reranked_documents") or result.get("documents", [])
+        context = "\n\n".join(doc.page_content for doc in docs)
 
-        for chunk in [answer[i : i + 50] for i in range(0, len(answer), 50)]:
+        # Use prompt from RAG agent's prompt_gateway or fallback
+        prompt = None
+        if hasattr(rag_agent, 'prompt_gateway') and rag_agent.prompt_gateway:
+            prompt = await rag_agent.prompt_gateway.render(
+                "rag_answer_generation",
+                {"context": context, "query": message}
+            )
+
+        if prompt is None:
+            # Use fallback prompt similar to RAG agent
+            prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
+如果上下文中没有相关信息，请礼貌地说明无法回答，并建议用户咨询工作人员。
+
+上下文：
+{context}
+
+用户问题：{message}
+
+请提供准确、友好的回答："""
+
+        messages = [{"role": "user", "content": prompt}]
+
+        # Stream tokens directly from LLM provider
+        answer = ""
+        async for chunk in llm_provider.generate_stream(messages):
+            answer += chunk
             yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
 
         # Store session context for guest (no DB persistence)

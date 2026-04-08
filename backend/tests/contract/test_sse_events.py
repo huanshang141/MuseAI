@@ -90,6 +90,8 @@ async def test_stream_ask_success(db_session, session_maker, auth_token):
         "retrieval_score": 0.95,
         "answer": "这是一个测试回答",
     }
+    # Mock prompt_gateway to use fallback prompt
+    mock_rag.prompt_gateway = None
 
     def override_llm_provider():
         return mock_llm
@@ -254,6 +256,8 @@ async def test_stream_ask_saves_messages(db_session, session_maker, auth_token):
         "retrieval_score": 0.9,
         "answer": "回答内容",
     }
+    # Mock prompt_gateway to use fallback prompt
+    mock_rag.prompt_gateway = None
 
     def override_llm_provider():
         return mock_llm

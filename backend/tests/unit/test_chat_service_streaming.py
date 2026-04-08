@@ -192,8 +192,16 @@ class TestAskQuestionStreamWithRag:
                 "retrieval_score": 0.85,
             }
         )
+        # Mock prompt_gateway to use fallback prompt
+        mock_rag_agent.prompt_gateway = None
+
+        # Mock LLM provider that streams
+        async def mock_stream(messages):
+            yield "This is the answer"
 
         mock_llm = MagicMock()
+        mock_llm.generate_stream = mock_stream
+
         mock_session.add = MagicMock()
         mock_session.commit = AsyncMock()
 
@@ -312,8 +320,16 @@ class TestAskQuestionStreamWithRag:
                 "retrieval_score": 0.85,
             }
         )
+        # Mock prompt_gateway to use fallback prompt
+        mock_rag_agent.prompt_gateway = None
+
+        # Mock LLM provider that streams
+        async def mock_stream(messages):
+            yield "The answer"
 
         mock_llm = MagicMock()
+        mock_llm.generate_stream = mock_stream
+
         mock_session.add = MagicMock()
         mock_session.commit = AsyncMock()
 
@@ -363,8 +379,16 @@ class TestAskQuestionStreamWithRag:
                 "retrieval_score": 0.75,
             }
         )
+        # Mock prompt_gateway to use fallback prompt
+        mock_rag_agent.prompt_gateway = None
+
+        # Mock LLM provider that streams
+        async def mock_stream(messages):
+            yield "The answer"
 
         mock_llm = MagicMock()
+        mock_llm.generate_stream = mock_stream
+
         mock_session.add = MagicMock()
         mock_session.commit = AsyncMock()
 
@@ -404,8 +428,15 @@ async def test_ask_question_stream_guest():
         "documents": [],
         "retrieval_score": 0.8,
     })
+    # Mock prompt_gateway to use fallback prompt
+    mock_rag_agent.prompt_gateway = None
+
+    # Mock LLM provider that streams
+    async def mock_stream(messages):
+        yield "Test answer"
 
     mock_llm = MagicMock()
+    mock_llm.generate_stream = mock_stream
 
     messages = []
     async for event in ask_question_stream_guest(
@@ -424,3 +455,102 @@ async def test_ask_question_stream_guest():
 
     # Should store session in Redis
     mock_redis.set_guest_session.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_streaming_emits_llm_tokens_not_fixed_50_char_slices():
+    """ask_question_stream_with_rag should emit LLM tokens directly, not fixed 50-char slices.
+
+    This test verifies that streaming truly forwards tokens from the LLM provider
+    rather than batching them into arbitrary 50-character chunks.
+
+    The key assertion is that the chunk contents should match what the LLM provider
+    yields, NOT be fixed 50-char slices of a complete answer.
+    """
+    from app.application.chat_service import ask_question_stream_with_rag
+    import json
+
+    mock_session = AsyncMock()
+
+    # Mock session validation
+    mock_chat_session = MagicMock()
+    mock_chat_session.id = "session-123"
+    mock_chat_session.user_id = "user-123"
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_chat_session
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    # Define expected LLM chunks - these are the exact tokens we expect to see
+    expected_llm_chunks = [
+        "This ",
+        "is ",
+        "a ",
+        "streamed ",
+        "answer ",
+        "from ",
+        "the ",
+        "LLM ",
+        "provider.",
+    ]
+
+    # Mock RAG agent that returns retrieval results but streams via LLM
+    mock_rag_agent = MagicMock()
+    mock_rag_agent.run = AsyncMock(
+        return_value={
+            "answer": "",  # Answer will be streamed via LLM, not pre-computed
+            "documents": [],
+            "retrieval_score": 0.85,
+        }
+    )
+    # Mock prompt_gateway to return None (use fallback prompt)
+    mock_rag_agent.prompt_gateway = None
+
+    # Mock LLM provider that yields variable-sized chunks
+    async def mock_stream(messages):
+        for chunk in expected_llm_chunks:
+            yield chunk
+
+    mock_llm = MagicMock()
+    mock_llm.generate_stream = mock_stream
+
+    mock_session.add = MagicMock()
+    mock_session.commit = AsyncMock()
+
+    events = []
+    async for event in ask_question_stream_with_rag(
+        session=mock_session,
+        session_id="session-123",
+        message="What is this?",
+        rag_agent=mock_rag_agent,
+        llm_provider=mock_llm,
+        user_id="user-123",
+    ):
+        events.append(event)
+
+    # Extract chunk events
+    chunk_events = []
+    for event in events:
+        if event.startswith("data: "):
+            try:
+                data = json.loads(event[6:])
+                if data.get("type") == "chunk":
+                    chunk_events.append(data)
+            except json.JSONDecodeError:
+                pass
+
+    # Should have chunk events
+    assert len(chunk_events) > 0, "Should have chunk events"
+
+    # Extract chunk contents
+    chunk_contents = [e.get("content", "") for e in chunk_events]
+
+    # Key assertion: chunks should match what the LLM provider yields
+    # NOT be fixed 50-char slices. We check that at least some chunks
+    # are exactly what the LLM provider yielded (small token-sized chunks)
+    small_chunks = [c for c in chunk_contents if 0 < len(c) < 10]
+    assert len(small_chunks) > 0, (
+        f"No small chunks found. All chunk lengths: {[len(c) for c in chunk_contents]}. "
+        f"Expected LLM token-sized chunks (e.g., {expected_llm_chunks[:3]}), "
+        "but got fixed 50-char slices instead."
+    )

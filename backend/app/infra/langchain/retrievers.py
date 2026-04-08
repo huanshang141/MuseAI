@@ -1,3 +1,5 @@
+import asyncio
+
 from typing import Any
 
 from langchain_core.documents import Document
@@ -28,8 +30,11 @@ class RRFRetriever(BaseRetriever):
     async def _aget_relevant_documents(self, query: str) -> list[Document]:
         query_vector = await self.embeddings.aembed_query(query)
 
-        dense_results = await self.es_client.search_dense(query_vector, self.top_k * 2)
-        bm25_results = await self.es_client.search_bm25(query, self.top_k * 2)
+        # 并行执行 dense 和 BM25 检索
+        dense_results, bm25_results = await asyncio.gather(
+            self.es_client.search_dense(query_vector, self.top_k * 2),
+            self.es_client.search_bm25(query, self.top_k * 2),
+        )
 
         fused = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
 
@@ -77,12 +82,14 @@ class UnifiedRetriever(BaseRetriever):
         """
         query_vector = await self.embeddings.aembed_query(query)
 
-        # 搜索所有内容类型（使用 RRF 融合 dense + BM25）
-        dense_results = await self.es_client.search_dense(
-            query_vector, self.top_k * 2, source_types=self.source_types
-        )
-        bm25_results = await self.es_client.search_bm25(
-            query, self.top_k * 2, source_types=self.source_types
+        # 并行执行 dense 和 BM25 检索以提升性能
+        dense_results, bm25_results = await asyncio.gather(
+            self.es_client.search_dense(
+                query_vector, self.top_k * 2, source_types=self.source_types
+            ),
+            self.es_client.search_bm25(
+                query, self.top_k * 2, source_types=self.source_types
+            ),
         )
         fused_results = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
 
@@ -148,9 +155,11 @@ class ExhibitAwareRetriever(BaseRetriever):
         """
         query_vector = await self.embeddings.aembed_query(query)
 
-        # 搜索文档块（使用 RRF 融合 dense + BM25）
-        dense_results = await self.es_client.search_dense(query_vector, self.top_k * 2)
-        bm25_results = await self.es_client.search_bm25(query, self.top_k * 2)
+        # 并行执行 dense 和 BM25 检索
+        dense_results, bm25_results = await asyncio.gather(
+            self.es_client.search_dense(query_vector, self.top_k * 2),
+            self.es_client.search_bm25(query, self.top_k * 2),
+        )
         fused_chunks = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
 
         all_results: list[dict[str, Any]] = []

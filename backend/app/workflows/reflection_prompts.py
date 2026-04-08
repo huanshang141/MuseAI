@@ -1,11 +1,16 @@
 """Reflection prompts module for Digital Curation Agent.
 
-This module provides hard-coded reflection templates for different knowledge levels,
+This module provides reflection prompts for different knowledge levels,
 categories, and narrative styles to guide user reflection on museum exhibits.
+
+Prompts are loaded from the versioned PromptService (database-backed) with
+fallback to hardcoded values for resilience.
 """
 
 from enum import Enum
-from typing import Dict, List
+from typing import List
+
+from loguru import logger
 
 
 class KnowledgeLevel(Enum):
@@ -24,7 +29,7 @@ class NarrativeStyle(Enum):
     INTERACTIVE = "interactive"
 
 
-# Reflection prompts for beginners (入门级)
+# Hardcoded fallback prompts (used when PromptService is unavailable)
 BEGINNER_PROMPTS = [
     "这件文物让您联想到什么日常生活中的物品？",
     "这件文物最吸引您注意的是什么？",
@@ -33,7 +38,6 @@ BEGINNER_PROMPTS = [
     "这件文物上有什么让您印象深刻的图案或颜色？",
 ]
 
-# Reflection prompts for intermediate users (进阶级)
 INTERMEDIATE_PROMPTS = [
     "这件文物反映的社会结构对今天有什么启示？",
     "这件文物的制作工艺体现了当时怎样的技术水平？",
@@ -42,7 +46,6 @@ INTERMEDIATE_PROMPTS = [
     "这件文物与其他同类文物相比有什么独特之处？",
 ]
 
-# Reflection prompts for experts (专家级)
 EXPERT_PROMPTS = [
     "现有的考古解读是否存在争议？您倾向于哪种观点？",
     "这件文物的断代依据是否充分？有哪些新的研究方法可以应用？",
@@ -51,8 +54,7 @@ EXPERT_PROMPTS = [
     "这件文物对于理解当时的文化交流有什么特殊价值？",
 ]
 
-# Category-specific reflection prompts
-CATEGORY_REFLECTIONS: Dict[str, List[str]] = {
+CATEGORY_REFLECTIONS = {
     "青铜器": [
         "这件青铜器的铸造工艺体现了当时怎样的技术水平？",
         "这件青铜器上的铭文或纹饰有什么特殊含义？",
@@ -76,8 +78,7 @@ CATEGORY_REFLECTIONS: Dict[str, List[str]] = {
     ],
 }
 
-# Narrative style prompts
-NARRATIVE_STYLE_PROMPTS: Dict[NarrativeStyle, str] = {
+NARRATIVE_STYLE_PROMPTS = {
     NarrativeStyle.STORYTELLING: """请以讲故事的方式介绍这件文物，让内容生动有趣、富有感染力。
 注重情节的展开和情感的传递，让听众仿佛置身于历史场景之中。
 使用生动的语言和形象的比喻，让文物背后的故事活起来。""",
@@ -89,15 +90,82 @@ NARRATIVE_STYLE_PROMPTS: Dict[NarrativeStyle, str] = {
 注重与观众的对话和交流，让参观体验更加生动和有意义。""",
 }
 
-# Map knowledge levels to their prompts
-REFLECTION_TEMPLATES: Dict[KnowledgeLevel, List[str]] = {
+REFLECTION_TEMPLATES = {
     KnowledgeLevel.BEGINNER: BEGINNER_PROMPTS,
     KnowledgeLevel.INTERMEDIATE: INTERMEDIATE_PROMPTS,
     KnowledgeLevel.EXPERT: EXPERT_PROMPTS,
 }
 
+# Mapping from KnowledgeLevel to prompt key
+LEVEL_KEY_MAP = {
+    KnowledgeLevel.BEGINNER: "reflection_beginner",
+    KnowledgeLevel.INTERMEDIATE: "reflection_intermediate",
+    KnowledgeLevel.EXPERT: "reflection_expert",
+}
 
-def get_reflection_prompts(
+# Mapping from category to prompt key
+CATEGORY_KEY_MAP = {
+    "青铜器": "reflection_bronze",
+    "书画": "reflection_painting",
+    "陶瓷": "reflection_ceramic",
+}
+
+# Mapping from NarrativeStyle to prompt key
+STYLE_KEY_MAP = {
+    NarrativeStyle.STORYTELLING: "narrative_style_storytelling",
+    NarrativeStyle.ACADEMIC: "narrative_style_academic",
+    NarrativeStyle.INTERACTIVE: "narrative_style_interactive",
+}
+
+
+def _parse_multiline_prompts(content: str) -> List[str]:
+    """Parse multi-line prompt content into a list of prompts.
+
+    Args:
+        content: Multi-line string with one prompt per line
+
+    Returns:
+        List of non-empty prompt strings
+    """
+    prompts = []
+    for line in content.strip().split("\n"):
+        line = line.strip()
+        if line:
+            prompts.append(line)
+    return prompts
+
+
+async def _get_prompt_content(key: str) -> str | None:
+    """Fetch prompt content from PromptService.
+
+    Args:
+        key: Unique prompt key
+
+    Returns:
+        Prompt content if found, None otherwise
+    """
+    try:
+        from app.application.prompt_service import PromptService
+        from app.infra.postgres.database import get_session
+        from app.infra.postgres.prompt_repository import PostgresPromptRepository
+        from app.main import get_prompt_cache
+
+        prompt_cache = get_prompt_cache()
+        async with get_session() as session:
+            repository = PostgresPromptRepository(session)
+            service = PromptService(repository, prompt_cache)
+            prompt = await service.get_prompt(key)
+            return prompt.content if prompt else None
+    except RuntimeError:
+        # Prompt cache or database not initialized (e.g., during tests)
+        logger.debug(f"PromptService unavailable for key '{key}', using fallback")
+        return None
+    except Exception as e:
+        logger.warning(f"Failed to get prompt '{key}': {e}")
+        return None
+
+
+async def get_reflection_prompts(
     knowledge_level: KnowledgeLevel,
     reflection_depth: int = 3,
     category: str | None = None,
@@ -122,19 +190,39 @@ def get_reflection_prompts(
 
     prompts: List[str] = []
 
-    # Add category-specific prompts if category is provided and exists
-    if category and category in CATEGORY_REFLECTIONS:
-        prompts.extend(CATEGORY_REFLECTIONS[category])
+    # Add category-specific prompts if category is provided
+    if category:
+        # Try to get from PromptService first
+        category_key = CATEGORY_KEY_MAP.get(category)
+        if category_key:
+            content = await _get_prompt_content(category_key)
+            if content:
+                prompts.extend(_parse_multiline_prompts(content))
+            else:
+                # Fallback to hardcoded
+                prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
+        else:
+            # Unknown category, use hardcoded fallback
+            prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
 
     # Add knowledge level prompts
-    level_prompts = REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS)
-    prompts.extend(level_prompts)
+    level_key = LEVEL_KEY_MAP.get(knowledge_level)
+    if level_key:
+        content = await _get_prompt_content(level_key)
+        if content:
+            prompts.extend(_parse_multiline_prompts(content))
+        else:
+            # Fallback to hardcoded
+            prompts.extend(REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS))
+    else:
+        # Fallback to hardcoded
+        prompts.extend(REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS))
 
     # Return the requested number of prompts
     return prompts[:reflection_depth]
 
 
-def get_narrative_style_prompt(style: NarrativeStyle) -> str:
+async def get_narrative_style_prompt(style: NarrativeStyle) -> str:
     """Get the narrative style prompt for the given style.
 
     Args:
@@ -149,4 +237,47 @@ def get_narrative_style_prompt(style: NarrativeStyle) -> str:
     if not isinstance(style, NarrativeStyle):
         raise ValueError(f"Invalid narrative style: {style}")
 
-    return NARRATIVE_STYLE_PROMPTS[style]
+    # Try to get from PromptService first
+    style_key = STYLE_KEY_MAP.get(style)
+    if style_key:
+        content = await _get_prompt_content(style_key)
+        if content:
+            return content
+
+    # Fallback to hardcoded
+    return NARRATIVE_STYLE_PROMPTS.get(style, NARRATIVE_STYLE_PROMPTS[NarrativeStyle.STORYTELLING])
+
+
+# Synchronous wrapper for backward compatibility
+def get_reflection_prompts_sync(
+    knowledge_level: KnowledgeLevel,
+    reflection_depth: int = 3,
+    category: str | None = None,
+) -> List[str]:
+    """Synchronous wrapper for backward compatibility.
+
+    WARNING: This function uses hardcoded prompts only. For versioned prompts,
+    use the async get_reflection_prompts() function instead.
+
+    Args:
+        knowledge_level: The user's knowledge level
+        reflection_depth: Number of prompts to return
+        category: Optional category for category-specific prompts
+
+    Returns:
+        List of reflection prompt strings
+    """
+    if reflection_depth < 1:
+        raise ValueError("reflection_depth must be at least 1")
+    if reflection_depth > 5:
+        raise ValueError("reflection_depth cannot exceed 5")
+
+    prompts: List[str] = []
+
+    if category and category in CATEGORY_REFLECTIONS:
+        prompts.extend(CATEGORY_REFLECTIONS[category])
+
+    level_prompts = REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS)
+    prompts.extend(level_prompts)
+
+    return prompts[:reflection_depth]

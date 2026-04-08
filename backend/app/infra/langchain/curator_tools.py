@@ -10,7 +10,7 @@ This module defines 5 LangChain tools for the curator agent:
 
 import json
 import math
-from typing import Any
+from typing import Any, ClassVar
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -18,10 +18,14 @@ from pydantic import BaseModel, Field
 from typing import TYPE_CHECKING
 
 from app.domain.value_objects import ExhibitId, UserId
+from loguru import logger
+
 from app.workflows.reflection_prompts import (
     KnowledgeLevel,
     get_reflection_prompts,
 )
+
+
 
 if TYPE_CHECKING:
     from app.domain.repositories import ExhibitRepository, VisitorProfileRepository
@@ -289,6 +293,103 @@ class NarrativeGenerationTool(BaseTool):
 
     llm: Any = Field(..., description="Language model for generation (BaseChatModel)")
 
+    # Hardcoded fallback prompts (ClassVar to avoid Pydantic field interpretation)
+    LEVEL_PROMPTS_FALLBACK: ClassVar[dict[str, str]] = {
+        "beginner": "Use simple language and avoid technical jargon. Focus on interesting stories and relatable concepts.",
+        "intermediate": "Include some technical details and historical context. Balance accessibility with depth.",
+        "expert": "Use professional terminology and academic language. Include detailed analysis and scholarly context.",
+    }
+
+    STYLE_PROMPTS_FALLBACK: ClassVar[dict[str, str]] = {
+        "storytelling": "Tell this as an engaging story with vivid descriptions and emotional resonance.",
+        "academic": "Present this in a formal, scholarly manner with precise terminology.",
+        "interactive": "Create an interactive narrative that invites the visitor to imagine and explore.",
+        "balanced": "Balance storytelling with factual information for an engaging yet informative narrative.",
+    }
+
+    TEMPLATE_FALLBACK: ClassVar[str] = """Please create a narrative about the following exhibit:
+
+Exhibit: {exhibit_name}
+Information: {exhibit_info}
+
+Guidelines:
+- {level_guidance}
+- {style_guidance}
+- Keep the narrative engaging and appropriate for a museum visit
+- Length should be suitable for a 3-5 minute read
+
+Please generate the narrative:"""
+
+    async def _get_prompt_content(self, key: str) -> str | None:
+        """Fetch prompt content from PromptService.
+
+        Args:
+            key: Unique prompt key
+
+        Returns:
+            Prompt content if found, None otherwise
+        """
+        try:
+            from app.application.prompt_service import PromptService
+            from app.infra.postgres.database import get_session
+            from app.infra.postgres.prompt_repository import PostgresPromptRepository
+            from app.main import get_prompt_cache
+
+            prompt_cache = get_prompt_cache()
+            async with get_session() as session:
+                repository = PostgresPromptRepository(session)
+                service = PromptService(repository, prompt_cache)
+                prompt = await service.get_prompt(key)
+                return prompt.content if prompt else None
+        except RuntimeError:
+            # Prompt cache or database not initialized (e.g., during tests)
+            logger.debug(f"PromptService unavailable for key '{key}', using fallback")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get prompt '{key}': {e}")
+            return None
+
+    async def _get_level_guidance(self, level: str) -> str:
+        """Get knowledge level guidance prompt.
+
+        Args:
+            level: Knowledge level (beginner/intermediate/expert)
+
+        Returns:
+            Level guidance prompt string
+        """
+        key = f"narrative_level_{level}"
+        content = await self._get_prompt_content(key)
+        if content:
+            return content
+        return self.LEVEL_PROMPTS_FALLBACK.get(level, self.LEVEL_PROMPTS_FALLBACK["beginner"])
+
+    async def _get_style_guidance(self, style: str) -> str:
+        """Get narrative style guidance prompt.
+
+        Args:
+            style: Narrative style (storytelling/academic/interactive/balanced)
+
+        Returns:
+            Style guidance prompt string
+        """
+        key = f"narrative_style_{style}_en"
+        content = await self._get_prompt_content(key)
+        if content:
+            return content
+        return self.STYLE_PROMPTS_FALLBACK.get(style, self.STYLE_PROMPTS_FALLBACK["balanced"])
+
+    async def _get_template(self) -> str:
+        """Get narrative generation template.
+
+        Returns:
+            Template string with placeholders
+        """
+        content = await self._get_prompt_content("narrative_generation_template")
+        if content:
+            return content
+        return self.TEMPLATE_FALLBACK
+
     async def _arun(self, query: str) -> str:
         """Execute narrative generation asynchronously."""
         try:
@@ -298,39 +399,18 @@ class NarrativeGenerationTool(BaseTool):
             return json.dumps({"error": f"Invalid input: {str(e)}"})
 
         try:
-            # Build prompt based on knowledge level and preference
-            level_prompts = {
-                "beginner": "Use simple language and avoid technical jargon. Focus on interesting stories and relatable concepts.",
-                "intermediate": "Include some technical details and historical context. Balance accessibility with depth.",
-                "expert": "Use professional terminology and academic language. Include detailed analysis and scholarly context.",
-            }
+            # Get prompts from PromptService (with fallback to hardcoded)
+            level_guidance = await self._get_level_guidance(input_data.knowledge_level)
+            style_guidance = await self._get_style_guidance(input_data.narrative_preference)
+            template = await self._get_template()
 
-            style_prompts = {
-                "storytelling": "Tell this as an engaging story with vivid descriptions and emotional resonance.",
-                "academic": "Present this in a formal, scholarly manner with precise terminology.",
-                "interactive": "Create an interactive narrative that invites the visitor to imagine and explore.",
-                "balanced": "Balance storytelling with factual information for an engaging yet informative narrative.",
-            }
-
-            level_guidance = level_prompts.get(
-                input_data.knowledge_level, level_prompts["beginner"]
+            # Render template with variables
+            prompt = template.format(
+                exhibit_name=input_data.exhibit_name,
+                exhibit_info=input_data.exhibit_info,
+                level_guidance=level_guidance,
+                style_guidance=style_guidance,
             )
-            style_guidance = style_prompts.get(
-                input_data.narrative_preference, style_prompts["balanced"]
-            )
-
-            prompt = f"""Please create a narrative about the following exhibit:
-
-Exhibit: {input_data.exhibit_name}
-Information: {input_data.exhibit_info}
-
-Guidelines:
-- {level_guidance}
-- {style_guidance}
-- Keep the narrative engaging and appropriate for a museum visit
-- Length should be suitable for a 3-5 minute read
-
-Please generate the narrative:"""
 
             response = await self.llm.ainvoke(prompt)
             narrative = response.content if hasattr(response, "content") else str(response)
@@ -390,8 +470,8 @@ class ReflectionPromptTool(BaseTool):
                 input_data.knowledge_level.lower(), KnowledgeLevel.BEGINNER
             )
 
-            # Get reflection prompts
-            questions = get_reflection_prompts(
+            # Get reflection prompts (now async, uses PromptService)
+            questions = await get_reflection_prompts(
                 knowledge_level=knowledge_level,
                 reflection_depth=input_data.reflection_depth,
                 category=input_data.category,

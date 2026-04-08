@@ -314,6 +314,89 @@ Please generate the narrative:""",
 注重与观众的对话和交流，让参观体验更加生动和有意义。""",
         "variables": [],
     },
+    # Narrative generation - main prompt template
+    {
+        "key": "narrative_generation_template",
+        "name": "叙事生成模板",
+        "description": "叙事生成工具的主提示词模板，用于生成展品的叙事内容",
+        "category": "narrative",
+        "content": """Please create a narrative about the following exhibit:
+
+Exhibit: {exhibit_name}
+Information: {exhibit_info}
+
+Guidelines:
+- {level_guidance}
+- {style_guidance}
+- Keep the narrative engaging and appropriate for a museum visit
+- Length should be suitable for a 3-5 minute read
+
+Please generate the narrative:""",
+        "variables": [
+            {"name": "exhibit_name", "description": "展品名称"},
+            {"name": "exhibit_info", "description": "展品信息"},
+            {"name": "level_guidance", "description": "知识水平指导语"},
+            {"name": "style_guidance", "description": "叙事风格指导语"},
+        ],
+    },
+    # Knowledge level guidance prompts
+    {
+        "key": "narrative_level_beginner",
+        "name": "叙事知识水平-入门",
+        "description": "面向入门级观众的叙事指导语",
+        "category": "narrative_level",
+        "content": "Use simple language and avoid technical jargon. Focus on interesting stories and relatable concepts.",
+        "variables": [],
+    },
+    {
+        "key": "narrative_level_intermediate",
+        "name": "叙事知识水平-进阶",
+        "description": "面向进阶级观众的叙事指导语",
+        "category": "narrative_level",
+        "content": "Include some technical details and historical context. Balance accessibility with depth.",
+        "variables": [],
+    },
+    {
+        "key": "narrative_level_expert",
+        "name": "叙事知识水平-专家",
+        "description": "面向专家级观众的叙事指导语",
+        "category": "narrative_level",
+        "content": "Use professional terminology and academic language. Include detailed analysis and scholarly context.",
+        "variables": [],
+    },
+    # Narrative style guidance (English version for curator tools)
+    {
+        "key": "narrative_style_storytelling_en",
+        "name": "叙事风格指导-讲故事",
+        "description": "讲故事式叙事风格的英文指导语",
+        "category": "narrative_style",
+        "content": "Tell this as an engaging story with vivid descriptions and emotional resonance.",
+        "variables": [],
+    },
+    {
+        "key": "narrative_style_academic_en",
+        "name": "叙事风格指导-学术",
+        "description": "学术式叙事风格的英文指导语",
+        "category": "narrative_style",
+        "content": "Present this in a formal, scholarly manner with precise terminology.",
+        "variables": [],
+    },
+    {
+        "key": "narrative_style_interactive_en",
+        "name": "叙事风格指导-互动",
+        "description": "互动式叙事风格的英文指导语",
+        "category": "narrative_style",
+        "content": "Create an interactive narrative that invites the visitor to imagine and explore.",
+        "variables": [],
+    },
+    {
+        "key": "narrative_style_balanced_en",
+        "name": "叙事风格指导-平衡",
+        "description": "平衡式叙事风格的英文指导语",
+        "category": "narrative_style",
+        "content": "Balance storytelling with factual information for an engaging yet informative narrative.",
+        "variables": [],
+    },
 ]
 
 

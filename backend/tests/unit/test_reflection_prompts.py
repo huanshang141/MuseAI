@@ -1,6 +1,7 @@
 """Tests for reflection prompts module."""
 
 import pytest
+
 from app.workflows.reflection_prompts import (
     BEGINNER_PROMPTS,
     CATEGORY_REFLECTIONS,
@@ -10,6 +11,7 @@ from app.workflows.reflection_prompts import (
     NarrativeStyle,
     get_narrative_style_prompt,
     get_reflection_prompts,
+    get_reflection_prompts_sync,
 )
 
 
@@ -44,7 +46,7 @@ class TestGetReflectionPrompts:
 
     def test_beginner_level_returns_correct_prompts(self):
         """Test that beginner level returns beginner prompts."""
-        prompts = get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=3)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=3)
         assert len(prompts) == 3
         # All returned prompts should be from BEGINNER_PROMPTS
         for prompt in prompts:
@@ -52,12 +54,12 @@ class TestGetReflectionPrompts:
 
     def test_beginner_level_default_depth(self):
         """Test that default depth is 3 for beginner level."""
-        prompts = get_reflection_prompts(KnowledgeLevel.BEGINNER)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.BEGINNER)
         assert len(prompts) == 3
 
     def test_expert_level_returns_correct_prompts(self):
         """Test that expert level returns expert prompts."""
-        prompts = get_reflection_prompts(KnowledgeLevel.EXPERT, reflection_depth=3)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.EXPERT, reflection_depth=3)
         assert len(prompts) == 3
         # All returned prompts should be from EXPERT_PROMPTS
         for prompt in prompts:
@@ -65,7 +67,7 @@ class TestGetReflectionPrompts:
 
     def test_intermediate_level_returns_correct_prompts(self):
         """Test that intermediate level returns intermediate prompts."""
-        prompts = get_reflection_prompts(KnowledgeLevel.INTERMEDIATE, reflection_depth=3)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.INTERMEDIATE, reflection_depth=3)
         assert len(prompts) == 3
         # All returned prompts should be from INTERMEDIATE_PROMPTS
         for prompt in prompts:
@@ -73,7 +75,7 @@ class TestGetReflectionPrompts:
 
     def test_with_bronze_category(self):
         """Test get_reflection_prompts with 青铜器 category."""
-        prompts = get_reflection_prompts(
+        prompts = get_reflection_prompts_sync(
             KnowledgeLevel.BEGINNER,
             reflection_depth=3,
             category="青铜器",
@@ -85,7 +87,7 @@ class TestGetReflectionPrompts:
 
     def test_with_painting_category(self):
         """Test get_reflection_prompts with 书画 category."""
-        prompts = get_reflection_prompts(
+        prompts = get_reflection_prompts_sync(
             KnowledgeLevel.INTERMEDIATE,
             reflection_depth=3,
             category="书画",
@@ -96,7 +98,7 @@ class TestGetReflectionPrompts:
 
     def test_with_ceramics_category(self):
         """Test get_reflection_prompts with 陶瓷 category."""
-        prompts = get_reflection_prompts(
+        prompts = get_reflection_prompts_sync(
             KnowledgeLevel.EXPERT,
             reflection_depth=3,
             category="陶瓷",
@@ -108,16 +110,16 @@ class TestGetReflectionPrompts:
     def test_depth_limiting(self):
         """Test that reflection_depth limits the number of prompts returned."""
         # Test with depth 1
-        prompts = get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=1)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=1)
         assert len(prompts) == 1
 
         # Test with depth 5
-        prompts = get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=5)
+        prompts = get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=5)
         assert len(prompts) == 5
 
     def test_depth_limiting_with_category(self):
         """Test depth limiting when category is provided."""
-        prompts = get_reflection_prompts(
+        prompts = get_reflection_prompts_sync(
             KnowledgeLevel.BEGINNER,
             reflection_depth=2,
             category="青铜器",
@@ -127,21 +129,21 @@ class TestGetReflectionPrompts:
     def test_invalid_depth_zero_raises_error(self):
         """Test that depth of 0 raises ValueError."""
         with pytest.raises(ValueError, match="reflection_depth must be at least 1"):
-            get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=0)
+            get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=0)
 
     def test_invalid_depth_negative_raises_error(self):
         """Test that negative depth raises ValueError."""
         with pytest.raises(ValueError, match="reflection_depth must be at least 1"):
-            get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=-1)
+            get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=-1)
 
     def test_invalid_depth_too_high_raises_error(self):
         """Test that depth greater than 5 raises ValueError."""
         with pytest.raises(ValueError, match="reflection_depth cannot exceed 5"):
-            get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=6)
+            get_reflection_prompts_sync(KnowledgeLevel.BEGINNER, reflection_depth=6)
 
     def test_unknown_category_ignores_category(self):
         """Test that unknown category is ignored and level prompts are returned."""
-        prompts = get_reflection_prompts(
+        prompts = get_reflection_prompts_sync(
             KnowledgeLevel.BEGINNER,
             reflection_depth=3,
             category="未知类别",
@@ -155,32 +157,37 @@ class TestGetReflectionPrompts:
 class TestGetNarrativeStylePrompt:
     """Tests for get_narrative_style_prompt function."""
 
-    def test_storytelling_style(self):
+    @pytest.mark.asyncio
+    async def test_storytelling_style(self):
         """Test storytelling style prompt contains expected keywords."""
-        prompt = get_narrative_style_prompt(NarrativeStyle.STORYTELLING)
+        prompt = await get_narrative_style_prompt(NarrativeStyle.STORYTELLING)
         assert "讲故事" in prompt
         assert "感染力" in prompt
 
-    def test_academic_style(self):
+    @pytest.mark.asyncio
+    async def test_academic_style(self):
         """Test academic style prompt contains expected keywords."""
-        prompt = get_narrative_style_prompt(NarrativeStyle.ACADEMIC)
+        prompt = await get_narrative_style_prompt(NarrativeStyle.ACADEMIC)
         assert "学术" in prompt
         assert "严谨" in prompt
 
-    def test_interactive_style(self):
+    @pytest.mark.asyncio
+    async def test_interactive_style(self):
         """Test interactive style prompt contains expected keywords."""
-        prompt = get_narrative_style_prompt(NarrativeStyle.INTERACTIVE)
+        prompt = await get_narrative_style_prompt(NarrativeStyle.INTERACTIVE)
         assert "互动" in prompt or "问答" in prompt
 
-    def test_invalid_style_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_invalid_style_raises_error(self):
         """Test that invalid style raises ValueError."""
         with pytest.raises(ValueError, match="Invalid narrative style"):
-            get_narrative_style_prompt("invalid_style")
+            await get_narrative_style_prompt("invalid_style")  # type: ignore
 
-    def test_invalid_style_type_raises_error(self):
+    @pytest.mark.asyncio
+    async def test_invalid_style_type_raises_error(self):
         """Test that non-enum style raises ValueError."""
         with pytest.raises(ValueError, match="Invalid narrative style"):
-            get_narrative_style_prompt(123)
+            await get_narrative_style_prompt(123)  # type: ignore
 
 
 class TestPromptContent:
@@ -218,3 +225,28 @@ class TestPromptContent:
         prompts = CATEGORY_REFLECTIONS["陶瓷"]
         assert len(prompts) == 5
         assert "釉色" in prompts[0]
+
+
+class TestAsyncGetReflectionPrompts:
+    """Tests for async get_reflection_prompts function."""
+
+    @pytest.mark.asyncio
+    async def test_async_beginner_level(self):
+        """Test async version with beginner level (uses fallback)."""
+        # Without PromptService initialized, it should fall back to hardcoded
+        prompts = await get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=3)
+        assert len(prompts) == 3
+        for prompt in prompts:
+            assert prompt in BEGINNER_PROMPTS
+
+    @pytest.mark.asyncio
+    async def test_async_with_category(self):
+        """Test async version with category (uses fallback)."""
+        prompts = await get_reflection_prompts(
+            KnowledgeLevel.EXPERT,
+            reflection_depth=2,
+            category="青铜器",
+        )
+        assert len(prompts) == 2
+        for prompt in prompts:
+            assert prompt in CATEGORY_REFLECTIONS["青铜器"] or prompt in EXPERT_PROMPTS

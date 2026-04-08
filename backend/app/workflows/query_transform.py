@@ -2,6 +2,10 @@ import re
 from enum import Enum
 from typing import Any, Protocol
 
+from loguru import logger
+
+from app.domain.exceptions import PromptNotFoundError, PromptVariableError
+
 
 class QueryTransformStrategy(Enum):
     NONE = "none"
@@ -22,6 +26,33 @@ class LLMResponseProtocol(Protocol):
     """LLM响应协议。"""
 
     content: str
+
+
+async def _get_prompt(key: str, variables: dict[str, str]) -> str | None:
+    """Fetch a prompt from PromptService and render it with variables.
+
+    Args:
+        key: Unique prompt key
+        variables: Dictionary of variables to substitute in the template
+
+    Returns:
+        Rendered prompt content if found, None otherwise
+    """
+    try:
+        from app.application.prompt_service import PromptService
+        from app.infra.postgres.database import get_session
+        from app.infra.postgres.prompt_repository import PostgresPromptRepository
+        from app.main import get_prompt_cache
+
+        prompt_cache = get_prompt_cache()
+        async with get_session() as session:
+            repository = PostgresPromptRepository(session)
+            service = PromptService(repository, prompt_cache)
+            return await service.render_prompt(key, variables)
+    except (PromptNotFoundError, PromptVariableError, RuntimeError) as e:
+        # RuntimeError: Prompt cache or database not initialized (e.g., during tests)
+        logger.warning(f"Failed to get prompt '{key}' from service: {e}")
+        return None
 
 
 class ConversationAwareQueryRewriter:
@@ -71,10 +102,19 @@ class ConversationAwareQueryRewriter:
             return query
 
         formatted_history = self._format_conversation_history(conversation_history)
-        prompt = self.REWRITE_PROMPT.format(
-            conversation_history=formatted_history,
-            query=query,
+
+        # Try to get prompt from PromptService
+        prompt = await _get_prompt(
+            "query_rewrite",
+            {"conversation_history": formatted_history, "query": query},
         )
+
+        # Fall back to hardcoded prompt if PromptService fails
+        if prompt is None:
+            prompt = self.REWRITE_PROMPT.format(
+                conversation_history=formatted_history,
+                query=query,
+            )
 
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
         return str(response.content).strip()
@@ -106,17 +146,35 @@ class QueryTransformer:
         self.llm_provider = llm_provider
 
     async def transform_step_back(self, query: str) -> str:
-        prompt = self.STEP_BACK_PROMPT.format(query=query)
+        # Try to get prompt from PromptService
+        prompt = await _get_prompt("query_step_back", {"query": query})
+
+        # Fall back to hardcoded prompt if PromptService fails
+        if prompt is None:
+            prompt = self.STEP_BACK_PROMPT.format(query=query)
+
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
         return str(response.content).strip()
 
     async def transform_hyde(self, query: str) -> str:
-        prompt = self.HYDE_PROMPT.format(query=query)
+        # Try to get prompt from PromptService
+        prompt = await _get_prompt("query_hyde", {"query": query})
+
+        # Fall back to hardcoded prompt if PromptService fails
+        if prompt is None:
+            prompt = self.HYDE_PROMPT.format(query=query)
+
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
         return str(response.content).strip()
 
     async def transform_multi_query(self, query: str) -> list[str]:
-        prompt = self.MULTI_QUERY_PROMPT.format(query=query)
+        # Try to get prompt from PromptService
+        prompt = await _get_prompt("query_multi", {"query": query})
+
+        # Fall back to hardcoded prompt if PromptService fails
+        if prompt is None:
+            prompt = self.MULTI_QUERY_PROMPT.format(query=query)
+
         response = await self.llm_provider.generate([{"role": "user", "content": prompt}])
 
         lines = str(response.content).strip().split("\n")

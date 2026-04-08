@@ -83,7 +83,7 @@ class CuratorAgent:
 
             prompt_cache = get_prompt_cache()
 
-            async def get_prompt():
+            async def get_prompt() -> str | None:
                 async with get_session() as session:
                     repository = PostgresPromptRepository(session)
                     service = PromptService(repository, prompt_cache)

@@ -2,7 +2,11 @@
 
 Revision ID: 20250408_add_prompts
 Revises: 20250106
-Create Date: 2025-04-08
+Create Date: 2026-04-08
+
+This migration creates two new tables for the Prompt Management System:
+- prompts: Store prompt templates with variables and metadata
+- prompt_versions: Track version history of prompt content changes
 
 """
 from typing import Sequence, Union
@@ -19,6 +23,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """Create prompts and prompt_versions tables."""
     # Create prompts table
     op.create_table(
         'prompts',
@@ -57,6 +62,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop prompts and prompt_versions tables."""
     op.drop_index('ix_prompt_versions_prompt_id', table_name='prompt_versions')
     op.drop_table('prompt_versions')
     op.drop_index('ix_prompts_is_active', table_name='prompts')

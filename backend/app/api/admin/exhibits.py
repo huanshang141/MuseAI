@@ -90,7 +90,7 @@ def get_exhibit_service(session: SessionDep) -> ExhibitService:
     return ExhibitService(repository)
 
 
-@router.post("/", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED)
 async def create_exhibit(
     session: SessionDep,
     request: CreateExhibitRequest,
@@ -159,7 +159,7 @@ async def create_exhibit(
     )
 
 
-@router.get("/", response_model=ExhibitListResponse)
+@router.get("", response_model=ExhibitListResponse)
 async def list_exhibits(
     session: SessionDep,
     current_user: CurrentAdminUser,

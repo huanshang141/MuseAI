@@ -1,4 +1,5 @@
 # backend/app/api/admin.py
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -6,8 +7,9 @@ from loguru import logger
 from pydantic import BaseModel
 
 from app.api.deps import CurrentAdminUser, SessionDep
-from app.application.exhibit_indexing_service import ExhibitIndexingService
+from app.application.content_source import ContentMetadata, ContentSource
 from app.application.exhibit_service import ExhibitService
+from app.application.unified_indexing_service import UnifiedIndexingService
 from app.domain.exceptions import EntityNotFoundError
 from app.infra.postgres.repositories import PostgresExhibitRepository
 
@@ -116,8 +118,25 @@ async def create_exhibit(
     try:
         es_client = http_request.app.state.es_client
         embeddings = http_request.app.state.embeddings
-        indexing_service = ExhibitIndexingService(es_client, embeddings)
-        await indexing_service.index_exhibit(exhibit)
+        indexing_service = UnifiedIndexingService(es_client, embeddings)
+
+        # Create ContentSource for the exhibit
+        content_source = ContentSource(
+            source_id=exhibit.id.value,
+            source_type="exhibit",
+            content=exhibit.description,
+            metadata=ContentMetadata(
+                name=exhibit.name,
+                category=exhibit.category,
+                hall=exhibit.hall,
+                floor=exhibit.location.floor,
+                era=exhibit.era,
+                importance=exhibit.importance,
+                location_x=exhibit.location.x,
+                location_y=exhibit.location.y,
+            ),
+        )
+        await indexing_service.index_source(content_source)
     except Exception as e:
         logger.error(f"Failed to index exhibit {exhibit.id.value}: {e}")
 
@@ -199,8 +218,6 @@ async def update_exhibit(
     http_request: Request,
 ) -> ExhibitResponse:
     """Update an exhibit (admin only)."""
-    import uuid
-
     # Validate UUID format
     try:
         uuid.UUID(exhibit_id)
@@ -238,14 +255,29 @@ async def update_exhibit(
     try:
         es_client = http_request.app.state.es_client
         embeddings = http_request.app.state.embeddings
-        indexing_service = ExhibitIndexingService(es_client, embeddings)
+        indexing_service = UnifiedIndexingService(es_client, embeddings)
 
         if exhibit.is_active:
             # Reindex the exhibit
-            await indexing_service.index_exhibit(exhibit)
+            content_source = ContentSource(
+                source_id=exhibit.id.value,
+                source_type="exhibit",
+                content=exhibit.description,
+                metadata=ContentMetadata(
+                    name=exhibit.name,
+                    category=exhibit.category,
+                    hall=exhibit.hall,
+                    floor=exhibit.location.floor,
+                    era=exhibit.era,
+                    importance=exhibit.importance,
+                    location_x=exhibit.location.x,
+                    location_y=exhibit.location.y,
+                ),
+            )
+            await indexing_service.index_source(content_source)
         else:
             # Remove from index
-            await indexing_service.delete_exhibit_index(exhibit.id.value)
+            await indexing_service.delete_source(exhibit.id.value, source_type="exhibit")
     except Exception as e:
         logger.error(f"Failed to update exhibit index {exhibit.id.value}: {e}")
 
@@ -296,8 +328,8 @@ async def delete_exhibit(
     try:
         es_client = http_request.app.state.es_client
         embeddings = http_request.app.state.embeddings
-        indexing_service = ExhibitIndexingService(es_client, embeddings)
-        await indexing_service.delete_exhibit_index(exhibit_id)
+        indexing_service = UnifiedIndexingService(es_client, embeddings)
+        await indexing_service.delete_source(exhibit_id, source_type="exhibit")
     except Exception as e:
         logger.error(f"Failed to delete exhibit index {exhibit_id}: {e}")
 
@@ -324,13 +356,39 @@ async def reindex_all_exhibits(
     es_client = http_request.app.state.es_client
     embeddings = http_request.app.state.embeddings
 
-    # Use ExhibitIndexingService to reindex
-    indexing_service = ExhibitIndexingService(es_client, embeddings)
-    result = await indexing_service.reindex_all_exhibits(exhibits)
+    # Use UnifiedIndexingService to reindex
+    indexing_service = UnifiedIndexingService(es_client, embeddings)
+
+    total = len(exhibits)
+    indexed = 0
+    failed = 0
+
+    for exhibit in exhibits:
+        try:
+            content_source = ContentSource(
+                source_id=exhibit.id.value,
+                source_type="exhibit",
+                content=exhibit.description,
+                metadata=ContentMetadata(
+                    name=exhibit.name,
+                    category=exhibit.category,
+                    hall=exhibit.hall,
+                    floor=exhibit.location.floor,
+                    era=exhibit.era,
+                    importance=exhibit.importance,
+                    location_x=exhibit.location.x,
+                    location_y=exhibit.location.y,
+                ),
+            )
+            await indexing_service.index_source(content_source)
+            indexed += 1
+        except Exception as e:
+            logger.error(f"Failed to reindex exhibit {exhibit.id.value}: {e}")
+            failed += 1
 
     return ReindexResponse(
         status="completed",
-        total=result["total"],
-        indexed=result["indexed"],
-        failed=result["failed"],
+        total=total,
+        indexed=indexed,
+        failed=failed,
     )

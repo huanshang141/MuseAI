@@ -85,10 +85,19 @@ uv run python -m backend.tests.performance.mock_llm_server > "$MOCK_LLM_LOG" 2>&
 MOCK_PID=$!
 echo "Mock LLM server PID: $MOCK_PID"
 
-# Wait for mock server to start
-sleep 3
-if ! curl -s http://localhost:8099/health > /dev/null 2>&1; then
-    echo -e "${RED}Error: Mock LLM server failed to start${NC}"
+# Wait for mock server to start (with retry)
+MAX_RETRIES=10
+RETRY_COUNT=0
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if curl -s http://localhost:8099/health > /dev/null 2>&1; then
+        break
+    fi
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    sleep 1
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo -e "${RED}Error: Mock LLM server failed to start after ${MAX_RETRIES}s${NC}"
     cat "$MOCK_LLM_LOG"
     exit 1
 fi

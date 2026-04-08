@@ -194,8 +194,16 @@ async def check_rate_limit(
 ) -> None:
     """Check rate limit for the current user.
 
+    - Test environment (APP_ENV != "production"): No rate limiting
+    - Production: Standard rate limiting
+
     Fails open if Redis is unavailable to ensure availability during outages.
     """
+    # Skip rate limiting in non-production environments for load testing
+    settings = get_settings()
+    if settings.APP_ENV != "production":
+        return
+
     try:
         if not await redis.check_rate_limit(current_user["id"]):
             raise HTTPException(
@@ -217,11 +225,16 @@ async def check_auth_rate_limit(
 ) -> None:
     """Rate limiting for authentication endpoints using IP address.
 
-    More restrictive than regular rate limiting:
-    - 5 requests per minute for login and register
+    - Test environment (APP_ENV != "production"): No rate limiting
+    - Production: 100 requests per minute per IP (increased from 5 for better UX)
 
     Fails closed for security - returns 503 if Redis unavailable.
     """
+    # Skip rate limiting in non-production environments for load testing
+    settings = get_settings()
+    if settings.APP_ENV != "production":
+        return
+
     # Get client IP
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
@@ -237,7 +250,7 @@ async def check_auth_rate_limit(
             return
 
         count = await redis.client.incr(key)
-        if count > 5:  # 5 attempts per minute
+        if count > 100:  # 100 attempts per minute (increased from 5)
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many authentication attempts. Please try again later.",

@@ -163,7 +163,7 @@ class AuthenticatedChatUser(BaseChatUser):
 
             response = self.client.post(
                 "/api/v1/auth/login",
-                data={"username": email, "password": config.test_user_password},
+                json={"email": email, "password": config.test_user_password},
                 name="auth_login",
             )
             if response.status_code == 200:
@@ -242,7 +242,7 @@ class AuthenticatedChatUser(BaseChatUser):
     @task(1)
     def view_health(self):
         """Check API health."""
-        self.client.get("/health", name="health_check")
+        self.client.get("/api/v1/health", name="health_check")
 
 
 class GuestChatUser(BaseChatUser):
@@ -288,7 +288,7 @@ class GuestChatUser(BaseChatUser):
     @task(1)
     def view_health(self):
         """Check API health."""
-        self.client.get("/health", name="health_check_guest")
+        self.client.get("/api/v1/health", name="health_check_guest")
 
 
 # Configure user classes based on scenario weights

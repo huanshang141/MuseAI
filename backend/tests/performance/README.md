@@ -16,9 +16,28 @@ This suite tests the performance of chat endpoints under various load conditions
    # Start all infrastructure services
    docker-compose up -d
 
-   # Start the API server
+   # Start the API server with test environment settings
+   # IMPORTANT: APP_ENV must NOT be 'production' to bypass rate limiting for load testing
+   APP_ENV=development \
+   LLM_BASE_URL=http://localhost:8099/v1 \
+   LLM_API_KEY=mock-key \
+   LLM_MODEL=mock-model \
    uv run uvicorn backend.app.main:app --reload
    ```
+
+   **Environment Variables for Performance Testing:**
+
+   | Variable | Value | Purpose |
+   |----------|-------|---------|
+   | `APP_ENV` | `development` (or any value except `production`) | Bypasses rate limiting to allow high-concurrency user creation and login |
+   | `LLM_BASE_URL` | `http://localhost:8099/v1` | Points to mock LLM server instead of real LLM |
+   | `LLM_API_KEY` | `mock-key` | Mock API key for mock LLM server |
+   | `LLM_MODEL` | `mock-model` | Mock model name |
+
+   **Why `APP_ENV` matters:**
+   - In `production` mode: Rate limiting is enforced (100 auth requests/min per IP)
+   - In non-production mode (`development`, `test`, `local`, etc.): Rate limiting is bypassed entirely
+   - This allows load tests to simulate realistic high-concurrency scenarios without being blocked
 
 2. **Install Test Dependencies**:
    ```bash
@@ -179,8 +198,19 @@ Text summary of key metrics.
 # Check if server is running
 curl http://localhost:8000/api/v1/health
 
-# Start server
+# Start server with correct environment variables
+APP_ENV=development \
+LLM_BASE_URL=http://localhost:8099/v1 \
+LLM_API_KEY=mock-key \
+LLM_MODEL=mock-model \
 uv run uvicorn backend.app.main:app --reload
+```
+
+### "429 Too Many Requests" during user creation
+This means the API server is running in production mode. Restart with `APP_ENV=development`:
+```bash
+# Stop current server, then restart with:
+APP_ENV=development uv run uvicorn backend.app.main:app --reload
 ```
 
 ### "Mock LLM server failed to start"
@@ -263,6 +293,11 @@ To run in CI/CD pipeline:
   run: |
     docker-compose up -d
     sleep 30
+    # Start API server with test environment (bypasses rate limiting)
+    APP_ENV=development \
+    LLM_BASE_URL=http://localhost:8099/v1 \
+    LLM_API_KEY=mock-key \
+    LLM_MODEL=mock-model \
     uv run uvicorn backend.app.main:app &
     sleep 10
     cd backend/tests/performance

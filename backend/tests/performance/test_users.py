@@ -46,7 +46,7 @@ async def login_user(
     try:
         response = await client.post(
             f"{base_url}/auth/login",
-            data={"username": email, "password": password},
+            json={"email": email, "password": password},
             timeout=10.0,
         )
         if response.status_code == 200:

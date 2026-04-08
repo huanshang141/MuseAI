@@ -19,7 +19,9 @@ async def test_logout_raises_503_when_blacklist_write_fails() -> None:
     redis = MagicMock()
     redis.blacklist_token = AsyncMock(side_effect=RedisError("redis down"))
 
+    response = MagicMock()
+
     with pytest.raises(HTTPException) as exc:
-        await logout(request=request, jwt_handler=jwt_handler, redis=redis, _=None)
+        await logout(request=request, jwt_handler=jwt_handler, redis=redis, response=response, _=None)
 
     assert exc.value.status_code == 503

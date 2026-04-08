@@ -27,8 +27,12 @@ async def test_token_blacklist_fails_closed_in_production():
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
 
+        mock_request = MagicMock()
+        mock_request.cookies = {}
+
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,
@@ -65,7 +69,11 @@ async def test_token_blacklist_passes_in_development():
             mock_credentials = MagicMock()
             mock_credentials.credentials = "valid-token"
 
+            mock_request = MagicMock()
+            mock_request.cookies = {}
+
             result = await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,

@@ -22,7 +22,8 @@ from app.config.settings import get_settings
 from app.infra.postgres.database import get_session, init_database
 from app.infra.postgres.models import Document, Exhibit, IngestionJob, User
 from app.infra.elasticsearch.client import ElasticsearchClient
-from app.application.ingestion_service import IngestionService
+from app.application.unified_indexing_service import UnifiedIndexingService
+from app.application.content_source import ContentSource, ContentMetadata
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 
 # 完整的展品类别
@@ -1385,7 +1386,7 @@ async def create_exhibits_with_documents(
     user_id: str,
 ) -> None:
     """Create exhibits with documents and embeddings."""
-    ingestion_service = IngestionService(
+    unified_indexing_service = UnifiedIndexingService(
         es_client=es_client,
         embeddings=embeddings,
     )
@@ -1428,17 +1429,24 @@ async def create_exhibits_with_documents(
             session.add(job)
             await session.commit()
 
-        # Process document for embedding
+        # Process document for embedding using UnifiedIndexingService
         async with get_session(session_maker) as session:
             try:
-                await ingestion_service.process_document(
-                    session=session,
-                    document_id=doc_id,
+                # Create ContentSource for document indexing
+                content_source = ContentSource(
+                    source_id=doc_id,
+                    source_type="document",
                     content=item["content"],
-                    source=item["hall"],
+                    metadata=ContentMetadata(
+                        name=item["name"],
+                        filename=f"{item['name']}.txt",
+                    ),
                 )
+
+                # Index the content
+                chunk_count = await unified_indexing_service.index_source(content_source)
                 created_documents += 1
-                print(f"  Created document: {item['name']}.txt ({len(item['content'])} chars)")
+                print(f"  Created document: {item['name']}.txt ({len(item['content'])} chars, {chunk_count} chunks)")
             except Exception as e:
                 print(f"  Failed to create document {item['name']}: {e}")
                 continue

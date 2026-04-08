@@ -60,6 +60,10 @@ htmlcov/
 # Logs
 logs/
 
+# Performance test reports (keep directory structure but ignore generated reports)
+performance_reports/*.html
+performance_reports/*.txt
+
 # Node
 node_modules/
 frontend/node_modules/

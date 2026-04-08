@@ -6,9 +6,7 @@ Seeds Elasticsearch with test documents and creates test users.
 import argparse
 import asyncio
 import uuid
-from typing import Any
 
-from elasticsearch import AsyncElasticsearch
 from loguru import logger
 
 from app.config.settings import get_settings

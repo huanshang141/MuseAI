@@ -9,7 +9,6 @@ from typing import Any
 
 import httpx
 from locust import HttpUser, between, events, task
-from locust.contrib.fasthttp import FastHttpUser
 
 from .config import TestConfig, get_config
 from .test_users import UserTokenPool
@@ -230,7 +229,7 @@ class AuthenticatedChatUser(BaseChatUser):
     @task(1)
     def view_health(self):
         """Check API health."""
-        self.client.get("/api/v1/health", name="health_check")
+        self.client.get("/health", name="health_check")
 
 
 class GuestChatUser(BaseChatUser):
@@ -273,7 +272,7 @@ class GuestChatUser(BaseChatUser):
     @task(1)
     def view_health(self):
         """Check API health."""
-        self.client.get("/api/v1/health", name="health_check_guest")
+        self.client.get("/health", name="health_check_guest")
 
 
 # Configure user classes based on scenario weights

@@ -1,6 +1,8 @@
 # backend/tests/unit/test_domain_entities.py
 from datetime import datetime
 
+import pytest
+
 from app.domain.entities import (
     ChatMessage,
     ChatSession,
@@ -10,7 +12,10 @@ from app.domain.entities import (
     Exhibit,
     TourPath,
     VisitorProfile,
+    Prompt,
+    PromptVersion,
 )
+from app.domain.exceptions import PromptVariableError
 from app.domain.value_objects import (
     DocumentId,
     JobId,
@@ -19,6 +24,7 @@ from app.domain.value_objects import (
     ExhibitId,
     TourPathId,
     ProfileId,
+    PromptId,
     Location,
 )
 
@@ -185,3 +191,80 @@ def test_visitor_profile_creation():
     assert profile.knowledge_level == "intermediate"
     assert len(profile.interests) == 3
     assert "Ancient History" in profile.interests
+
+
+def test_prompt_creation():
+    prompt = Prompt(
+        id=PromptId("prompt-123"),
+        key="test_prompt",
+        name="Test Prompt",
+        description="A test prompt",
+        category="test",
+        content="Hello {name}!",
+        variables=[{"name": "name", "description": "User name"}],
+        is_active=True,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+        current_version=1,
+    )
+    assert prompt.id.value == "prompt-123"
+    assert prompt.key == "test_prompt"
+    assert prompt.content == "Hello {name}!"
+    assert prompt.is_active is True
+
+
+def test_prompt_render_with_variables():
+    prompt = Prompt(
+        id=PromptId("prompt-123"),
+        key="test_prompt",
+        name="Test Prompt",
+        description="A test prompt",
+        category="test",
+        content="Hello {name}, you are {age} years old!",
+        variables=[
+            {"name": "name", "description": "User name"},
+            {"name": "age", "description": "User age"},
+        ],
+        is_active=True,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    result = prompt.render({"name": "Alice", "age": "30"})
+    assert result == "Hello Alice, you are 30 years old!"
+
+
+def test_prompt_render_missing_variable_raises_error():
+    prompt = Prompt(
+        id=PromptId("prompt-123"),
+        key="test_prompt",
+        name="Test Prompt",
+        description="A test prompt",
+        category="test",
+        content="Hello {name}, you are {age} years old!",
+        variables=[
+            {"name": "name", "description": "User name"},
+            {"name": "age", "description": "User age"},
+        ],
+        is_active=True,
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+        updated_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    with pytest.raises(PromptVariableError) as exc_info:
+        prompt.render({"name": "Alice"})
+    assert "age" in str(exc_info.value)
+
+
+def test_prompt_version_creation():
+    version = PromptVersion(
+        id="version-123",
+        prompt_id=PromptId("prompt-123"),
+        version=1,
+        content="Hello {name}!",
+        changed_by="user-123",
+        change_reason="Initial version",
+        created_at=datetime(2026, 1, 1, 12, 0, 0),
+    )
+    assert version.id == "version-123"
+    assert version.prompt_id.value == "prompt-123"
+    assert version.version == 1
+    assert version.changed_by == "user-123"

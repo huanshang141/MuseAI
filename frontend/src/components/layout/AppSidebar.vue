@@ -4,7 +4,7 @@ import DocumentList from '../knowledge/DocumentList.vue'
 import { useAuth } from '../../composables/useAuth.js'
 import { useRoute } from 'vue-router'
 import { computed } from 'vue'
-import { MapLocation, Collection, Setting } from '@element-plus/icons-vue'
+import { MapLocation, Collection, Setting, Document } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const { isAuthenticated } = useAuth()
@@ -108,6 +108,10 @@ function handleLogin() {
         <el-menu-item index="/admin/tour-paths">
           <el-icon><MapLocation /></el-icon>
           <span>路线管理</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/prompts">
+          <el-icon><Document /></el-icon>
+          <span>提示词管理</span>
         </el-menu-item>
       </el-menu>
     </template>

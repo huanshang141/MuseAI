@@ -251,6 +251,33 @@ export const api = {
       body: JSON.stringify(data)
     }),
     deleteTourPath: (id) => request(`/admin/tour-paths/${id}`, { method: 'DELETE' }),
+
+    // Prompts
+    prompts: {
+      list: (params = {}) => {
+        const filteredParams = Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v != null)
+        )
+        return request(`/admin/prompts?${new URLSearchParams(filteredParams)}`)
+      },
+      get: (key) => request(`/admin/prompts/${key}`),
+      update: (key, data) => request(`/admin/prompts/${key}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }),
+      listVersions: (key, params = {}) => {
+        const filteredParams = Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v != null)
+        )
+        return request(`/admin/prompts/${key}/versions?${new URLSearchParams(filteredParams)}`)
+      },
+      getVersion: (key, version) => request(`/admin/prompts/${key}/versions/${version}`),
+      rollback: (key, version) => request(`/admin/prompts/${key}/versions/${version}/rollback`, {
+        method: 'POST'
+      }),
+      reload: (key) => request(`/admin/prompts/${key}/reload`, { method: 'POST' }),
+      reloadAll: () => request('/admin/prompts/reload-all', { method: 'POST' }),
+    },
   },
 
   // Curator (AI-powered tour planning)

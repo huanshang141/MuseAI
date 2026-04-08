@@ -47,6 +47,12 @@ const routes = [
         name: 'admin-tour-paths',
         component: () => import('../components/admin/TourPathManager.vue'),
         meta: { title: '路线管理' }
+      },
+      {
+        path: 'prompts',
+        name: 'admin-prompts',
+        component: () => import('../components/admin/PromptManager.vue'),
+        meta: { title: '提示词管理' }
       }
     ]
   }

@@ -4,16 +4,17 @@ import { useRoute } from 'vue-router'
 import { useAuth } from '../../composables/useAuth.js'
 import AuthModal from '../auth/AuthModal.vue'
 import { api } from '../../api/index.js'
-import { User, SwitchButton, ChatDotRound, MapLocation, Collection } from '@element-plus/icons-vue'
+import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting } from '@element-plus/icons-vue'
 
 const route = useRoute()
-const { user, isAuthenticated, logout } = useAuth()
+const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
 // Navigation items
 const navItems = [
   { path: '/', title: '智能问答', icon: ChatDotRound, requiresAuth: false },
   { path: '/curator', title: '导览助手', icon: MapLocation, requiresAuth: true },
-  { path: '/exhibits', title: '展品浏览', icon: Collection, requiresAuth: true }
+  { path: '/exhibits', title: '展品浏览', icon: Collection, requiresAuth: true },
+  { path: '/admin', title: '管理后台', icon: Setting, requiresAuth: true, requiresAdmin: true }
 ]
 
 // Compute active menu index
@@ -59,6 +60,7 @@ onMounted(checkHealth)
         v-for="item in navItems"
         :key="item.path"
         :index="item.path"
+        v-show="!item.requiresAdmin || isAdmin"
         :disabled="item.requiresAuth && !isAuthenticated"
       >
         <el-icon><component :is="item.icon" /></el-icon>

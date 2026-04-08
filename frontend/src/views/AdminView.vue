@@ -1,5 +1,5 @@
 <script setup>
-import { Collection, MapLocation } from '@element-plus/icons-vue'
+import { Collection, MapLocation, Document } from '@element-plus/icons-vue'
 </script>
 
 <template>
@@ -18,6 +18,10 @@ import { Collection, MapLocation } from '@element-plus/icons-vue'
           <el-menu-item index="/admin/tour-paths">
             <el-icon><MapLocation /></el-icon>
             <span>路线管理</span>
+          </el-menu-item>
+          <el-menu-item index="/admin/prompts">
+            <el-icon><Document /></el-icon>
+            <span>提示词管理</span>
           </el-menu-item>
         </el-menu>
       </el-aside>

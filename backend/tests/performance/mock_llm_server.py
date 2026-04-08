@@ -9,7 +9,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -57,7 +57,7 @@ class StreamChunk(BaseModel):
     choices: list[dict[str, Any]]
 
 
-def generate_mock_response(query: str, length: int = None) -> str:
+def generate_mock_response(query: str, length: int | None = None) -> str:
     """Generate a mock response text."""
     length = length or config.mock_llm_response_length
 
@@ -83,9 +83,9 @@ async def stream_response(
     response_id: str,
     model: str,
     content: str,
-    chunk_size: int = None,
-    min_delay_ms: int = None,
-    max_delay_ms: int = None,
+    chunk_size: int | None = None,
+    min_delay_ms: int | None = None,
+    max_delay_ms: int | None = None,
 ) -> AsyncGenerator[str, None]:
     """Stream response in SSE format with realistic delays."""
     chunk_size = chunk_size or config.mock_llm_chunk_size
@@ -119,7 +119,7 @@ async def stream_response(
 
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(request: ChatCompletionRequest) -> StreamingResponse | ChatCompletionResponse:
     """Handle chat completion requests (OpenAI-compatible)."""
     response_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created = int(time.time())
@@ -160,12 +160,12 @@ async def chat_completions(request: ChatCompletionRequest):
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "service": "mock-llm"}
 
 
-def run_server(port: int = None):
+def run_server(port: int | None = None) -> None:
     """Run the mock LLM server."""
     import uvicorn
 

@@ -18,8 +18,20 @@ def _sanitize_error_message(error: Exception) -> str:
 
     Returns a generic message that doesn't expose internal details.
     """
+    # Build detailed error context for logging
+    error_type = type(error).__name__
+    error_msg = str(error) if str(error) else "(no message)"
+
+    # Include request URL for httpx errors if available
+    if hasattr(error, 'request'):
+        try:
+            request = error.request
+            error_msg = f"{error_msg} (URL: {request.url})"
+        except RuntimeError:
+            pass  # request property not set
+
     # Log the actual error for debugging
-    logger.error(f"Chat service error: {type(error).__name__}: {error}")
+    logger.error(f"Chat service error: {error_type}: {error_msg}")
 
     # Return generic message
     return "An unexpected error occurred. Please try again."

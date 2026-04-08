@@ -39,15 +39,22 @@ class OllamaEmbeddingProvider:
             await self.client.aclose()
 
     async def embed(self, text: str) -> list[float]:
-        response = await self.client.post(f"{self.base_url}/api/embeddings", json={"model": self.model, "prompt": text})
-        response.raise_for_status()
-        data = response.json()
-        embedding = data["embedding"]
+        try:
+            response = await self.client.post(f"{self.base_url}/api/embeddings", json={"model": self.model, "prompt": text})
+            response.raise_for_status()
+            data = response.json()
+            embedding = data["embedding"]
 
-        if len(embedding) != self.dims:
-            raise ValueError(f"Embedding dimension mismatch: expected {self.dims}, got {len(embedding)}")
+            if len(embedding) != self.dims:
+                raise ValueError(f"Embedding dimension mismatch: expected {self.dims}, got {len(embedding)}")
 
-        return embedding
+            return embedding
+        except httpx.ConnectTimeout as e:
+            raise RuntimeError(f"Failed to connect to embedding service at {self.base_url}: connection timed out") from e
+        except httpx.TimeoutException as e:
+            raise RuntimeError(f"Embedding service at {self.base_url} timed out") from e
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"Embedding service returned error: {e.response.status_code}") from e
 
     async def embed_batch(self, texts: list[str], max_concurrency: int = 5) -> list[list[float]]:
         semaphore = asyncio.Semaphore(max_concurrency)

@@ -11,6 +11,7 @@ from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import END, StateGraph
 from loguru import logger
 
+from app.domain.exceptions import PromptNotFoundError, PromptVariableError
 from app.infra.providers.rerank import BaseRerankProvider, RerankResult
 from app.workflows.query_transform import ConversationAwareQueryRewriter
 
@@ -223,7 +224,29 @@ class RAGAgent:
         docs = state.get("reranked_documents") or state["documents"]
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
+        # 从PromptService获取prompt
+        prompt = None
+        try:
+            from app.application.prompt_service import PromptService
+            from app.infra.postgres.database import get_session
+            from app.infra.postgres.prompt_repository import PostgresPromptRepository
+            from app.main import get_prompt_cache
+
+            prompt_cache = get_prompt_cache()
+            async with get_session() as session:
+                repository = PostgresPromptRepository(session)
+                service = PromptService(repository, prompt_cache)
+                prompt = await service.render_prompt(
+                    "rag_answer_generation",
+                    {"context": context, "query": state["query"]}
+                )
+        except (PromptNotFoundError, PromptVariableError, RuntimeError) as e:
+            # RuntimeError: Prompt cache or database not initialized (e.g., during tests)
+            logger.warning(f"Failed to get prompt from service: {e}, using fallback")
+
+        # 如果PromptService返回None，使用fallback prompt
+        if prompt is None:
+            prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
 如果上下文中没有相关信息，请礼貌地说明无法回答，并建议用户咨询工作人员。
 
 上下文：

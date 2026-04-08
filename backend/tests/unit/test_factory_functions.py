@@ -63,8 +63,8 @@ class TestFactoryFunctions:
         assert llm is not None
         assert hasattr(llm, "ainvoke")
 
-    def test_create_retriever_returns_rrf_retriever(self):
-        from app.infra.langchain import create_retriever
+    def test_create_retriever_returns_unified_retriever(self):
+        from app.infra.langchain import UnifiedRetriever, create_retriever
 
         mock_es_client = MagicMock()
         mock_embeddings = MagicMock()
@@ -93,6 +93,7 @@ class TestFactoryFunctions:
         retriever = create_retriever(mock_es_client, mock_embeddings, settings)
 
         assert retriever is not None
+        assert isinstance(retriever, UnifiedRetriever)
         assert hasattr(retriever, "_aget_relevant_documents")
 
     def test_create_rag_agent_returns_agent(self):

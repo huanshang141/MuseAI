@@ -19,7 +19,7 @@ from app.infra.langchain.curator_tools import (
     create_curator_tools,
 )
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
-from app.infra.langchain.retrievers import RRFRetriever
+from app.infra.langchain.retrievers import RRFRetriever, UnifiedRetriever
 from app.infra.providers.rerank import create_rerank_provider as _create_rerank_provider_impl
 from app.workflows.query_transform import ConversationAwareQueryRewriter
 
@@ -46,9 +46,12 @@ def create_retriever(
     es_client: Any,
     embeddings: CustomOllamaEmbeddings,
     settings: Settings,
-) -> RRFRetriever:
-    """创建Retriever实例。"""
-    return RRFRetriever(
+) -> UnifiedRetriever:
+    """创建Retriever实例。
+
+    使用UnifiedRetriever支持搜索所有内容类型（文档、展品等）。
+    """
+    return UnifiedRetriever(
         es_client=es_client,
         embeddings=embeddings,
         top_k=5,
@@ -156,6 +159,8 @@ __all__ = [
     "create_rag_agent",
     "create_curator_agent",
     "CuratorAgent",
+    "RRFRetriever",
+    "UnifiedRetriever",
     "PathPlanningTool",
     "KnowledgeRetrievalTool",
     "NarrativeGenerationTool",

@@ -1,23 +1,23 @@
 <script setup>
 import { ref } from 'vue'
-import { CATEGORY_OPTIONS, HALL_OPTIONS } from '../../constants/categories.js'
+import { CATEGORY_OPTIONS, FLOOR_OPTIONS } from '../../constants/categories.js'
 
 const emit = defineEmits(['filter'])
 
 const filters = ref({
   category: null,
-  hall: null,
+  floor: null,
   keyword: '',
 })
 
-// Use shared category and hall constants
+// Use shared category and floor constants
 const categoryOptions = CATEGORY_OPTIONS
-const hallOptions = HALL_OPTIONS
+const floorOptions = FLOOR_OPTIONS
 
 function handleFilter() {
   emit('filter', {
     category: filters.value.category,
-    hall: filters.value.hall,
+    floor: filters.value.floor,
     keyword: filters.value.keyword,
   })
 }
@@ -25,7 +25,7 @@ function handleFilter() {
 function handleReset() {
   filters.value = {
     category: null,
-    hall: null,
+    floor: null,
     keyword: '',
   }
   handleFilter()
@@ -55,15 +55,15 @@ function handleReset() {
         </el-select>
       </el-form-item>
 
-      <el-form-item label="展厅位置">
+      <el-form-item label="楼层">
         <el-select
-          v-model="filters.hall"
-          placeholder="选择展厅"
+          v-model="filters.floor"
+          placeholder="选择楼层"
           clearable
           @change="handleFilter"
         >
           <el-option
-            v-for="opt in hallOptions"
+            v-for="opt in floorOptions"
             :key="opt.value"
             :label="opt.label"
             :value="opt.value"

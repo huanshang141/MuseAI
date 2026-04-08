@@ -18,12 +18,12 @@ export const CATEGORY_OPTIONS = [
   ...EXHIBIT_CATEGORIES
 ]
 
-// Hall options with display labels
-export const HALL_OPTIONS = [
+// Floor options with display labels
+export const FLOOR_OPTIONS = [
   { value: null, label: '全部' },
-  { value: '1F', label: '一楼展厅' },
-  { value: '2F', label: '二楼展厅' },
-  { value: '3F', label: '三楼展厅' }
+  { value: 1, label: '一楼展厅' },
+  { value: 2, label: '二楼展厅' },
+  { value: 3, label: '三楼展厅' }
 ]
 
 // Category values only (for checkbox groups)

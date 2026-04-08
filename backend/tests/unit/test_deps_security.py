@@ -74,3 +74,57 @@ async def test_token_blacklist_passes_in_development():
 
             # In development, should pass through
             assert result["id"] == "user-123"
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_uses_peer_ip_when_not_from_trusted_proxy():
+    """Auth rate limit should use peer IP when request is not from a trusted proxy."""
+    from app.api.deps import check_auth_rate_limit
+
+    # Mock request with X-Forwarded-For from untrusted peer
+    mock_request = MagicMock()
+    mock_request.client = MagicMock()
+    mock_request.client.host = "8.8.8.8"  # Untrusted peer
+    mock_request.headers = {"X-Forwarded-For": "1.2.3.4"}  # Spoofed header
+
+    mock_redis = MagicMock()
+    mock_redis.client = MagicMock()
+    mock_redis.client.set = AsyncMock(return_value=True)  # First request
+
+    with patch("app.api.deps.get_settings") as mock_settings:
+        mock_settings.return_value.get_trusted_proxies.return_value = {"10.0.0.1"}
+
+        # Should not raise - using peer IP (8.8.8.8), not spoofed XFF
+        await check_auth_rate_limit(request=mock_request, redis=mock_redis)
+
+        # Verify the key used the peer IP, not the XFF value
+        mock_redis.client.set.assert_called_once()
+        call_args = mock_redis.client.set.call_args
+        assert "auth_rate:8.8.8.8" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_auth_rate_limit_uses_xff_when_from_trusted_proxy():
+    """Auth rate limit should use X-Forwarded-For when request is from a trusted proxy."""
+    from app.api.deps import check_auth_rate_limit
+
+    # Mock request with X-Forwarded-For from trusted proxy
+    mock_request = MagicMock()
+    mock_request.client = MagicMock()
+    mock_request.client.host = "10.0.0.1"  # Trusted proxy
+    mock_request.headers = {"X-Forwarded-For": "1.2.3.4"}  # Real client IP
+
+    mock_redis = MagicMock()
+    mock_redis.client = MagicMock()
+    mock_redis.client.set = AsyncMock(return_value=True)  # First request
+
+    with patch("app.api.deps.get_settings") as mock_settings:
+        mock_settings.return_value.get_trusted_proxies.return_value = {"10.0.0.1"}
+
+        # Should not raise
+        await check_auth_rate_limit(request=mock_request, redis=mock_redis)
+
+        # Verify the key used the XFF value
+        mock_redis.client.set.assert_called_once()
+        call_args = mock_redis.client.set.call_args
+        assert "auth_rate:1.2.3.4" in call_args[0]

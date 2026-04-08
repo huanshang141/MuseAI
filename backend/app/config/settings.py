@@ -59,11 +59,22 @@ class Settings(BaseSettings):
     # Admin configuration (comma-separated list of admin email addresses)
     ADMIN_EMAILS: str = ""
 
+    # Trusted proxy configuration for client IP extraction
+    # Comma-separated list of trusted proxy/load balancer IPs
+    # These IPs are trusted to send valid X-Forwarded-For headers
+    TRUSTED_PROXIES: str = ""
+
     def get_admin_emails(self) -> list[str]:
         """Parse ADMIN_EMAILS setting into a list."""
         if not self.ADMIN_EMAILS:
             return []
         return [email.strip() for email in self.ADMIN_EMAILS.split(",") if email.strip()]
+
+    def get_trusted_proxies(self) -> set[str]:
+        """Parse TRUSTED_PROXIES setting into a set."""
+        if not self.TRUSTED_PROXIES:
+            return set()
+        return {proxy.strip() for proxy in self.TRUSTED_PROXIES.split(",") if proxy.strip()}
 
     @field_validator("EMBEDDING_DIMS")
     @classmethod

@@ -7,6 +7,7 @@ from loguru import logger
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.client_ip import extract_client_ip
 from app.application.auth_service import get_user_by_id
 from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
@@ -248,12 +249,9 @@ async def check_auth_rate_limit(
     if settings.APP_ENV != "production":
         return
 
-    # Get client IP
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        client_ip = forwarded.split(",")[0].strip()
-    else:
-        client_ip = request.client.host if request.client else "unknown"
+    # Get client IP using trusted proxy-aware extraction
+    trusted_proxies = settings.get_trusted_proxies()
+    client_ip = extract_client_ip(request, trusted_proxies)
 
     key = f"auth_rate:{client_ip}"
 

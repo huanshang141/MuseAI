@@ -410,8 +410,8 @@ class TestCheckAuthRateLimit:
         assert "unknown" in call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_uses_forwarded_header(self):
-        """check_auth_rate_limit should use X-Forwarded-For header for IP."""
+    async def test_uses_forwarded_header_from_trusted_proxy(self):
+        """check_auth_rate_limit should use X-Forwarded-For header when from trusted proxy."""
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
@@ -420,14 +420,17 @@ class TestCheckAuthRateLimit:
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()
-        mock_request.client.host = "10.0.0.1"  # Original IP
+        mock_request.client.host = "10.0.0.1"  # Trusted proxy IP
         mock_request.headers = {"X-Forwarded-For": "203.0.113.1, 10.0.0.1"}
 
-        await check_auth_rate_limit(request=mock_request, redis=mock_redis)
+        with patch("app.api.deps.get_settings") as mock_settings:
+            mock_settings.return_value.get_trusted_proxies.return_value = {"10.0.0.1"}
 
-        # Check that the key uses the forwarded IP
-        call_args = mock_redis.client.set.call_args
-        assert "203.0.113.1" in call_args[0][0]
+            await check_auth_rate_limit(request=mock_request, redis=mock_redis)
+
+            # Check that the key uses the forwarded IP (first in chain)
+            call_args = mock_redis.client.set.call_args
+            assert "203.0.113.1" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_fails_closed_on_redis_error(self):

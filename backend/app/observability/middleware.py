@@ -16,6 +16,8 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from app.api.client_ip import extract_client_ip
+from app.config.settings import get_settings
 from loguru import logger
 
 
@@ -24,6 +26,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
+        # Cache trusted proxies at initialization for performance
+        self._trusted_proxies = get_settings().get_trusted_proxies()
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Generate or extract request ID
@@ -38,7 +42,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": request.url.path,
             "query": str(request.query_params),
-            "client_ip": self._get_client_ip(request),
+            "client_ip": extract_client_ip(request, self._trusted_proxies),
             "user_agent": request.headers.get("User-Agent", ""),
         }
 
@@ -89,12 +93,3 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 extra={"event": "request_failed", **error_data},
             )
             raise
-
-    def _get_client_ip(self, request: Request) -> str:
-        """Extract client IP from request, handling proxies."""
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        if request.client:
-            return request.client.host
-        return "unknown"

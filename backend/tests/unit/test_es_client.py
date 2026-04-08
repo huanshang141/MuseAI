@@ -282,7 +282,7 @@ async def test_timeout_and_retry_config() -> None:
         mock_instance = MockAsyncElasticsearch(["http://localhost:9200"])
         mock_class.return_value = mock_instance
 
-        client = ElasticsearchClient(
+        ElasticsearchClient(
             hosts=["http://localhost:9200"],
             timeout=60.0,
             max_retries=5,
@@ -294,3 +294,71 @@ async def test_timeout_and_retry_config() -> None:
             max_retries=5,
             retry_on_timeout=True,
         )
+
+
+@pytest.mark.asyncio
+async def test_create_index_includes_unified_fields() -> None:
+    """Test that index creation includes unified schema fields."""
+    mock_es = AsyncMock()
+    mock_es.indices = AsyncMock()
+    mock_es.indices.exists = AsyncMock(return_value=False)
+    mock_es.indices.create = AsyncMock(return_value={"acknowledged": True})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    await client.create_index("test_index", dims=768)
+
+    call_args = mock_es.indices.create.call_args
+    mapping = call_args.kwargs["body"]["mappings"]["properties"]
+
+    # Verify unified fields
+    assert "source_id" in mapping
+    assert mapping["source_id"]["type"] == "keyword"
+    assert "source_type" in mapping
+    assert mapping["source_type"]["type"] == "keyword"
+    assert "metadata" in mapping
+    assert mapping["metadata"]["type"] == "object"
+
+
+@pytest.mark.asyncio
+async def test_search_dense_with_source_types_filter() -> None:
+    """Test that dense search supports source_types filtering."""
+    mock_es = AsyncMock()
+    mock_es.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    query_vector = [0.1] * 768
+    await client.search_dense(query_vector, top_k=5, source_types=["exhibit", "document"])
+
+    call_args = mock_es.search.call_args
+    query = call_args.kwargs["body"]
+
+    # Verify filter clause is present
+    assert "filter" in query["knn"]
+    assert query["knn"]["filter"]["bool"]["filter"][0] == {"terms": {"source_type": ["exhibit", "document"]}}
+
+
+@pytest.mark.asyncio
+async def test_search_bm25_with_source_types_filter() -> None:
+    """Test that BM25 search supports source_types filtering."""
+    mock_es = AsyncMock()
+    mock_es.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    await client.search_bm25("test query", top_k=5, source_types=["exhibit"])
+
+    call_args = mock_es.search.call_args
+    query = call_args.kwargs["body"]
+
+    # Verify bool query with must clause is present
+    assert "bool" in query["query"]
+    assert query["query"]["bool"]["must"][0] == {"match": {"content": "test query"}}
+    assert query["query"]["bool"]["must"][1] == {"terms": {"source_type": ["exhibit"]}}

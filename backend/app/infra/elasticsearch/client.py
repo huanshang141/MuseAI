@@ -46,19 +46,40 @@ class ElasticsearchClient:
             mapping = {
                 "mappings": {
                     "properties": {
+                        # Unified schema fields
                         "chunk_id": {"type": "keyword"},
-                        "document_id": {"type": "keyword"},
+                        "source_id": {"type": "keyword"},
+                        "source_type": {"type": "keyword"},
+                        "chunk_level": {"type": "integer"},
                         "parent_chunk_id": {"type": "keyword"},
                         "root_chunk_id": {"type": "keyword"},
-                        "chunk_level": {"type": "integer"},
+                        "start_char": {"type": "integer"},
+                        "end_char": {"type": "integer"},
                         "content": {"type": "text", "analyzer": "ik_max_word"},
                         "content_vector": {"type": "dense_vector", "dims": dims, "index": True, "similarity": "cosine"},
+                        # Metadata as nested object
+                        "metadata": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "keyword"},
+                                "filename": {"type": "keyword"},
+                                "category": {"type": "keyword"},
+                                "hall": {"type": "keyword"},
+                                "floor": {"type": "integer"},
+                                "era": {"type": "keyword"},
+                                "importance": {"type": "integer"},
+                                "location_x": {"type": "float"},
+                                "location_y": {"type": "float"},
+                            },
+                        },
+                        # Legacy fields for backward compatibility
+                        "document_id": {"type": "keyword"},
                         "title": {"type": "keyword"},
                         "source": {"type": "keyword"},
                         "tags": {"type": "keyword"},
                         "user_id": {"type": "keyword"},
                         "created_at": {"type": "date"},
-                        # Exhibit-specific fields
+                        # Legacy exhibit fields
                         "doc_type": {"type": "keyword"},
                         "exhibit_id": {"type": "keyword"},
                         "category": {"type": "keyword"},
@@ -84,9 +105,15 @@ class ElasticsearchClient:
             logger.error(f"Failed to index chunk: {type(e).__name__}")
             raise RetrievalError("Failed to index chunk")
 
-    async def search_dense(self, query_vector: list[float], top_k: int = 5) -> list[dict[str, Any]]:
+    async def search_dense(
+        self,
+        query_vector: list[float],
+        top_k: int = 5,
+        source_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Dense vector search with optional source type filter."""
         try:
-            query = {
+            query: dict[str, Any] = {
                 "knn": {
                     "field": "content_vector",
                     "query_vector": query_vector,
@@ -96,6 +123,9 @@ class ElasticsearchClient:
                 "size": top_k,
             }
 
+            if source_types:
+                query["knn"]["filter"] = {"bool": {"filter": [{"terms": {"source_type": source_types}}]}}
+
             response = await self.client.search(index=self.index_name, body=query)
 
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
@@ -103,9 +133,28 @@ class ElasticsearchClient:
             logger.error(f"Dense search failed: {type(e).__name__}")
             raise RetrievalError("Dense search failed")
 
-    async def search_bm25(self, query_text: str, top_k: int = 5) -> list[dict[str, Any]]:
+    async def search_bm25(
+        self,
+        query_text: str,
+        top_k: int = 5,
+        source_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """BM25 text search with optional source type filter."""
         try:
-            query = {"query": {"match": {"content": query_text}}, "size": top_k}
+            if source_types:
+                query: dict[str, Any] = {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"match": {"content": query_text}},
+                                {"terms": {"source_type": source_types}},
+                            ]
+                        }
+                    },
+                    "size": top_k,
+                }
+            else:
+                query = {"query": {"match": {"content": query_text}}, "size": top_k}
 
             response = await self.client.search(index=self.index_name, body=query)
 

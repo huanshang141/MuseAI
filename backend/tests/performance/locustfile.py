@@ -211,8 +211,11 @@ class AuthenticatedChatUser(BaseChatUser):
                 # Log performance metrics
                 if metrics.get("first_chunk_time"):
                     environment = self.environment
-                    if hasattr(environment, "custom_metrics"):
-                        environment.custom_metrics["first_chunk_time"].append(metrics["first_chunk_time"])
+                    if not hasattr(environment, "custom_metrics"):
+                        environment.custom_metrics = {}
+                    if "first_chunk_time" not in environment.custom_metrics:
+                        environment.custom_metrics["first_chunk_time"] = []
+                    environment.custom_metrics["first_chunk_time"].append(metrics["first_chunk_time"])
 
     @task(3)
     def list_sessions(self):
@@ -266,8 +269,11 @@ class GuestChatUser(BaseChatUser):
                 # Log performance metrics
                 if metrics.get("first_chunk_time"):
                     environment = self.environment
-                    if hasattr(environment, "custom_metrics"):
-                        environment.custom_metrics["first_chunk_time"].append(metrics["first_chunk_time"])
+                    if not hasattr(environment, "custom_metrics"):
+                        environment.custom_metrics = {}
+                    if "first_chunk_time" not in environment.custom_metrics:
+                        environment.custom_metrics["first_chunk_time"] = []
+                    environment.custom_metrics["first_chunk_time"].append(metrics["first_chunk_time"])
 
     @task(1)
     def view_health(self):

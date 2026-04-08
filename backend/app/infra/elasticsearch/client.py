@@ -124,6 +124,28 @@ class ElasticsearchClient:
             logger.error(f"Delete by document failed: {type(e).__name__}")
             raise RetrievalError("Delete by document failed")
 
+    async def delete_by_query(
+        self,
+        index: str | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Delete documents matching a query.
+
+        Args:
+            index: Index name (defaults to self.index_name).
+            body: Query body with 'query' key.
+
+        Returns:
+            Result from Elasticsearch delete_by_query operation.
+        """
+        try:
+            target_index = index or self.index_name
+            result = await self.client.delete_by_query(index=target_index, body=body)
+            return cast(dict[str, Any], result)
+        except (ApiError, TransportError) as e:
+            logger.error(f"Delete by query failed: {type(e).__name__}")
+            raise RetrievalError("Delete by query failed") from e
+
     async def close(self) -> None:
         try:
             await self.client.close()

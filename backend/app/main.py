@@ -14,6 +14,7 @@ from app.api.health import router as health_router
 from app.api.profile import router as profile_router
 from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
+from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import (
@@ -82,6 +83,12 @@ async def lifespan(app: FastAPI):
             embeddings=embeddings,
         )
 
+        # Create unified indexing service for all content types
+        unified_indexing_service = UnifiedIndexingService(
+            es_client=es_client,
+            embeddings=embeddings,
+        )
+
         # Create conversation context manager
         context_manager = ConversationContextManager(redis_cache=redis_cache)
 
@@ -96,6 +103,7 @@ async def lifespan(app: FastAPI):
         app.state.query_rewriter = query_rewriter
         app.state.context_manager = context_manager
         app.state.ingestion_service = ingestion_service
+        app.state.unified_indexing_service = unified_indexing_service
         app.state.settings = settings
 
         yield
@@ -157,6 +165,13 @@ def get_ingestion_service() -> IngestionService:
     if hasattr(app.state, "ingestion_service"):
         return app.state.ingestion_service
     raise RuntimeError("Ingestion service not initialized. App not started?")
+
+
+def get_unified_indexing_service() -> UnifiedIndexingService:
+    """Get unified indexing service from app.state."""
+    if hasattr(app.state, "unified_indexing_service"):
+        return app.state.unified_indexing_service
+    raise RuntimeError("Unified indexing service not initialized. App not started?")
 
 
 def get_redis_cache() -> RedisCache:

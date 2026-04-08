@@ -5,20 +5,18 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Qu
 from loguru import logger
 from pydantic import BaseModel
 
-from app.api.deps import CurrentAdmin, CurrentUser, OptionalUser, RateLimitDep, SessionDep
+from app.api.deps import CurrentAdmin, OptionalUser, RateLimitDep, SessionDep
+from app.application.content_source import ContentMetadata, ContentSource
 from app.application.document_service import (
     count_all_documents,
-    count_documents_by_user,
     create_document,
     delete_document_by_id,
     get_all_documents,
-    get_document_by_id,
     get_document_by_id_public,
-    get_documents_by_user,
     get_ingestion_job_by_document,
     update_document_status,
 )
-from app.application.ingestion_service import IngestionService
+from app.application.unified_indexing_service import UnifiedIndexingService
 from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.langchain import create_embeddings
@@ -78,10 +76,10 @@ def _get_app_state_attr(attr_name: str) -> Any:
 
 
 # Dependency functions - check app.state first for mocks/singletons
-def get_ingestion_service() -> IngestionService:
-    """Get ingestion service from app.state or create fallback."""
+def get_unified_indexing_service() -> UnifiedIndexingService:
+    """Get unified indexing service from app.state or create fallback."""
     # Check app.state first (for production and mocked tests)
-    service = _get_app_state_attr("ingestion_service")
+    service = _get_app_state_attr("unified_indexing_service")
     if service is not None:
         return service
 
@@ -92,7 +90,7 @@ def get_ingestion_service() -> IngestionService:
         index_name=settings.ELASTICSEARCH_INDEX,
     )
     embeddings = create_embeddings(settings)
-    return IngestionService(es_client=es_client, embeddings=embeddings)
+    return UnifiedIndexingService(es_client=es_client, embeddings=embeddings)
 
 
 def get_es_client() -> ElasticsearchClient:
@@ -122,7 +120,7 @@ async def process_document_background(
     document_id: str,
     content: str,
     filename: str,
-    ingestion_service: IngestionService,
+    unified_indexing_service: UnifiedIndexingService,
 ):
     """Background task to process uploaded document."""
     settings = get_settings()
@@ -130,13 +128,24 @@ async def process_document_background(
 
     async with get_session(session_maker) as session:
         try:
-            await ingestion_service.process_document(
-                session=session,
-                document_id=document_id,
-                content=content,
-                source=filename,
-            )
+            # Update status to processing
+            await update_document_status(session, document_id, "processing", None)
             await session.commit()
+
+            # Use UnifiedIndexingService for indexing
+            source = ContentSource(
+                source_id=document_id,
+                source_type="document",
+                content=content,
+                metadata=ContentMetadata(filename=filename),
+            )
+            chunk_count = await unified_indexing_service.index_source(source)
+
+            # Update status to completed
+            await update_document_status(session, document_id, "completed", None, chunk_count)
+            await session.commit()
+
+            logger.info(f"Document {document_id} indexed: {chunk_count} chunks")
         except Exception as e:
             logger.exception(f"Failed to process document {document_id}: {e}")
             await update_document_status(session, document_id, "failed", str(e))
@@ -149,7 +158,7 @@ async def upload_document(
     background_tasks: BackgroundTasks,
     current_admin: CurrentAdmin,
     _: RateLimitDep,
-    ingestion_service: IngestionService = Depends(get_ingestion_service),  # noqa: B008
+    unified_indexing_service: UnifiedIndexingService = Depends(get_unified_indexing_service),  # noqa: B008
     file: UploadFile = File(...),  # noqa: B008
 ) -> DocumentResponse:
     if not file.filename:
@@ -172,7 +181,7 @@ async def upload_document(
             document.id,
             text_content,
             file.filename,
-            ingestion_service,
+            unified_indexing_service,
         )
     except UnicodeDecodeError:
         pass
@@ -249,8 +258,20 @@ async def get_document_status(session: SessionDep, doc_id: str, _: OptionalUser)
 
 
 @router.delete("/{doc_id}", response_model=DeleteResponse)
-async def delete_document_endpoint(session: SessionDep, doc_id: str, current_admin: CurrentAdmin) -> DeleteResponse:
+async def delete_document_endpoint(
+    session: SessionDep,
+    doc_id: str,
+    current_admin: CurrentAdmin,
+) -> DeleteResponse:
     success = await delete_document_by_id(session, doc_id)
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete from Elasticsearch
+    try:
+        indexing_service = get_unified_indexing_service()
+        await indexing_service.delete_source(doc_id, source_type="document")
+    except Exception as e:
+        logger.error(f"Failed to delete document chunks from ES {doc_id}: {e}")
+
     return DeleteResponse(status="deleted", document_id=doc_id)

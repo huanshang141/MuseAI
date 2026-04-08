@@ -75,9 +75,16 @@ async def delete_document(session: AsyncSession, doc_id: str, user_id: str) -> b
 
 
 async def update_document_status(
-    session: AsyncSession, doc_id: str, status: str, error: str | None = None
+    session: AsyncSession,
+    doc_id: str,
+    status: str,
+    error: str | None = None,
+    chunk_count: int | None = None,
 ) -> Document | None:
-    """Update document status and optionally set error message."""
+    """Update document status and optionally set error message.
+
+    Also updates the associated IngestionJob if chunk_count is provided.
+    """
     stmt = select(Document).where(Document.id == doc_id)
     result = await session.execute(stmt)
     document = result.scalar_one_or_none()
@@ -87,6 +94,17 @@ async def update_document_status(
     document.error = error
     await session.flush()
     await session.refresh(document)
+
+    # Also update the IngestionJob
+    job_stmt = select(IngestionJob).where(IngestionJob.document_id == doc_id)
+    job_result = await session.execute(job_stmt)
+    ingestion_job = job_result.scalar_one_or_none()
+    if ingestion_job is not None:
+        ingestion_job.status = status
+        ingestion_job.error = error
+        if chunk_count is not None:
+            ingestion_job.chunk_count = chunk_count
+
     return document
 
 

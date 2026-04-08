@@ -18,7 +18,6 @@ describe('api request hardening', () => {
   })
 
   it('clears auth storage on 401 response', async () => {
-    localStorage.setItem('access_token', 'token')
     localStorage.setItem('user', JSON.stringify({ email: 'x@y.com' }))
     localStorage.setItem('user_role', 'admin')
 
@@ -30,7 +29,8 @@ describe('api request hardening', () => {
 
     await api.ready()
 
-    expect(localStorage.getItem('access_token')).toBeNull()
+    // Note: access_token is no longer stored in localStorage since auth
+    // now uses HttpOnly cookies. Only user metadata is cleared.
     expect(localStorage.getItem('user')).toBeNull()
     expect(localStorage.getItem('user_role')).toBeNull()
   })

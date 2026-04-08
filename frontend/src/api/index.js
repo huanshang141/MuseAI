@@ -279,4 +279,13 @@ export const api = {
       body: JSON.stringify({ exhibit_id: exhibitId })
     }),
   },
+
+  // User profile preferences
+  profile: {
+    get: () => request('/profile'),
+    update: (data) => request('/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  },
 }

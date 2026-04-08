@@ -1,8 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-
-const API_BASE = '/api/v1'
+import { api } from '../api/index.js'
 
 const loading = ref(false)
 const saving = ref(false)
@@ -37,49 +36,19 @@ const profile = ref({
   reflection_depth: 3,
 })
 
-function getToken() {
-  return localStorage.getItem('access_token')
-}
-
-async function request(path, options = {}) {
-  const token = getToken()
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  }
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers,
-    ...options,
-  })
-
-  const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    const error = new Error(data?.detail || `HTTP ${response.status}`)
-    error.status = response.status
-    error.data = data
-    throw error
-  }
-
-  return { ok: response.ok, status: response.status, data }
-}
-
 async function loadProfile() {
   loading.value = true
   try {
-    const result = await request('/profile')
-    if (result.data) {
+    const result = await api.profile.get()
+    if (result.ok && result.data) {
       profile.value = {
         interests: result.data.interests || [],
         knowledge_level: result.data.knowledge_level || 'beginner',
         narrative_preference: result.data.narrative_preference || 'storytelling',
         reflection_depth: result.data.reflection_depth || 3,
       }
+    } else {
+      ElMessage.error('加载个人资料失败: ' + (result.data?.detail || `HTTP ${result.status}`))
     }
   } catch (err) {
     ElMessage.error('加载个人资料失败: ' + err.message)
@@ -91,11 +60,12 @@ async function loadProfile() {
 async function saveProfile() {
   saving.value = true
   try {
-    await request('/profile', {
-      method: 'PUT',
-      body: JSON.stringify(profile.value),
-    })
-    ElMessage.success('个人资料已保存')
+    const result = await api.profile.update(profile.value)
+    if (result.ok) {
+      ElMessage.success('个人资料已保存')
+    } else {
+      ElMessage.error('保存失败: ' + (result.data?.detail || `HTTP ${result.status}`))
+    }
   } catch (err) {
     ElMessage.error('保存失败: ' + err.message)
   } finally {

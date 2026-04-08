@@ -7,14 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.domain.entities import Prompt, PromptVersion
+from app.domain.exceptions import EntityNotFoundError, PromptNotFoundError
 from app.domain.value_objects import PromptId
 
 from .models import Prompt as PromptORM
 from .models import PromptVersion as PromptVersionORM
 
 
-class PromptRepository:
-    """Repository for Prompt database operations."""
+class PostgresPromptRepository:
+    """PostgreSQL implementation of PromptRepository."""
 
     def __init__(self, session: AsyncSession):
         self._session = session
@@ -32,7 +33,7 @@ class PromptRepository:
             is_active=orm.is_active,
             created_at=orm.created_at,
             updated_at=orm.updated_at,
-            current_version=orm.versions[-1].version if orm.versions else 1,
+            current_version=max(v.version for v in orm.versions) if orm.versions else 1,
         )
 
     def _version_to_entity(self, orm: PromptVersionORM) -> PromptVersion:
@@ -166,15 +167,17 @@ class PromptRepository:
             Updated Prompt entity
 
         Raises:
-            ValueError: If prompt not found
+            PromptNotFoundError: If prompt not found
         """
         result = await self._session.execute(
-            select(PromptORM).where(PromptORM.key == key)
+            select(PromptORM)
+            .options(selectinload(PromptORM.versions))
+            .where(PromptORM.key == key)
         )
         orm = result.scalar_one_or_none()
 
         if orm is None:
-            raise ValueError(f"Prompt with key '{key}' not found")
+            raise PromptNotFoundError(f"Prompt not found: {key}")
 
         # Get current max version
         version_result = await self._session.execute(
@@ -286,16 +289,18 @@ class PromptRepository:
             Updated Prompt entity
 
         Raises:
-            ValueError: If prompt or version not found
+            PromptNotFoundError: If prompt not found
+            EntityNotFoundError: If version not found
         """
-        # Get the prompt
         prompt_result = await self._session.execute(
-            select(PromptORM).where(PromptORM.key == key)
+            select(PromptORM)
+            .options(selectinload(PromptORM.versions))
+            .where(PromptORM.key == key)
         )
         prompt_orm = prompt_result.scalar_one_or_none()
 
         if prompt_orm is None:
-            raise ValueError(f"Prompt with key '{key}' not found")
+            raise PromptNotFoundError(f"Prompt not found: {key}")
 
         # Get the version to rollback to
         version_result = await self._session.execute(
@@ -306,7 +311,7 @@ class PromptRepository:
         version_orm = version_result.scalar_one_or_none()
 
         if version_orm is None:
-            raise ValueError(
+            raise EntityNotFoundError(
                 f"Version {version} not found for prompt '{key}'"
             )
 

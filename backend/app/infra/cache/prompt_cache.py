@@ -1,5 +1,6 @@
 """In-memory cache for prompts with hot-reload support."""
 
+import asyncio
 
 from loguru import logger
 
@@ -13,6 +14,7 @@ class PromptCache:
     def __init__(self) -> None:
         self._cache: dict[str, Prompt] = {}
         self._repository: PostgresPromptRepository | None = None
+        self._lock = asyncio.Lock()
 
     def set_repository(self, repository: PostgresPromptRepository) -> None:
         """Set the repository for cache misses.
@@ -32,7 +34,8 @@ class PromptCache:
             raise RuntimeError("Repository not set")
 
         prompts = await self._repository.list_all(include_inactive=False)
-        self._cache = {p.key: p for p in prompts}
+        async with self._lock:
+            self._cache = {p.key: p for p in prompts}
         logger.info(f"Loaded {len(self._cache)} prompts into cache")
 
     async def get(self, key: str) -> Prompt | None:
@@ -44,28 +47,30 @@ class PromptCache:
         Returns:
             Prompt if found (and active), None otherwise
         """
-        if key in self._cache:
-            return self._cache[key]
+        async with self._lock:
+            if key in self._cache:
+                return self._cache[key]
 
-        # Cache miss - try to load from database
+        # Cache miss - try to load from database (outside lock)
         if self._repository:
             prompt = await self._repository.get_by_key(key)
             if prompt and prompt.is_active:
-                self._cache[key] = prompt
+                async with self._lock:
+                    self._cache[key] = prompt
                 return prompt
 
         return None
 
-    def refresh(self, key: str, prompt: Prompt) -> None:
+    def refresh(self, prompt: Prompt) -> None:
         """Refresh a single prompt in cache.
 
         If the prompt is active, it's added/updated in cache.
         If inactive, it's removed from cache if present.
 
         Args:
-            key: Prompt key
             prompt: Prompt entity to cache
         """
+        key = prompt.key
         if prompt.is_active:
             self._cache[key] = prompt
             logger.info(f"Refreshed prompt in cache: {key}")

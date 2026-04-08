@@ -363,6 +363,7 @@ onMounted(fetchPrompts)
 
 .drawer-content {
   padding: 0 20px;
+  padding-bottom: 80px; /* 为固定底部按钮栏预留空间 */
 }
 
 .variables-section {

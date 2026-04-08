@@ -1,7 +1,12 @@
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
-from app.api.deps import get_db_session as original_get_db_session, get_redis_cache as original_get_redis_cache
+from app.api.deps import (
+    get_db_session as original_get_db_session,
+    get_redis_cache as original_get_redis_cache,
+    get_rag_agent as original_get_rag_agent,
+    get_llm_provider as original_get_llm_provider,
+)
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, ChatSession, User
 from app.main import app
@@ -357,9 +362,7 @@ async def test_ask_rate_limit_allows_requests_within_limit(db_session, auth_toke
 @pytest.mark.asyncio
 async def test_guest_can_send_chat_message(db_session, mock_redis):
     """Test that guests can send chat messages without authentication."""
-    from app.main import app
     from httpx import ASGITransport, AsyncClient
-    from unittest.mock import AsyncMock, MagicMock, patch
 
     async def override_get_db():
         yield db_session
@@ -367,10 +370,7 @@ async def test_guest_can_send_chat_message(db_session, mock_redis):
     def override_redis():
         return mock_redis
 
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[original_get_redis_cache] = override_redis
-
-    # Mock RAG agent
+    # Mock RAG agent and LLM provider for guest chat
     mock_rag_agent = MagicMock()
     mock_rag_agent.run = AsyncMock(return_value={
         "answer": "Test response",
@@ -378,27 +378,39 @@ async def test_guest_can_send_chat_message(db_session, mock_redis):
         "retrieval_score": 0.8,
     })
 
-    with patch.object(app.state, 'rag_agent', mock_rag_agent):
-        try:
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/v1/chat/guest/message",
-                    json={"message": "Hello"},
-                )
+    mock_llm_provider = MagicMock()
 
-                assert response.status_code == 200
-                # Verify X-Session-Id header is returned
-                assert "X-Session-Id" in response.headers
-                session_id = response.headers["X-Session-Id"]
-                assert session_id  # Should not be empty
+    def override_rag_agent():
+        return mock_rag_agent
 
-                # Test with existing session_id
-                response2 = await client.post(
-                    "/api/v1/chat/guest/message",
-                    json={"message": "Hello again", "session_id": session_id},
-                )
-                assert response2.status_code == 200
-                assert response2.headers["X-Session-Id"] == session_id
-        finally:
-            app.dependency_overrides = {}
+    def override_llm_provider():
+        return mock_llm_provider
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_redis_cache] = override_redis
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/guest/message",
+                json={"message": "Hello"},
+            )
+
+            assert response.status_code == 200
+            # Verify X-Session-Id header is returned
+            assert "X-Session-Id" in response.headers
+            session_id = response.headers["X-Session-Id"]
+            assert session_id  # Should not be empty
+
+            # Test with existing session_id
+            response2 = await client.post(
+                "/api/v1/chat/guest/message",
+                json={"message": "Hello again", "session_id": session_id},
+            )
+            assert response2.status_code == 200
+            assert response2.headers["X-Session-Id"] == session_id
+    finally:
+        app.dependency_overrides = {}

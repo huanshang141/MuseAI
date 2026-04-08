@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.api.deps import (
     CurrentUser,
+    GuestRateLimitDep,
     LLMProviderDep,
     RagAgentDep,
     RateLimitDep,
@@ -231,18 +232,20 @@ class MessageRequest(BaseModel):
 
 @router.post("/guest/message")
 async def send_guest_message(
-    request: MessageRequest,
+    message_request: MessageRequest,
+    http_request: Request,
+    _: GuestRateLimitDep,
     redis: RedisCacheDep,
     rag_agent: RagAgentDep,
     llm_provider: LLMProviderDep,
 ) -> StreamingResponse:
     """Send a message and get streaming response (guest mode, no auth required)."""
-    session_id = request.session_id or str(uuid.uuid4())
+    session_id = message_request.session_id or str(uuid.uuid4())
 
     return StreamingResponse(
         ask_question_stream_guest(
             session_id=session_id,
-            message=request.message,
+            message=message_request.message,
             rag_agent=rag_agent,
             llm_provider=llm_provider,
             redis=redis,

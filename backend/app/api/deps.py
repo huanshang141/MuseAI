@@ -277,6 +277,41 @@ async def check_auth_rate_limit(
 AuthRateLimitDep = Annotated[None, Depends(check_auth_rate_limit)]
 
 
+async def check_guest_rate_limit(
+    request: Request,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Rate limiting for guest chat endpoints using IP address.
+
+    More restrictive than regular rate limiting:
+    - 20 requests per minute for guest chat
+
+    Fails closed for security - returns 503 if Redis unavailable.
+    """
+    # Get client IP using trusted proxy-aware extraction
+    settings = get_settings()
+    trusted_proxies = settings.get_trusted_proxies()
+    client_ip = extract_client_ip(request, trusted_proxies)
+
+    key = f"guest:{client_ip}"
+
+    try:
+        if not await redis.check_rate_limit(key, max_requests=20):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Guest rate limit exceeded. Please try again later.",
+            )
+    except RedisError as e:
+        # Fail closed for guest endpoints - security over availability
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat temporarily unavailable. Please try again later.",
+        ) from e
+
+
+GuestRateLimitDep = Annotated[None, Depends(check_guest_rate_limit)]
+
+
 # ============================================================================
 # Strict app.state dependency accessors (no fallback construction)
 # ============================================================================

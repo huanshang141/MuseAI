@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Analyze performance test results and generate summary report."""
 import argparse
-import json
 import re
 from pathlib import Path
 
@@ -58,13 +57,17 @@ def analyze_results(report_path: str) -> None:
     """Analyze results and print summary."""
     print(f"\nAnalyzing results from: {report_path}")
 
+    if not Path(report_path).exists():
+        print(f"Error: Report file not found: {report_path}")
+        return
+
     metrics = parse_locust_html_report(report_path)
     summary = generate_summary_report(metrics)
 
     print(summary)
 
     # Save summary to file
-    summary_path = report_path.replace('.html', '_summary.txt')
+    summary_path = str(Path(report_path).with_suffix('')) + '_summary.txt'
     Path(summary_path).write_text(summary)
     print(f"\nSummary saved to: {summary_path}")
 

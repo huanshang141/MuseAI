@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from loguru import logger
 from redis.exceptions import RedisError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.auth_service import get_user_by_id
 from app.application.unified_indexing_service import UnifiedIndexingService
@@ -13,7 +13,7 @@ from app.config.settings import get_settings
 from app.infra.cache.prompt_cache import PromptCache
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
-from app.infra.postgres.database import get_session
+from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.redis.cache import RedisCache
 from app.infra.security.jwt_handler import JWTHandler
 
@@ -27,6 +27,14 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 SessionDep = Annotated[AsyncSession, Depends(get_db_session)]
+
+
+def get_db_session_maker() -> async_sessionmaker[AsyncSession]:
+    """Get the global session maker for creating short-lived sessions."""
+    return get_session_maker()
+
+
+SessionMakerDep = Annotated[async_sessionmaker[AsyncSession], Depends(get_db_session_maker)]
 
 
 def get_jwt_handler() -> JWTHandler:

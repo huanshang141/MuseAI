@@ -13,6 +13,7 @@ from app.api.deps import (
     RateLimitDep,
     RedisCacheDep,
     SessionDep,
+    SessionMakerDep,
 )
 from app.application.chat_service import (
     ask_question,
@@ -191,16 +192,30 @@ async def ask_stream_endpoint(
     ask_request: AskRequest,
     current_user: CurrentUser,
     _: RateLimitDep,
+    session_maker: SessionMakerDep,
     llm_provider: LLMProviderDep = None,  # type: ignore[assignment]
     rag_agent: RagAgentDep = None,  # type: ignore[assignment]
 ) -> StreamingResponse:
+    """Stream chat response with RAG retrieval.
+
+    The DB session lifecycle is decoupled from the SSE stream:
+    - Request session is used only for ownership check
+    - Streaming happens without holding a DB connection
+    - Persistence uses a new short-lived session after streaming completes
+    """
     chat_session = await get_session_by_id(session, ask_request.session_id, current_user["id"])
     if chat_session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in ask_question_stream_with_rag(
-            session, ask_request.session_id, ask_request.message, rag_agent, llm_provider, current_user["id"]
+            session,
+            ask_request.session_id,
+            ask_request.message,
+            rag_agent,
+            llm_provider,
+            current_user["id"],
+            session_maker=session_maker,
         ):
             if await request.is_disconnected():
                 break

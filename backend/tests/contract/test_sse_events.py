@@ -1,9 +1,14 @@
 import json
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from app.api.deps import get_db_session as original_get_db_session
+from app.api.deps import (
+    get_db_session as original_get_db_session,
+    get_db_session_maker as original_get_db_session_maker,
+    get_llm_provider as original_get_llm_provider,
+    get_rag_agent as original_get_rag_agent,
+)
 from app.application.chat_service import create_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base, ChatMessage, User
@@ -61,42 +66,50 @@ def parse_sse_events(content: str) -> list[dict]:
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_success(db_session, auth_token):
+async def test_stream_ask_success(db_session, session_maker, auth_token):
     async def override_get_db():
         yield db_session
 
+    def override_get_session_maker():
+        return session_maker
+
+    session_obj = await create_session(db_session, "流式测试", TEST_USER_ID)
+    await db_session.commit()
+
+    mock_llm = AsyncMock()
+
+    async def mock_stream(*args):
+        for chunk in ["这是", "一个", "测试回答"]:
+            yield chunk
+
+    mock_llm.generate_stream = mock_stream
+
+    mock_rag = AsyncMock()
+    mock_rag.run.return_value = {
+        "documents": [],
+        "retrieval_score": 0.95,
+        "answer": "这是一个测试回答",
+    }
+
+    def override_llm_provider():
+        return mock_llm
+
+    def override_rag_agent():
+        return mock_rag
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_db_session_maker] = override_get_session_maker
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
 
     try:
-        session_obj = await create_session(db_session, "流式测试", TEST_USER_ID)
-        await db_session.commit()
-
-        mock_llm = AsyncMock()
-
-        async def mock_stream(*args):
-            for chunk in ["这是", "一个", "测试回答"]:
-                yield chunk
-
-        mock_llm.generate_stream = mock_stream
-
-        mock_rag = AsyncMock()
-        mock_rag.run.return_value = {
-            "documents": [],
-            "retrieval_score": 0.95,
-            "answer": "这是一个测试回答",
-        }
-
-        with (
-            patch("app.api.chat.get_llm_provider", return_value=mock_llm),
-            patch("app.api.chat.get_rag_agent", return_value=mock_rag),
-        ):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/v1/chat/ask/stream",
-                    json={"session_id": session_obj.id, "message": "问题"},
-                    headers={"Authorization": f"Bearer {auth_token}"},
-                )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask/stream",
+                json={"session_id": session_obj.id, "message": "问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "text/event-stream; charset=utf-8"
@@ -129,11 +142,26 @@ async def test_stream_ask_success(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_session_not_found(db_session, auth_token):
+async def test_stream_ask_session_not_found(db_session, session_maker, auth_token):
     async def override_get_db():
         yield db_session
 
+    def override_get_session_maker():
+        return session_maker
+
+    mock_llm = AsyncMock()
+    mock_rag = AsyncMock()
+
+    def override_llm_provider():
+        return mock_llm
+
+    def override_rag_agent():
+        return mock_rag
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_db_session_maker] = override_get_session_maker
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
 
     try:
         transport = ASGITransport(app=app)
@@ -150,33 +178,46 @@ async def test_stream_ask_session_not_found(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_llm_error(db_session, auth_token):
+async def test_stream_ask_llm_error(db_session, session_maker, auth_token):
     async def override_get_db():
         yield db_session
 
+    def override_get_session_maker():
+        return session_maker
+
+    session_obj = await create_session(db_session, "错误测试", TEST_USER_ID)
+    await db_session.commit()
+
+    mock_llm = AsyncMock()
+
+    async def error_generator(*args):
+        yield "开始"
+        raise Exception("LLM connection failed")
+        yield "不会到达"
+
+    mock_llm.generate_stream = error_generator
+
+    mock_rag = AsyncMock()
+
+    def override_llm_provider():
+        return mock_llm
+
+    def override_rag_agent():
+        return mock_rag
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_db_session_maker] = override_get_session_maker
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
 
     try:
-        session_obj = await create_session(db_session, "错误测试", TEST_USER_ID)
-        await db_session.commit()
-
-        mock_llm = AsyncMock()
-
-        async def error_generator(*args):
-            yield "开始"
-            raise Exception("LLM connection failed")
-            yield "不会到达"
-
-        mock_llm.generate_stream = error_generator
-
-        with patch("app.api.chat.get_llm_provider", return_value=mock_llm):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/v1/chat/ask/stream",
-                    json={"session_id": session_obj.id, "message": "问题"},
-                    headers={"Authorization": f"Bearer {auth_token}"},
-                )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask/stream",
+                json={"session_id": session_obj.id, "message": "问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
         events = parse_sse_events(response.text)
@@ -190,41 +231,49 @@ async def test_stream_ask_llm_error(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_saves_messages(db_session, auth_token):
+async def test_stream_ask_saves_messages(db_session, session_maker, auth_token):
     async def override_get_db():
         yield db_session
 
+    def override_get_session_maker():
+        return session_maker
+
+    session_obj = await create_session(db_session, "消息保存测试", TEST_USER_ID)
+    await db_session.commit()
+
+    mock_llm = AsyncMock()
+
+    async def mock_stream(*args):
+        yield "回答内容"
+
+    mock_llm.generate_stream = mock_stream
+
+    mock_rag = AsyncMock()
+    mock_rag.run.return_value = {
+        "documents": [],
+        "retrieval_score": 0.9,
+        "answer": "回答内容",
+    }
+
+    def override_llm_provider():
+        return mock_llm
+
+    def override_rag_agent():
+        return mock_rag
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_db_session_maker] = override_get_session_maker
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
 
     try:
-        session_obj = await create_session(db_session, "消息保存测试", TEST_USER_ID)
-        await db_session.commit()
-
-        mock_llm = AsyncMock()
-
-        async def mock_stream(*args):
-            yield "回答内容"
-
-        mock_llm.generate_stream = mock_stream
-
-        mock_rag = AsyncMock()
-        mock_rag.run.return_value = {
-            "documents": [],
-            "retrieval_score": 0.9,
-            "answer": "回答内容",
-        }
-
-        with (
-            patch("app.api.chat.get_llm_provider", return_value=mock_llm),
-            patch("app.api.chat.get_rag_agent", return_value=mock_rag),
-        ):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/v1/chat/ask/stream",
-                    json={"session_id": session_obj.id, "message": "用户问题"},
-                    headers={"Authorization": f"Bearer {auth_token}"},
-                )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask/stream",
+                json={"session_id": session_obj.id, "message": "用户问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert response.status_code == 200
 
@@ -247,31 +296,44 @@ async def test_stream_ask_saves_messages(db_session, auth_token):
 
 
 @pytest.mark.asyncio
-async def test_stream_ask_event_format(db_session, auth_token):
+async def test_stream_ask_event_format(db_session, session_maker, auth_token):
     async def override_get_db():
         yield db_session
 
+    def override_get_session_maker():
+        return session_maker
+
+    session_obj = await create_session(db_session, "格式测试", TEST_USER_ID)
+    await db_session.commit()
+
+    mock_llm = AsyncMock()
+
+    async def mock_stream(*args):
+        yield "内容"
+
+    mock_llm.generate_stream = mock_stream
+
+    mock_rag = AsyncMock()
+
+    def override_llm_provider():
+        return mock_llm
+
+    def override_rag_agent():
+        return mock_rag
+
     app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[original_get_db_session_maker] = override_get_session_maker
+    app.dependency_overrides[original_get_llm_provider] = override_llm_provider
+    app.dependency_overrides[original_get_rag_agent] = override_rag_agent
 
     try:
-        session_obj = await create_session(db_session, "格式测试", TEST_USER_ID)
-        await db_session.commit()
-
-        mock_llm = AsyncMock()
-
-        async def mock_stream(*args):
-            yield "内容"
-
-        mock_llm.generate_stream = mock_stream
-
-        with patch("app.api.chat.get_llm_provider", return_value=mock_llm):
-            transport = ASGITransport(app=app)
-            async with AsyncClient(transport=transport, base_url="http://test") as client:
-                response = await client.post(
-                    "/api/v1/chat/ask/stream",
-                    json={"session_id": session_obj.id, "message": "问题"},
-                    headers={"Authorization": f"Bearer {auth_token}"},
-                )
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat/ask/stream",
+                json={"session_id": session_obj.id, "message": "问题"},
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
 
         assert "data: " in response.text
         assert "\n\n" in response.text

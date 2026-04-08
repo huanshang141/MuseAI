@@ -1,11 +1,11 @@
 import json
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
@@ -228,7 +228,26 @@ async def ask_question_stream_with_rag(
     rag_agent: Any,
     llm_provider: LLMProvider,
     user_id: str,
+    session_maker: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[str, None]:
+    """Stream chat response with RAG retrieval.
+
+    Args:
+        session: Request-scoped session used only for ownership check.
+        session_id: Chat session ID.
+        message: User message.
+        rag_agent: RAG agent for retrieval and generation.
+        llm_provider: LLM provider for streaming.
+        user_id: User ID for authorization.
+        session_maker: Session maker for creating short-lived persistence sessions.
+                       If provided, persistence will use a separate session,
+                       decoupling DB lifecycle from SSE stream lifecycle.
+
+    The session lifecycle is decoupled from the SSE stream:
+    1. Request session is used only for ownership check (pre-check)
+    2. RAG processing and streaming happen without holding a DB connection
+    3. Persistence uses a new short-lived session after streaming completes
+    """
     from loguru import logger
 
     chat_session = await get_session_by_id(session, session_id, user_id)
@@ -243,6 +262,9 @@ async def ask_question_stream_with_rag(
 
     # RAG步骤：查询重写
     yield _rag_event('rewrite', 'running', '正在分析查询意图...')
+
+    # Collect answer for persistence
+    answer_content = ""
 
     try:
         result = await rag_agent.run(message)
@@ -287,13 +309,22 @@ async def ask_question_stream_with_rag(
         yield _rag_event('generate', 'running', '正在生成回答...')
 
         answer = result.get("answer", "")
+        answer_content = answer
 
         for chunk in [answer[i : i + 50] for i in range(0, len(answer), 50)]:
             yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
 
-        await add_message(session, session_id, "user", message)
-        await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
-        await session.commit()
+        # Persist messages using short-lived session if session_maker is provided
+        # This decouples DB session lifecycle from SSE stream lifecycle
+        if session_maker is not None:
+            await persist_stream_result(
+                session_maker, session_id, message, answer, trace_id
+            )
+        else:
+            # Fallback: use request session (legacy behavior, not recommended)
+            await add_message(session, session_id, "user", message)
+            await add_message(session, session_id, "assistant", answer, trace_id=trace_id)
+            await session.commit()
 
         # 优先使用rerank后的文档，按rerank分数排序
         docs = result.get("reranked_documents") or result.get("documents", [])
@@ -343,6 +374,33 @@ async def ask_question_stream_with_rag(
     except Exception as e:
         sanitized = _sanitize_error_message(e)
         yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"
+
+
+async def persist_stream_result(
+    session_maker: async_sessionmaker[AsyncSession],
+    session_id: str,
+    user_message: str,
+    assistant_message: str,
+    trace_id: str,
+) -> None:
+    """Persist chat messages using a short-lived session.
+
+    This function creates a new session solely for persistence,
+    ensuring the DB connection is released immediately after the
+    transaction completes, not held open during streaming.
+
+    Args:
+        session_maker: Factory for creating new sessions.
+        session_id: Chat session ID.
+        user_message: User's message content.
+        assistant_message: Assistant's response content.
+        trace_id: Trace ID for the conversation.
+    """
+    from app.infra.postgres.database import get_session as get_new_session
+
+    async with get_new_session(session_maker) as session:
+        await add_message(session, session_id, "user", user_message)
+        await add_message(session, session_id, "assistant", assistant_message, trace_id=trace_id)
 
 
 async def ask_question_stream_guest(

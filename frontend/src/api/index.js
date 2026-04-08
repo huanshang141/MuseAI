@@ -2,12 +2,7 @@ import { log, warn, error as logError } from '../utils/logger.js'
 
 const BASE_URL = '/api/v1'
 
-function getToken() {
-  return localStorage.getItem('access_token')
-}
-
 function clearAuthState() {
-  localStorage.removeItem('access_token')
   localStorage.removeItem('user')
   localStorage.removeItem('user_role')
 }
@@ -18,15 +13,9 @@ function normalizeNetworkError(error) {
 }
 
 async function request(path, options = {}) {
-  const token = getToken()
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
-  }
-
-  // Add Authorization header if token exists
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
   }
 
   log(`[API] ${options.method || 'GET'} ${path}`, options.body || '')
@@ -34,6 +23,7 @@ async function request(path, options = {}) {
   let response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
+      credentials: 'include',  // Include cookies for HttpOnly cookie auth
       headers,
       ...options,
     })
@@ -101,18 +91,12 @@ export const api = {
     status: (id) => request(`/documents/${id}/status`),
     delete: (id) => request(`/documents/${id}`, { method: 'DELETE' }),
     upload: async (file) => {
-      const token = getToken()
       const formData = new FormData()
       formData.append('file', file)
 
-      const headers = {}
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
-
       const response = await fetch(`${BASE_URL}/documents/upload`, {
         method: 'POST',
-        headers,
+        credentials: 'include',  // Include cookies for HttpOnly cookie auth
         body: formData,
       })
       const data = await response.json().catch(() => ({}))
@@ -134,14 +118,11 @@ export const api = {
       body: JSON.stringify({ session_id: sessionId, message }),
     }),
     askStream: async function* (sessionId, message) {
-      const token = getToken()
       const headers = { 'Content-Type': 'application/json' }
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`
-      }
 
       const response = await fetch(`${BASE_URL}/chat/ask/stream`, {
         method: 'POST',
+        credentials: 'include',  // Include cookies for HttpOnly cookie auth
         headers,
         body: JSON.stringify({ session_id: sessionId, message }),
       })
@@ -180,6 +161,7 @@ export const api = {
 
       const response = await fetch(`${BASE_URL}/chat/guest/message`, {
         method: 'POST',
+        credentials: 'include',  // Include cookies for session tracking
         headers,
         body: JSON.stringify(body),
       })

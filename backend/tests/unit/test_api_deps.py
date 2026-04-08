@@ -76,6 +76,12 @@ class TestGetRedisCache:
 class TestGetCurrentUser:
     """Tests for get_current_user dependency."""
 
+    def _create_mock_request(self, cookies=None):
+        """Helper to create a mock request with optional cookies."""
+        mock_request = MagicMock()
+        mock_request.cookies = cookies or {}
+        return mock_request
+
     @pytest.mark.asyncio
     async def test_raises_for_blacklisted_token(self):
         """get_current_user should raise 401 for blacklisted token."""
@@ -90,9 +96,11 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,
@@ -117,9 +125,11 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "invalid-token"
+        mock_request = self._create_mock_request()
 
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,
@@ -144,10 +154,12 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=None)):
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(
+                    request=mock_request,
                     credentials=mock_credentials,
                     jwt_handler=mock_jwt,
                     session=mock_session,
@@ -177,9 +189,11 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
             result = await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,
@@ -204,12 +218,14 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_settings") as mock_settings:
             mock_settings.return_value.APP_ENV = "production"
 
             with pytest.raises(HTTPException) as exc_info:
                 await get_current_user(
+                    request=mock_request,
                     credentials=mock_credentials,
                     jwt_handler=mock_jwt,
                     session=mock_session,
@@ -237,6 +253,7 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_settings") as mock_settings:
             mock_settings.return_value.APP_ENV = "development"
@@ -244,6 +261,7 @@ class TestGetCurrentUser:
             with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
                 # Should not raise, should continue
                 result = await get_current_user(
+                    request=mock_request,
                     credentials=mock_credentials,
                     jwt_handler=mock_jwt,
                     session=mock_session,
@@ -272,9 +290,11 @@ class TestGetCurrentUser:
         mock_session = AsyncMock()
         mock_credentials = MagicMock()
         mock_credentials.credentials = "valid-token"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
             result = await get_current_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=mock_session,
@@ -284,6 +304,61 @@ class TestGetCurrentUser:
         # Verify blacklist check was not called
         mock_redis.is_token_blacklisted.assert_not_called()
         assert result["id"] == "user-123"
+
+    @pytest.mark.asyncio
+    async def test_uses_cookie_when_no_auth_header(self):
+        """get_current_user should use cookie token when no Authorization header."""
+        from app.api.deps import get_current_user
+
+        mock_redis = MagicMock()
+        mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+        mock_jwt = MagicMock()
+        mock_jwt.get_jti = MagicMock(return_value="valid-jti")
+        mock_jwt.verify_token = MagicMock(return_value="user-123")
+
+        mock_user = MagicMock()
+        mock_user.id = "user-123"
+        mock_user.email = "test@example.com"
+        mock_user.role = "user"
+
+        mock_session = AsyncMock()
+        mock_request = self._create_mock_request(cookies={"access_token": "cookie-token"})
+
+        with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
+            result = await get_current_user(
+                request=mock_request,
+                credentials=None,  # No auth header
+                jwt_handler=mock_jwt,
+                session=mock_session,
+                redis=mock_redis,
+            )
+
+        assert result["id"] == "user-123"
+        # Verify token was extracted from cookie
+        mock_jwt.verify_token.assert_called_once_with("cookie-token")
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_token_anywhere(self):
+        """get_current_user should raise 401 when no token in header or cookie."""
+        from app.api.deps import get_current_user
+
+        mock_redis = MagicMock()
+        mock_jwt = MagicMock()
+        mock_session = AsyncMock()
+        mock_request = self._create_mock_request()  # No cookies
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_user(
+                request=mock_request,
+                credentials=None,  # No auth header
+                jwt_handler=mock_jwt,
+                session=mock_session,
+                redis=mock_redis,
+            )
+
+        assert exc_info.value.status_code == 401
+        assert "not authenticated" in exc_info.value.detail.lower()
 
 
 class TestCheckRateLimit:
@@ -455,12 +530,20 @@ class TestCheckAuthRateLimit:
 class TestGetOptionalUser:
     """Tests for get_optional_user dependency."""
 
+    def _create_mock_request(self, cookies=None):
+        """Helper to create a mock request with optional cookies."""
+        mock_request = MagicMock()
+        mock_request.cookies = cookies or {}
+        return mock_request
+
     @pytest.mark.asyncio
     async def test_returns_none_without_token(self):
         """get_optional_user should return None when no token is provided."""
         from app.api.deps import get_optional_user
 
+        mock_request = self._create_mock_request()
         result = await get_optional_user(
+            request=mock_request,
             credentials=None,
             jwt_handler=MagicMock(),
             session=AsyncMock(),
@@ -481,8 +564,10 @@ class TestGetOptionalUser:
 
         mock_jwt = MagicMock()
         mock_jwt.get_jti = MagicMock(return_value="jti-123")
+        mock_request = self._create_mock_request()
 
         result = await get_optional_user(
+            request=mock_request,
             credentials=mock_credentials,
             jwt_handler=mock_jwt,
             session=AsyncMock(),
@@ -504,8 +589,10 @@ class TestGetOptionalUser:
         mock_jwt = MagicMock()
         mock_jwt.get_jti = MagicMock(return_value="jti-123")
         mock_jwt.verify_token = MagicMock(return_value=None)
+        mock_request = self._create_mock_request()
 
         result = await get_optional_user(
+            request=mock_request,
             credentials=mock_credentials,
             jwt_handler=mock_jwt,
             session=AsyncMock(),
@@ -532,9 +619,11 @@ class TestGetOptionalUser:
         mock_user.id = "user-123"
         mock_user.email = "test@example.com"
         mock_user.role = "user"
+        mock_request = self._create_mock_request()
 
         with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
             result = await get_optional_user(
+                request=mock_request,
                 credentials=mock_credentials,
                 jwt_handler=mock_jwt,
                 session=AsyncMock(),
@@ -545,6 +634,40 @@ class TestGetOptionalUser:
         assert result["id"] == "user-123"
         assert result["email"] == "test@example.com"
         assert result["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_uses_cookie_when_no_auth_header(self):
+        """get_optional_user should use cookie token when no Authorization header."""
+        from app.api.deps import get_optional_user
+
+        mock_redis = MagicMock()
+        mock_redis.is_token_blacklisted = AsyncMock(return_value=False)
+
+        mock_jwt = MagicMock()
+        mock_jwt.get_jti = MagicMock(return_value="valid-jti")
+        mock_jwt.verify_token = MagicMock(return_value="user-123")
+
+        mock_user = MagicMock()
+        mock_user.id = "user-123"
+        mock_user.email = "test@example.com"
+        mock_user.role = "user"
+
+        mock_session = AsyncMock()
+        mock_request = self._create_mock_request(cookies={"access_token": "cookie-token"})
+
+        with patch("app.api.deps.get_user_by_id", AsyncMock(return_value=mock_user)):
+            result = await get_optional_user(
+                request=mock_request,
+                credentials=None,  # No auth header
+                jwt_handler=mock_jwt,
+                session=mock_session,
+                redis=mock_redis,
+            )
+
+        assert result is not None
+        assert result["id"] == "user-123"
+        # Verify token was extracted from cookie
+        mock_jwt.verify_token.assert_called_once_with("cookie-token")
 
 
 class TestGetCurrentAdmin:

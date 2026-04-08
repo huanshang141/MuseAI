@@ -71,12 +71,25 @@ PromptCacheDep = Annotated[PromptCache, Depends(get_prompt_cache)]
 
 
 async def get_current_user(
+    request: Request,
     jwt_handler: JWTHandlerDep,
     session: SessionDep,
     redis: RedisCacheDep,
-    credentials: HTTPAuthorizationCredentials = Depends(security),  # noqa: B008
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),  # noqa: B008
 ) -> dict:
-    token = credentials.credentials
+    # Extract token from Authorization header first, then fallback to cookie
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     # Check if token is blacklisted
     jti = jwt_handler.get_jti(token)
@@ -125,16 +138,22 @@ CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def get_optional_user(
+    request: Request,
     jwt_handler: JWTHandlerDep,
     session: SessionDep,
     redis: RedisCacheDep,
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),  # noqa: B008
 ) -> dict | None:
     """Get current user if authenticated, else return None (for guest access)."""
-    if credentials is None:
-        return None
+    # Extract token from Authorization header first, then fallback to cookie
+    token = None
+    if credentials:
+        token = credentials.credentials
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
 
-    token = credentials.credentials
+    if not token:
+        return None
 
     # Check if token is blacklisted
     jti = jwt_handler.get_jti(token)

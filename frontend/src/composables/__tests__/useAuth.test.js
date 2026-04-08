@@ -23,7 +23,7 @@ describe('useAuth', () => {
     vi.resetModules()
   })
 
-  it('starts with no user when no token in localStorage', async () => {
+  it('starts with no user when no user in localStorage', async () => {
     // Clear localStorage first
     localStorage.clear()
 
@@ -35,8 +35,7 @@ describe('useAuth', () => {
     expect(isAuthenticated.value).toBe(false)
   })
 
-  it('loads user from token in localStorage', async () => {
-    localStorage.setItem('access_token', 'valid-token')
+  it('loads user from localStorage', async () => {
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
 
     // Re-import to get fresh state
@@ -47,10 +46,10 @@ describe('useAuth', () => {
     expect(user.value).toEqual({ email: 'test@example.com' })
   })
 
-  it('login stores token and sets user on success', async () => {
+  it('login sets user on success (token is in HttpOnly cookie)', async () => {
     api.auth.login.mockResolvedValueOnce({
       ok: true,
-      data: { access_token: 'new-token', token_type: 'bearer' }
+      data: { access_token: 'new-token', token_type: 'bearer', role: 'user' }
     })
 
     const { login, isAuthenticated, user } = useAuth()
@@ -58,9 +57,11 @@ describe('useAuth', () => {
     const result = await login('test@example.com', 'password')
 
     expect(result.ok).toBe(true)
-    expect(localStorage.getItem('access_token')).toBe('new-token')
+    // Token should NOT be stored in localStorage (it's in HttpOnly cookie)
+    expect(localStorage.getItem('access_token')).toBeNull()
+    // User info should be stored for UI purposes
     expect(isAuthenticated.value).toBe(true)
-    expect(user.value).toEqual({ email: 'test@example.com' })
+    expect(user.value).toEqual({ email: 'test@example.com', role: 'user' })
   })
 
   it('login does not set user on failure', async () => {
@@ -84,8 +85,7 @@ describe('useAuth', () => {
     expect(user.value).toBeNull()
   })
 
-  it('logout clears token and user', async () => {
-    localStorage.setItem('access_token', 'valid-token')
+  it('logout clears user', async () => {
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
 
     api.auth.logout.mockResolvedValueOnce({ ok: true })
@@ -94,13 +94,13 @@ describe('useAuth', () => {
 
     await logout()
 
+    // Token should not be in localStorage (HttpOnly cookie)
     expect(localStorage.getItem('access_token')).toBeNull()
     expect(isAuthenticated.value).toBe(false)
     expect(user.value).toBeNull()
   })
 
   it('logout throws when API call fails', async () => {
-    localStorage.setItem('access_token', 'valid-token')
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
 
     api.auth.logout.mockRejectedValueOnce(new Error('Network error'))
@@ -138,24 +138,42 @@ describe('useAuth', () => {
     expect(result.error).toBe('Email already exists')
   })
 
-  it('getToken returns current token', async () => {
-    localStorage.setItem('access_token', 'test-token')
+  it('getToken returns null (token is in HttpOnly cookie)', async () => {
+    localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
 
     const { useAuth } = await import('../useAuth.js')
     const { getToken } = useAuth()
 
-    expect(getToken()).toBe('test-token')
+    // getToken is deprecated - returns null since token is in HttpOnly cookie
+    expect(getToken()).toBeNull()
   })
 
-  it('setAuth manually sets token and user', async () => {
+  it('setAuth manually sets user', async () => {
     localStorage.clear()
     const { useAuth } = await import('../useAuth.js')
     const { setAuth, user, isAuthenticated } = useAuth()
 
-    setAuth('manual-token', { email: 'manual@example.com' })
+    setAuth({ email: 'manual@example.com' })
 
     expect(isAuthenticated.value).toBe(true)
     expect(user.value).toEqual({ email: 'manual@example.com' })
-    expect(localStorage.getItem('access_token')).toBe('manual-token')
+    // Token should not be stored in localStorage
+    expect(localStorage.getItem('access_token')).toBeNull()
+  })
+
+  it('clearAuth clears user state', async () => {
+    localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
+    localStorage.setItem('user_role', 'admin')
+
+    const { useAuth } = await import('../useAuth.js')
+    const { clearAuth, user, isAuthenticated, isAdmin } = useAuth()
+
+    clearAuth()
+
+    expect(isAuthenticated.value).toBe(false)
+    expect(user.value).toBeNull()
+    expect(isAdmin.value).toBe(false)
+    expect(localStorage.getItem('user')).toBeNull()
+    expect(localStorage.getItem('user_role')).toBeNull()
   })
 })

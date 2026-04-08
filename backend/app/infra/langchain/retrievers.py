@@ -8,7 +8,10 @@ from app.application.retrieval import rrf_fusion
 
 
 class RRFRetriever(BaseRetriever):
-    """RRF 融合检索器"""
+    """RRF 融合检索器 - DEPRECATED.
+
+    Use UnifiedRetriever instead.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -112,7 +115,10 @@ class UnifiedRetriever(BaseRetriever):
 
 
 class ExhibitAwareRetriever(BaseRetriever):
-    """展品感知检索器，支持文档块和展品信息的混合检索"""
+    """展品感知检索器，支持文档块和展品信息的混合检索 - DEPRECATED.
+
+    Use UnifiedRetriever instead.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

@@ -1,9 +1,16 @@
 """Exhibit indexing service for RAG retrieval."""
 
 import asyncio
+import warnings
 from typing import Any
 
 from loguru import logger
+
+warnings.warn(
+    "ExhibitIndexingService is deprecated. Use UnifiedIndexingService instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 from app.domain.entities import Exhibit
 from app.infra.elasticsearch.client import ElasticsearchClient

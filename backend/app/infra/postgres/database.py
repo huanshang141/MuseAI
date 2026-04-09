@@ -11,6 +11,21 @@ _engine: AsyncEngine | None = None
 _session_maker: async_sessionmaker[AsyncSession] | None = None
 _init_lock = asyncio.Lock()
 
+DEFAULT_POOL_SIZE = 5
+DEFAULT_MAX_OVERFLOW = 10
+DEFAULT_POOL_TIMEOUT = 30
+DEFAULT_POOL_RECYCLE = 1800
+
+
+def _get_pool_kwargs() -> dict:
+    return {
+        "pool_size": DEFAULT_POOL_SIZE,
+        "max_overflow": DEFAULT_MAX_OVERFLOW,
+        "pool_timeout": DEFAULT_POOL_TIMEOUT,
+        "pool_recycle": DEFAULT_POOL_RECYCLE,
+        "pool_pre_ping": True,
+    }
+
 
 async def init_database(database_url: str) -> async_sessionmaker[AsyncSession]:
     """Initialize database engine and session maker.
@@ -20,19 +35,12 @@ async def init_database(database_url: str) -> async_sessionmaker[AsyncSession]:
     """
     global _engine, _session_maker
     async with _init_lock:
-        # Dispose existing engine if any
         if _engine is not None:
             await _engine.dispose()
 
-        # Create new engine with pool configuration (not for SQLite)
-        engine_kwargs = {"echo": False}
+        engine_kwargs: dict = {"echo": False}
         if "sqlite" not in database_url:
-            engine_kwargs.update({
-                "pool_size": 5,
-                "max_overflow": 10,
-                "pool_timeout": 30,
-                "pool_recycle": 1800,
-            })
+            engine_kwargs.update(_get_pool_kwargs())
         new_engine = create_async_engine(database_url, **engine_kwargs)
         async with new_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -65,13 +73,9 @@ def get_session_maker(database_url: str | None = None) -> async_sessionmaker[Asy
     if _session_maker is None:
         if database_url is None:
             raise RuntimeError("Database not initialized. Call init_database() first.")
-        # Sync initialization for backward compatibility with tests
-        engine_kwargs = {"echo": False}
+        engine_kwargs: dict = {"echo": False}
         if "sqlite" not in database_url:
-            engine_kwargs.update({
-                "pool_size": 5,
-                "max_overflow": 10,
-            })
+            engine_kwargs.update(_get_pool_kwargs())
         new_engine = create_async_engine(database_url, **engine_kwargs)
         new_maker = async_sessionmaker(new_engine, class_=AsyncSession, expire_on_commit=False)
         _engine = new_engine

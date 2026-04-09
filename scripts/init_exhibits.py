@@ -1370,7 +1370,7 @@ async def get_or_create_user(session, user_id: str = "user-001") -> User:
         user = User(
             id=user_id,
             email="test@museai.local",
-            password_hash="test",
+            password_hash=bcrypt.hashpw(os.environ.get("DEV_PASSWORD", "dev123").encode(), bcrypt.gensalt()).decode(),
         )
         session.add(user)
         await session.commit()

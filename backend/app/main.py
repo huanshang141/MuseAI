@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from typing import Any, TypeVar
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,40 +36,41 @@ from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware
 from app.workflows.reflection_prompts import set_prompt_gateway
 
+T = TypeVar("T")
+
+
+def _get_state_attr(name: str, type_name: str) -> Any:
+    if hasattr(app.state, name):
+        return getattr(app.state, name)
+    raise RuntimeError(f"{type_name} not initialized. App not started?")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - initialize and cleanup resources."""
     settings = get_settings()
 
-    # Initialize logging first
     setup_logging(settings)
 
     logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
 
     try:
-        # Initialize database
         await init_database(settings.DATABASE_URL)
 
-        # Initialize Redis
         redis_cache = RedisCache(settings.REDIS_URL)
 
-        # Initialize Elasticsearch client
         es_client = ElasticsearchClient(
             hosts=[settings.ELASTICSEARCH_URL],
             index_name=settings.ELASTICSEARCH_INDEX,
         )
         await es_client.create_index(settings.ELASTICSEARCH_INDEX, settings.EMBEDDING_DIMS)
 
-        # Initialize other singletons
         embeddings = create_embeddings(settings)
         llm = create_llm(settings)
         retriever = create_retriever(es_client, embeddings, settings)
 
-        # Initialize rerank and query rewriter
         rerank_provider = create_rerank_provider(settings)
 
-        # Initialize PromptCache first (needed for PromptGateway)
         prompt_cache = PromptCache()
         async with get_session() as session:
             prompt_repository = PostgresPromptRepository(session)
@@ -76,19 +78,15 @@ async def lifespan(app: FastAPI):
             await prompt_cache.load_all()
         app.state.prompt_cache = prompt_cache
 
-        # Create PromptGateway adapter for dependency injection
         prompt_gateway = PromptServiceAdapter(prompt_cache)
 
-        # Set the prompt gateway for reflection_prompts module
         set_prompt_gateway(prompt_gateway)
 
-        # Create LLM provider for query rewriter
         from app.infra.providers.llm import OpenAICompatibleProvider
 
         llm_provider = OpenAICompatibleProvider.from_settings(settings)
         query_rewriter = create_query_rewriter(llm_provider, prompt_gateway=prompt_gateway)
 
-        # Create RAG agent with enhanced capabilities
         rag_agent = create_rag_agent(
             llm=llm,
             retriever=retriever,
@@ -103,16 +101,13 @@ async def lifespan(app: FastAPI):
             embeddings=embeddings,
         )
 
-        # Create unified indexing service for all content types
         unified_indexing_service = UnifiedIndexingService(
             es_client=es_client,
             embeddings=embeddings,
         )
 
-        # Create conversation context manager
         context_manager = ConversationContextManager(redis_cache=redis_cache)
 
-        # Store in app.state
         app.state.redis_cache = redis_cache
         app.state.es_client = es_client
         app.state.embeddings = embeddings
@@ -145,97 +140,57 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="MuseAI", description="Museum AI Guide System", version="2.0.0", lifespan=lifespan)
 
 
-# Getter functions that retrieve from app.state
-# Note: These are defined after `app` so they can reference it directly without circular imports
 def get_es_client() -> ElasticsearchClient:
-    """Get Elasticsearch client from app.state."""
-    if hasattr(app.state, "es_client"):
-        return app.state.es_client
-    raise RuntimeError("Elasticsearch client not initialized. App not started?")
+    return _get_state_attr("es_client", "Elasticsearch client")
 
 
 def get_embeddings():
-    """Get embeddings from app.state."""
-    if hasattr(app.state, "embeddings"):
-        return app.state.embeddings
-    raise RuntimeError("Embeddings not initialized. App not started?")
+    return _get_state_attr("embeddings", "Embeddings")
 
 
 def get_llm():
-    """Get LLM from app.state."""
-    if hasattr(app.state, "llm"):
-        return app.state.llm
-    raise RuntimeError("LLM not initialized. App not started?")
+    return _get_state_attr("llm", "LLM")
 
 
 def get_retriever():
-    """Get retriever from app.state."""
-    if hasattr(app.state, "retriever"):
-        return app.state.retriever
-    raise RuntimeError("Retriever not initialized. App not started?")
+    return _get_state_attr("retriever", "Retriever")
 
 
 def get_rag_agent():
-    """Get RAG agent from app.state."""
-    if hasattr(app.state, "rag_agent"):
-        return app.state.rag_agent
-    raise RuntimeError("RAG agent not initialized. App not started?")
+    return _get_state_attr("rag_agent", "RAG agent")
 
 
 def get_ingestion_service() -> IngestionService:
-    """Get ingestion service from app.state."""
-    if hasattr(app.state, "ingestion_service"):
-        return app.state.ingestion_service
-    raise RuntimeError("Ingestion service not initialized. App not started?")
+    return _get_state_attr("ingestion_service", "Ingestion service")
 
 
 def get_unified_indexing_service() -> UnifiedIndexingService:
-    """Get unified indexing service from app.state."""
-    if hasattr(app.state, "unified_indexing_service"):
-        return app.state.unified_indexing_service
-    raise RuntimeError("Unified indexing service not initialized. App not started?")
+    return _get_state_attr("unified_indexing_service", "Unified indexing service")
 
 
 def get_redis_cache() -> RedisCache:
-    """Get Redis cache from app.state."""
-    if hasattr(app.state, "redis_cache"):
-        return app.state.redis_cache
-    raise RuntimeError("Redis cache not initialized. App not started?")
+    return _get_state_attr("redis_cache", "Redis cache")
 
 
 def get_rerank_provider():
-    """Get Rerank provider from app.state."""
-    if hasattr(app.state, "rerank_provider"):
-        return app.state.rerank_provider
-    raise RuntimeError("Rerank provider not initialized. App not started?")
+    return _get_state_attr("rerank_provider", "Rerank provider")
 
 
 def get_query_rewriter():
-    """Get query rewriter from app.state."""
-    if hasattr(app.state, "query_rewriter"):
-        return app.state.query_rewriter
-    raise RuntimeError("Query rewriter not initialized. App not started?")
+    return _get_state_attr("query_rewriter", "Query rewriter")
 
 
 def get_context_manager() -> ConversationContextManager:
-    """Get conversation context manager from app.state."""
-    if hasattr(app.state, "context_manager"):
-        return app.state.context_manager
-    raise RuntimeError("Context manager not initialized. App not started?")
+    return _get_state_attr("context_manager", "Context manager")
 
 
 def get_prompt_cache() -> PromptCache:
-    """Get prompt cache from app.state."""
-    if hasattr(app.state, "prompt_cache"):
-        return app.state.prompt_cache
-    raise RuntimeError("Prompt cache not initialized. App not started?")
+    return _get_state_attr("prompt_cache", "Prompt cache")
 
 
-# Get settings for CORS configuration
 _settings = get_settings()
 cors_origins = _settings.get_cors_origins()
 
-# In production, don't allow credentials with wildcard
 allow_credentials = _settings.CORS_ALLOW_CREDENTIALS and "*" not in cors_origins
 
 app.add_middleware(
@@ -246,7 +201,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# Add request logging middleware
 app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(health_router, prefix="/api/v1", tags=["health"])

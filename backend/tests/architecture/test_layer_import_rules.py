@@ -1,237 +1,189 @@
-# backend/tests/architecture/test_layer_import_rules.py
-"""Tests to enforce layered architecture boundaries.
-
-The application layer should not directly import from the infrastructure layer.
-Instead, it should depend on ports (protocols) that are implemented by adapters.
-"""
-
 import ast
+import os
 from pathlib import Path
 
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+APP_ROOT = BACKEND_ROOT / "app"
 
-def get_module_level_imports(file_path: Path) -> list[str]:
-    """Extract module-level import statements from a Python file.
 
-    This function only extracts imports that are at the top level of the module,
-    excluding:
-    - Imports inside TYPE_CHECKING blocks
-    - Imports inside functions (lazy/optional imports)
-    - Imports inside classes
+def _get_module_imports(file_path: Path) -> list[str]:
+    """Get module-level import targets from a Python file, excluding TYPE_CHECKING blocks."""
+    try:
+        with open(file_path) as f:
+            tree = ast.parse(f.read())
+    except SyntaxError:
+        return []
 
-    Args:
-        file_path: Path to the Python file to analyze.
-
-    Returns:
-        List of fully qualified import names.
-    """
     imports = []
+    type_checking_lines = set()
 
-    with open(file_path, encoding="utf-8") as f:
-        try:
-            source = f.read()
-            tree = ast.parse(source)
-        except SyntaxError:
-            return imports
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+            for child in ast.walk(node):
+                if isinstance(child, (ast.ImportFrom, ast.Import)):
+                    if hasattr(child, "end_lineno") and child.end_lineno:
+                        for ln in range(child.lineno, child.end_lineno + 1):
+                            type_checking_lines.add(ln)
 
-    # Track if we're in a TYPE_CHECKING block
-    in_type_checking = False
-
-    # Only process top-level statements (not inside functions/classes)
-    for node in tree.body:
-        # Check for TYPE_CHECKING if block
-        if isinstance(node, ast.If):
-            # Check if condition is TYPE_CHECKING
-            is_type_checking = False
-            if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
-                is_type_checking = True
-            elif isinstance(node.test, ast.Attribute) and node.test.attr == "TYPE_CHECKING":
-                is_type_checking = True
-
-            if is_type_checking:
-                # Skip imports inside TYPE_CHECKING block
-                continue
-
-        # Process import statements at module level
-        if isinstance(node, ast.Import):
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and node.lineno not in type_checking_lines:
+            imports.append(node.module)
+        elif isinstance(node, ast.Import):
             for alias in node.names:
                 imports.append(alias.name)
-        elif isinstance(node, ast.ImportFrom):
-            if node.module:
-                imports.append(node.module)
-                for alias in node.names:
-                    imports.append(f"{node.module}.{alias.name}")
 
     return imports
 
 
-def scan_imports(directory: str, forbidden_prefix: str, specific_files: list[str] | None = None) -> list[dict]:
-    """Scan all Python files in a directory for forbidden imports.
+def _scan_directory(directory: Path, exclude: set[str] | None = None) -> list[tuple[Path, list[str]]]:
+    results = []
+    exclude = exclude or set()
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [d for d in dirs if d not in exclude]
+        for f in files:
+            if f.endswith(".py"):
+                path = Path(root) / f
+                imports = _get_module_imports(path)
+                if imports:
+                    results.append((path, imports))
+    return results
 
-    Only checks module-level imports, excluding:
-    - Imports inside TYPE_CHECKING blocks
-    - Imports inside functions
 
-    Args:
-        directory: Directory to scan (relative to project root).
-        forbidden_prefix: Import prefix that is not allowed.
-        specific_files: Optional list of specific files to check (relative to directory).
-
-    Returns:
-        List of violations with file path and import statement.
-    """
-    violations = []
-    project_root = Path(__file__).parent.parent.parent.parent
-    target_dir = project_root / directory
-
-    if not target_dir.exists():
-        return violations
-
-    if specific_files:
-        file_paths = [target_dir / f for f in specific_files]
-    else:
-        file_paths = list(target_dir.rglob("*.py"))
-
-    for file_path in file_paths:
-        # Skip __pycache__ directories
-        if "__pycache__" in str(file_path):
-            continue
-
-        relative_path = file_path.relative_to(project_root)
-        imports = get_module_level_imports(file_path)
-
+def test_application_services_use_domain_repositories():
+    services_dir = APP_ROOT / "application"
+    infra_imports = [
+        "app.infra.postgres.repositories",
+        "app.infra.langchain.curator_agent",
+    ]
+    for path, imports in _scan_directory(services_dir, exclude={"__pycache__", "ports"}):
         for imp in imports:
-            # Check if import starts with forbidden prefix
-            # Handle both "app.infra" and "from app.infra import X"
-            if imp.startswith(forbidden_prefix) or f"app.{forbidden_prefix}" in imp:
-                violations.append({
-                    "file": str(relative_path),
-                    "import": imp,
-                })
+            for forbidden in infra_imports:
+                assert forbidden not in imp, (
+                    f"{path.relative_to(BACKEND_ROOT)} imports {imp} which violates hexagonal architecture. "
+                    f"Application services should depend on domain/repository ports, not infrastructure."
+                )
 
-    return violations
+
+def test_exhibit_service_uses_port():
+    path = APP_ROOT / "application" / "exhibit_service.py"
+    if not path.exists():
+        return
+    imports = _get_module_imports(path)
+    for imp in imports:
+        assert "app.infra.postgres.repositories" not in imp, (
+            f"exhibit_service.py should import ExhibitRepository from app.domain.repositories, "
+            f"not PostgresExhibitRepository from app.infra"
+        )
+
+
+def test_profile_service_uses_port():
+    path = APP_ROOT / "application" / "profile_service.py"
+    if not path.exists():
+        return
+    imports = _get_module_imports(path)
+    for imp in imports:
+        assert "app.infra.postgres.repositories" not in imp, (
+            f"profile_service.py should import VisitorProfileRepository from app.domain.repositories, "
+            f"not PostgresVisitorProfileRepository from app.infra"
+        )
+
+
+def test_curator_service_uses_port():
+    path = APP_ROOT / "application" / "curator_service.py"
+    if not path.exists():
+        return
+    imports = _get_module_imports(path)
+    for imp in imports:
+        assert "app.infra.langchain.curator_agent" not in imp, (
+            f"curator_service.py should import CuratorAgentPort from app.application.ports.repositories, "
+            f"not CuratorAgent from app.infra.langchain"
+        )
 
 
 def test_auth_service_does_not_import_infra_modules():
-    """Test that auth_service does not import from infrastructure layer at module level.
-
-    This enforces the hexagonal architecture pattern for the auth service.
-    """
-    violations = scan_imports(
-        "backend/app/application",
-        forbidden_prefix="app.infra",
-        specific_files=["auth_service.py"],
-    )
-
-    if violations:
-        violation_details = "\n".join(
-            f"  - {v['file']}: imports '{v['import']}'"
-            for v in violations
-        )
-        assert False, (
-            f"auth_service.py should not import from infrastructure layer at module level.\n"
-            f"Found {len(violations)} violations:\n{violation_details}\n"
-            f"Use repository ports (Protocol) instead, or move imports inside functions for optional dependencies."
+    path = APP_ROOT / "application" / "auth_service.py"
+    if not path.exists():
+        return
+    imports = _get_module_imports(path)
+    for imp in imports:
+        assert "app.infra" not in imp, (
+            f"auth_service.py should not import from app.infra. Found: {imp}"
         )
 
 
 def test_document_service_does_not_import_infra_modules():
-    """Test that document_service does not import from infrastructure layer at module level.
-
-    This enforces the hexagonal architecture pattern for the document service.
-    """
-    violations = scan_imports(
-        "backend/app/application",
-        forbidden_prefix="app.infra",
-        specific_files=["document_service.py"],
-    )
-
-    if violations:
-        violation_details = "\n".join(
-            f"  - {v['file']}: imports '{v['import']}'"
-            for v in violations
-        )
-        assert False, (
-            f"document_service.py should not import from infrastructure layer at module level.\n"
-            f"Found {len(violations)} violations:\n{violation_details}\n"
-            f"Use repository ports (Protocol) instead, or move imports inside functions for optional dependencies."
+    path = APP_ROOT / "application" / "document_service.py"
+    if not path.exists():
+        return
+    imports = _get_module_imports(path)
+    for imp in imports:
+        assert "app.infra" not in imp, (
+            f"document_service.py should not import from app.infra. Found: {imp}"
         )
 
 
 def test_application_layer_has_repository_ports():
-    """Test that repository ports are defined for architecture compliance."""
-    project_root = Path(__file__).parent.parent.parent.parent
-    ports_file = project_root / "backend/app/application/ports/repositories.py"
-
+    ports_file = APP_ROOT / "application" / "ports" / "repositories.py"
     assert ports_file.exists(), "Repository ports file should exist"
 
-    # Check that the file contains the expected port protocols
     content = ports_file.read_text()
-    assert "UserRepositoryPort" in content, "UserRepositoryPort should be defined"
-    assert "DocumentRepositoryPort" in content, "DocumentRepositoryPort should be defined"
+    required_ports = [
+        "UserRepositoryPort",
+        "DocumentRepositoryPort",
+        "ExhibitRepositoryPort",
+        "VisitorProfileRepositoryPort",
+        "ChatSessionRepositoryPort",
+        "ChatMessageRepositoryPort",
+        "LLMProviderPort",
+        "CachePort",
+        "CuratorAgentPort",
+    ]
+    for port in required_ports:
+        assert port in content, f"Repository port {port} should be defined in ports/repositories.py"
 
 
 def test_infra_has_repository_adapters():
-    """Test that repository adapters are defined in the infrastructure layer."""
-    project_root = Path(__file__).parent.parent.parent.parent
-    adapters_dir = project_root / "backend/app/infra/postgres/adapters"
-
+    adapters_dir = APP_ROOT / "infra" / "postgres" / "adapters"
     assert adapters_dir.exists(), "Adapters directory should exist"
 
-    auth_repo = adapters_dir / "auth_repository.py"
-    doc_repo = adapters_dir / "document_repository.py"
-
-    assert auth_repo.exists(), "auth_repository.py adapter should exist"
-    assert doc_repo.exists(), "document_repository.py adapter should exist"
+    required_adapters = [
+        "auth_repository.py",
+        "document_repository.py",
+    ]
+    for adapter in required_adapters:
+        assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
 
 
 def test_domain_layer_does_not_import_infra_modules():
-    """Test that domain layer does not import from infrastructure layer.
-
-    The domain layer should be completely independent of infrastructure concerns.
-    """
-    violations = scan_imports("backend/app/domain", forbidden_prefix="app.infra")
-
-    if violations:
-        violation_details = "\n".join(
-            f"  - {v['file']}: imports '{v['import']}'"
-            for v in violations
-        )
-        assert False, (
-            f"Domain layer should not import from infrastructure layer.\n"
-            f"Found {len(violations)} violations:\n{violation_details}"
-        )
+    domain_dir = APP_ROOT / "domain"
+    for path, imports in _scan_directory(domain_dir, exclude={"__pycache__"}):
+        for imp in imports:
+            assert "app.infra" not in imp, (
+                f"Domain layer should not import from infrastructure. "
+                f"{path.relative_to(BACKEND_ROOT)} imports {imp}"
+            )
 
 
 def test_domain_layer_does_not_import_sqlalchemy():
-    """Test that domain layer does not import SQLAlchemy.
-
-    The domain layer should use pure Python dataclasses, not ORM models.
-    """
-    project_root = Path(__file__).parent.parent.parent.parent
-    domain_dir = project_root / "backend/app/domain"
-
-    violations = []
-
-    for file_path in domain_dir.rglob("*.py"):
-        if "__pycache__" in str(file_path):
-            continue
-
-        relative_path = file_path.relative_to(project_root)
-        imports = get_module_level_imports(file_path)
-
+    domain_dir = APP_ROOT / "domain"
+    for path, imports in _scan_directory(domain_dir, exclude={"__pycache__"}):
         for imp in imports:
-            if imp.startswith("sqlalchemy"):
-                violations.append({
-                    "file": str(relative_path),
-                    "import": imp,
-                })
+            assert "sqlalchemy" not in imp, (
+                f"Domain layer should not use SQLAlchemy directly. "
+                f"{path.relative_to(BACKEND_ROOT)} imports {imp}"
+            )
 
-    if violations:
-        violation_details = "\n".join(
-            f"  - {v['file']}: imports '{v['import']}'"
-            for v in violations
-        )
-        assert False, (
-            f"Domain layer should not import SQLAlchemy.\n"
-            f"Found {len(violations)} violations:\n{violation_details}"
-        )
+
+def test_chat_stream_service_uses_ports():
+    path = APP_ROOT / "application" / "chat_stream_service.py"
+    if not path.exists():
+        return
+    content = path.read_text()
+    assert "LLMProviderPort" in content, "chat_stream_service should use LLMProviderPort"
+    assert "CachePort" in content, "chat_stream_service should use CachePort"
+    assert "from app.infra.providers.llm import LLMProvider" not in content, (
+        "chat_stream_service should not import concrete LLMProvider"
+    )
+    assert "from app.infra.redis.cache import RedisCache" not in content, (
+        "chat_stream_service should not import concrete RedisCache"
+    )

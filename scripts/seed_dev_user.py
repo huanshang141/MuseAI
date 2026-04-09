@@ -26,7 +26,8 @@ from app.infra.postgres.models import User
 
 DEFAULT_USER_ID = "user-001"
 DEFAULT_USER_EMAIL = "test@museai.local"
-DEFAULT_PASSWORD_HASH = "mock"
+import bcrypt
+DEFAULT_PASSWORD_HASH = bcrypt.hashpw(os.environ.get("DEV_PASSWORD", "dev123").encode(), bcrypt.gensalt()).decode()
 
 
 async def seed_dev_user(database_url: str, user_id: str | None = None, email: str | None = None) -> None:

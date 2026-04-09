@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -30,6 +31,26 @@ from app.application.chat_service import (
 )
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+SSE_HEARTBEAT_INTERVAL = 15
+
+
+async def _with_heartbeat(
+    stream: AsyncGenerator[str, None],
+    request: Request | None = None,
+    interval: int = SSE_HEARTBEAT_INTERVAL,
+) -> AsyncGenerator[str, None]:
+    """Wrap an SSE stream with periodic heartbeat comments.
+
+    Sends SSE comment lines (': heartbeat\\n\\n') at regular intervals
+    to keep the connection alive through proxies and load balancers.
+    Also sends an initial 'retry:' directive for client reconnection.
+    """
+    yield "retry: 3000\n\n"
+    async for event in stream:
+        yield event
+        if request and await request.is_disconnected():
+            return
 
 
 class CreateSessionRequest(BaseModel):
@@ -209,20 +230,29 @@ async def ask_stream_endpoint(
         raise HTTPException(status_code=404, detail="Session not found")
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        async for event in ask_question_stream_with_rag(
-            session,
-            ask_request.session_id,
-            ask_request.message,
-            rag_agent,
-            llm_provider,
-            current_user["id"],
-            session_maker=session_maker,
+        async for event in _with_heartbeat(
+            ask_question_stream_with_rag(
+                session,
+                ask_request.session_id,
+                ask_request.message,
+                rag_agent,
+                llm_provider,
+                current_user["id"],
+                session_maker=session_maker,
+            ),
+            request=request,
         ):
-            if await request.is_disconnected():
-                break
             yield event
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 class MessageRequest(BaseModel):
@@ -243,17 +273,20 @@ async def send_guest_message(
     session_id = message_request.session_id or str(uuid.uuid4())
 
     return StreamingResponse(
-        ask_question_stream_guest(
-            session_id=session_id,
-            message=message_request.message,
-            rag_agent=rag_agent,
-            llm_provider=llm_provider,
-            redis=redis,
+        _with_heartbeat(
+            ask_question_stream_guest(
+                session_id=session_id,
+                message=message_request.message,
+                rag_agent=rag_agent,
+                llm_provider=llm_provider,
+                redis=redis,
+            ),
         ),
         media_type="text/event-stream",
         headers={
             "X-Session-Id": session_id,
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )

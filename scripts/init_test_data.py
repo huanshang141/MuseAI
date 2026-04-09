@@ -475,7 +475,7 @@ async def main() -> None:
     if settings.DATABASE_URL == "sqlite+aiosqlite:///:memory:":
         print("ERROR: Using default in-memory SQLite database.")
         print("Please set DATABASE_URL in .env file or environment variable.")
-        print("Example: DATABASE_URL=postgresql+asyncpg://museai:museai123@localhost:5432/museai")
+        print("Example: DATABASE_URL=postgresql+asyncpg://museai:CHANGE_ME@localhost:5432/museai")
         sys.exit(1)
 
     print(f"Database: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else settings.DATABASE_URL}")
@@ -504,7 +504,7 @@ async def main() -> None:
         result = await session.execute(select(User).where(User.id == "user-001"))
         user = result.scalars().first()
         if not user:
-            user = User(id="user-001", email="test@museai.local", password_hash="test")
+            user = User(id="user-001", email="test@museai.local", password_hash=bcrypt.hashpw(os.environ.get("DEV_PASSWORD", "dev123").encode(), bcrypt.gensalt()).decode())
             session.add(user)
             await session.commit()
             print("Created test user: user-001\n")

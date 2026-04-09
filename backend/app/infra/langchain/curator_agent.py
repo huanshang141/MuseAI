@@ -35,32 +35,33 @@ class CuratorAgent:
         prompt_gateway: PromptGateway | None = None,
         verbose: bool = False,
     ):
-        """初始化策展人智能体。
-
-        Args:
-            llm: 语言模型实例
-            tools: 工具列表
-            session_id: 会话ID
-            prompt_gateway: Prompt网关（可选）
-            verbose: 是否启用详细日志
-        """
         self.llm = llm
         self.tools = tools
         self.session_id = session_id
         self.prompt_gateway = prompt_gateway
         self.verbose = verbose
-        self._agent = self._create_agent()
+        self._agent: Any = None
 
-    def _create_agent(self) -> Any:
-        """创建ReAct智能体。
+    @classmethod
+    async def create(
+        cls,
+        llm: BaseChatModel,
+        tools: list[BaseTool],
+        session_id: str,
+        prompt_gateway: PromptGateway | None = None,
+        verbose: bool = False,
+    ) -> "CuratorAgent":
+        """Async factory method for creating a CuratorAgent.
 
-        Returns:
-            配置好的ReAct智能体实例
+        Use this instead of __init__ to properly await async prompt loading.
         """
-        # 创建系统提示词
-        system_prompt = self._get_system_prompt()
+        instance = cls(llm, tools, session_id, prompt_gateway, verbose)
+        instance._agent = await instance._create_agent()
+        return instance
 
-        # 创建ReAct智能体
+    async def _create_agent(self) -> Any:
+        system_prompt = await self._get_system_prompt()
+
         agent = create_react_agent(
             model=self.llm,
             tools=self.tools,
@@ -70,42 +71,18 @@ class CuratorAgent:
 
         return agent
 
-    def _get_system_prompt(self) -> str:
-        """获取系统提示词。
-
-        Returns:
-            系统提示词字符串（中文）
-        """
-        # Try to get from PromptGateway if available
+    async def _get_system_prompt(self) -> str:
         if self.prompt_gateway:
-            import asyncio
-            import concurrent.futures
-
-            async def get_prompt() -> str | None:
-                return await self.prompt_gateway.get("curator_system")
-
             try:
-                # Check if we're in an async context
-                try:
-                    asyncio.get_running_loop()
-                    # Already in async context, need to run in a separate thread
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(asyncio.run, get_prompt())
-                        result = future.result()
-                        if result:
-                            return result
-                except RuntimeError:
-                    # No running event loop, can run directly
-                    result = asyncio.run(get_prompt())
-                    if result:
-                        return result
+                result = await self.prompt_gateway.get("curator_system")
+                if result:
+                    return result
             except Exception as e:
                 logger.warning(f"Failed to get curator system prompt: {e}, using fallback")
 
         return self._get_fallback_system_prompt()
 
     def _get_fallback_system_prompt(self) -> str:
-        """获取备用系统提示词。"""
         return """你是MuseAI博物馆智能导览系统的数字策展人。你的职责是为参观者提供个性化、有深度的博物馆参观体验。
 
 ## 你的角色
@@ -175,14 +152,6 @@ class CuratorAgent:
     def _format_chat_history(
         self, chat_history: list[dict[str, str]]
     ) -> list[HumanMessage | AIMessage]:
-        """格式化聊天历史为LangChain消息格式。
-
-        Args:
-            chat_history: 原始聊天历史列表
-
-        Returns:
-            格式化后的消息列表
-        """
         messages = []
         for msg in chat_history:
             role = msg.get("role", "")
@@ -198,27 +167,19 @@ class CuratorAgent:
         user_input: str,
         chat_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
-        """执行智能体运行。
+        """执行智能体运行。"""
+        if self._agent is None:
+            self._agent = await self._create_agent()
 
-        Args:
-            user_input: 用户输入
-            chat_history: 聊天历史（可选）
-
-        Returns:
-            包含输出和中间步骤的字典
-        """
         try:
-            # 构建消息列表
             messages = self._format_chat_history(chat_history or [])
             messages.append(HumanMessage(content=user_input))
 
-            # 调用智能体
             result = await self._agent.ainvoke(
                 {"messages": messages},
                 config={"configurable": {"session_id": self.session_id}},
             )
 
-            # 提取最终输出
             output_messages = result.get("messages", [])
             final_output = ""
             if output_messages:

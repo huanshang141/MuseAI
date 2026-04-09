@@ -21,7 +21,10 @@ from backend.tests.performance.test_users import UserTokenPool
 
 
 # Global config and token pool
-config = get_config()
+# Get scenario from environment variable or default to 'load'
+import os
+_scenario = os.environ.get("PERF_TEST_SCENARIO", "load")
+config = get_config(_scenario)
 token_pool: UserTokenPool | None = None
 
 

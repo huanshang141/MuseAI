@@ -21,6 +21,12 @@ class TestConfig:
     mock_llm_chunk_size: int = 20  # Characters per chunk
     mock_llm_response_length: int = 500  # Total response length in chars
 
+    # Mock Rerank settings
+    mock_rerank_host: str = "0.0.0.0"
+    mock_rerank_port: int = 8098
+    mock_rerank_min_delay_ms: int = 50  # Base rerank delay
+    mock_rerank_max_delay_ms: int = 200  # Additional random delay
+
     # Locust settings
     spawn_rate: int = 10  # Users per second
     run_time: str = "5m"  # Default test duration
@@ -48,6 +54,7 @@ class TestConfig:
 # Preset scenarios
 SCENARIOS = {
     "smoke": TestConfig(
+        scenario="smoke",
         spawn_rate=5,
         run_time="2m",
         auth_user_weight=1,
@@ -55,6 +62,7 @@ SCENARIOS = {
         num_test_users=10,
     ),
     "load": TestConfig(
+        scenario="load",
         spawn_rate=10,
         run_time="5m",
         auth_user_weight=3,
@@ -62,6 +70,7 @@ SCENARIOS = {
         num_test_users=100,
     ),
     "stress": TestConfig(
+        scenario="stress",
         spawn_rate=20,
         run_time="10m",
         auth_user_weight=5,
@@ -69,6 +78,7 @@ SCENARIOS = {
         num_test_users=500,
     ),
     "spike": TestConfig(
+        scenario="spike",
         spawn_rate=50,
         run_time="3m",
         auth_user_weight=3,

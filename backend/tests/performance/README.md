@@ -22,6 +22,9 @@ This suite tests the performance of chat endpoints under various load conditions
    LLM_BASE_URL=http://localhost:8099/v1 \
    LLM_API_KEY=mock-key \
    LLM_MODEL=mock-model \
+   RERANK_BASE_URL=http://localhost:8098 \
+   RERANK_API_KEY=mock-key \
+   RERANK_MODEL=mock-rerank-model \
    uv run uvicorn backend.app.main:app --reload
    ```
 
@@ -33,6 +36,9 @@ This suite tests the performance of chat endpoints under various load conditions
    | `LLM_BASE_URL` | `http://localhost:8099/v1` | Points to mock LLM server instead of real LLM |
    | `LLM_API_KEY` | `mock-key` | Mock API key for mock LLM server |
    | `LLM_MODEL` | `mock-model` | Mock model name |
+   | `RERANK_BASE_URL` | `http://localhost:8098` | Points to mock rerank server |
+   | `RERANK_API_KEY` | `mock-key` | Mock API key for mock rerank server |
+   | `RERANK_MODEL` | `mock-rerank-model` | Mock rerank model name |
 
    **Why `APP_ENV` matters:**
    - In `production` mode: Rate limiting is enforced (100 auth requests/min per IP)
@@ -125,7 +131,9 @@ uv run locust -f locustfile.py \
     --headless
 ```
 
-## Mock LLM Server
+## Mock Services
+
+### Mock LLM Server
 
 The mock server simulates an OpenAI-compatible API with configurable delays:
 
@@ -140,6 +148,39 @@ mock_llm_min_delay_ms: int = 500
 mock_llm_max_delay_ms: int = 2000
 mock_llm_chunk_size: int = 20
 mock_llm_response_length: int = 500
+```
+
+### Mock Rerank Server
+
+The mock rerank server simulates SiliconFlow/Jina-compatible rerank API:
+
+- **Base delay**: 50ms + 5ms per document
+- **Additional random delay**: 0-200ms
+- **Returns**: Realistic relevance scores (0.0-1.0, descending)
+
+Configuration in `config.py`:
+
+```python
+mock_rerank_host: str = "0.0.0.0"
+mock_rerank_port: int = 8098
+mock_rerank_min_delay_ms: int = 50
+mock_rerank_max_delay_ms: int = 200
+```
+
+### Starting Mock Services
+
+**Option 1: Start all mock services together**
+```bash
+uv run python -m backend.tests.performance.start_mock_services
+```
+
+**Option 2: Start individually**
+```bash
+# Terminal 1: Mock LLM server
+uv run python -m backend.tests.performance.mock_llm_server
+
+# Terminal 2: Mock Rerank server
+uv run python -m backend.tests.performance.mock_rerank_server
 ```
 
 ## Metrics Collected
@@ -203,6 +244,9 @@ APP_ENV=development \
 LLM_BASE_URL=http://localhost:8099/v1 \
 LLM_API_KEY=mock-key \
 LLM_MODEL=mock-model \
+RERANK_BASE_URL=http://localhost:8098 \
+RERANK_API_KEY=mock-key \
+RERANK_MODEL=mock-rerank-model \
 uv run uvicorn backend.app.main:app --reload
 ```
 
@@ -220,6 +264,15 @@ lsof -i :8099
 
 # Check logs
 cat /tmp/mock_llm_server.log
+```
+
+### "Mock Rerank server failed to start"
+```bash
+# Check if port 8098 is available
+lsof -i :8098
+
+# Check logs
+cat /tmp/mock_rerank_server.log
 ```
 
 ### "Redis connection refused"
@@ -293,11 +346,17 @@ To run in CI/CD pipeline:
   run: |
     docker-compose up -d
     sleep 30
+    # Start mock services
+    uv run python -m backend.tests.performance.start_mock_services &
+    sleep 5
     # Start API server with test environment (bypasses rate limiting)
     APP_ENV=development \
     LLM_BASE_URL=http://localhost:8099/v1 \
     LLM_API_KEY=mock-key \
     LLM_MODEL=mock-model \
+    RERANK_BASE_URL=http://localhost:8098 \
+    RERANK_API_KEY=mock-key \
+    RERANK_MODEL=mock-rerank-model \
     uv run uvicorn backend.app.main:app &
     sleep 10
     cd backend/tests/performance

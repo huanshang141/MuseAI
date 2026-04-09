@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 SANITIZED_ERROR_MESSAGE = "processing_failed"
 
 
-def sanitize_error_message(error: str | None) -> str | None:
+def sanitize_db_error_message(error: str | None) -> str | None:
     """Sanitize error messages to prevent internal exception leakage.
 
     Raw exception messages can contain sensitive information like:
@@ -166,7 +166,7 @@ async def update_document_status(
         Updated Document instance, or None if not found.
     """
     # Sanitize error message to prevent internal exception leakage
-    sanitized_error = sanitize_error_message(error)
+    sanitized_error = sanitize_db_error_message(error)
     return await doc_repo.update_status(doc_id, status, sanitized_error, chunk_count)
 
 
@@ -244,6 +244,6 @@ __all__ = [
     "get_document_by_id_public",
     "delete_document_by_id",
     "DocumentRepositoryPort",
-    "sanitize_error_message",
+    "sanitize_db_error_message",
     "SANITIZED_ERROR_MESSAGE",
 ]

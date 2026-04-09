@@ -14,8 +14,6 @@ from app.infra.providers.llm import LLMProvider
 from app.infra.redis.cache import RedisCache
 
 
-def _sanitize_error_message(error: Exception) -> str:
-    return sanitize_error_message(error)
 
 
 async def create_session(session: AsyncSession, title: str, user_id: str) -> ChatSession:
@@ -195,10 +193,10 @@ async def ask_question_stream(
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'chunks': chunks})}\n\n"
     except LLMError as e:
-        sanitized = _sanitize_error_message(e)
+        sanitized = sanitize_error_message(e)
         yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': sanitized})}\n\n"
     except Exception as e:
-        sanitized = _sanitize_error_message(e)
+        sanitized = sanitize_error_message(e)
         yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': sanitized})}\n\n"
 
 
@@ -379,7 +377,7 @@ async def ask_question_stream_with_rag(
         logger.debug(f"Final sources count: {len(sources)}")
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
     except Exception as e:
-        sanitized = _sanitize_error_message(e)
+        sanitized = sanitize_error_message(e)
         yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"
 
 
@@ -511,5 +509,5 @@ async def ask_question_stream_guest(
 
         yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
     except Exception as e:
-        sanitized = _sanitize_error_message(e)
+        sanitized = sanitize_error_message(e)
         yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"

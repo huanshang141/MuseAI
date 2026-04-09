@@ -22,7 +22,7 @@ def sanitize_error_message(error: Exception) -> str:
     if hasattr(error, "request"):
         try:
             request = error.request
-            error_msg = f"{error_msg} (URL: {request.url})"
+            error_msg = f"{error_msg} (path: {request.url.path})"
         except RuntimeError:
             pass
 

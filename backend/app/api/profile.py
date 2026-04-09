@@ -88,7 +88,7 @@ async def update_profile(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=sanitize_error_message(e),
-        )
+        ) from None
 
     return ProfileResponse(
         id=profile.id.value,

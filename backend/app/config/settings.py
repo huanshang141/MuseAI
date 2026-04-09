@@ -50,6 +50,7 @@ class Settings(BaseSettings):
 
     # Allow insecure dev defaults for local development
     ALLOW_INSECURE_DEV_DEFAULTS: bool = False
+    RATE_LIMIT_ENABLED: bool = True
 
     # Logging settings
     LOG_LEVEL: str = "INFO"

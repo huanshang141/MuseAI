@@ -228,14 +228,14 @@ async def check_rate_limit(
 ) -> None:
     """Check rate limit for the current user.
 
-    - Test environment (APP_ENV != "production"): No rate limiting
+    - RATE_LIMIT_ENABLED=false: No rate limiting
     - Production: Standard rate limiting
 
     Fails open if Redis is unavailable to ensure availability during outages.
     """
-    # Skip rate limiting in non-production environments for load testing
+    # Skip rate limiting when RATE_LIMIT_ENABLED is false
     settings = get_settings()
-    if settings.APP_ENV != "production":
+    if not settings.RATE_LIMIT_ENABLED:
         return
 
     try:
@@ -260,14 +260,14 @@ async def check_auth_rate_limit(
 ) -> None:
     """Rate limiting for authentication endpoints using IP address.
 
-    - Test environment (APP_ENV != "production"): No rate limiting
+    - RATE_LIMIT_ENABLED=false: No rate limiting
     - Production: 100 requests per minute per IP (increased from 5 for better UX)
 
     Fails closed for security - returns 503 if Redis unavailable.
     """
-    # Skip rate limiting in non-production environments for load testing
+    # Skip rate limiting when RATE_LIMIT_ENABLED is false
     settings = get_settings()
-    if settings.APP_ENV != "production":
+    if not settings.RATE_LIMIT_ENABLED:
         return
 
     # Get client IP using trusted proxy-aware extraction

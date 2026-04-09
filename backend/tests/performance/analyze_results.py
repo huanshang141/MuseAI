@@ -6,26 +6,77 @@ from pathlib import Path
 
 
 def parse_locust_html_report(html_path: str) -> dict:
-    """Parse Locust HTML report and extract key metrics."""
+    """Parse Locust HTML report and extract key metrics.
+
+    The Locust HTML report embeds data in JavaScript.
+    We extract the statistics from the minified JS data.
+    """
     content = Path(html_path).read_text()
 
     metrics = {}
 
-    # Extract statistics table data
-    # Look for patterns like: "GET /api/v1/health" followed by numbers
+    # Locust 2.x embeds stats with snake_case field names
+    # Pattern: "name": "endpoint_name", "num_requests": N, "num_failures": M
 
     # Find all endpoint statistics
-    endpoint_pattern = r'<tr[^>]*>.*?<td[^>]*>([^<]+)</td>.*?</tr>'
-    # This is simplified - in real implementation, use BeautifulSoup or similar
+    # Pattern matches objects with name, num_requests, num_failures
+    # The fields can appear in any order
+    endpoint_pattern = r'"name":\s*"([^"]+)"[^}]*"num_requests":\s*(\d+)[^}]*"num_failures":\s*(\d+)'
+    endpoint_pattern_alt = r'"name":\s*"([^"]+)"[^}]*"num_failures":\s*(\d+)[^}]*"num_requests":\s*(\d+)'
 
-    # Extract summary statistics
-    total_requests_match = re.search(r'Total Requests.*?(\d+)', content, re.DOTALL)
-    if total_requests_match:
-        metrics['total_requests'] = int(total_requests_match.group(1))
+    endpoints = []
+    total_requests = 0
+    total_failures = 0
 
-    fail_rate_match = re.search(r'Failure Rate.*?([\d.]+)%', content, re.DOTALL)
-    if fail_rate_match:
-        metrics['failure_rate'] = float(fail_rate_match.group(1))
+    # Try first pattern (num_requests before num_failures)
+    for match in re.finditer(endpoint_pattern, content):
+        name = match.group(1)
+        requests = int(match.group(2))
+        failures = int(match.group(3))
+
+        if name and name != 'None' and name != 'Aggregated':
+            endpoints.append({
+                'name': name,
+                'num_requests': requests,
+                'num_failures': failures,
+            })
+            total_requests += requests
+            total_failures += failures
+
+    # Try alternate pattern (num_failures before num_requests)
+    for match in re.finditer(endpoint_pattern_alt, content):
+        name = match.group(1)
+        failures = int(match.group(2))
+        requests = int(match.group(3))
+
+        if name and name != 'None':
+            # Avoid duplicates
+            if not any(e['name'] == name for e in endpoints):
+                endpoints.append({
+                    'name': name,
+                    'num_requests': requests,
+                    'num_failures': failures,
+                })
+                total_requests += requests
+                total_failures += failures
+
+    metrics['endpoints'] = endpoints
+    metrics['total_requests'] = total_requests
+    metrics['total_failures'] = total_failures
+
+    if total_requests > 0:
+        metrics['failure_rate'] = (total_failures / total_requests) * 100
+    else:
+        metrics['failure_rate'] = 0.0
+
+    # Try to extract average response time
+    avg_time_pattern = r'"avg_response_time":\s*([\d.]+)'
+    avg_times = [float(t) for t in re.findall(avg_time_pattern, content)]
+    if avg_times:
+        # Filter out very large values (likely from outliers)
+        reasonable_times = [t for t in avg_times if t < 10000]
+        if reasonable_times:
+            metrics['avg_response_time'] = sum(reasonable_times) / len(reasonable_times)
 
     return metrics
 
@@ -41,11 +92,26 @@ def generate_summary_report(metrics: dict) -> str:
     report.append("Key Metrics:")
     report.append("-" * 40)
 
-    if 'total_requests' in metrics:
+    if metrics.get('total_requests'):
         report.append(f"Total Requests: {metrics['total_requests']}")
+        report.append(f"Total Failures: {metrics['total_failures']}")
+        report.append(f"Failure Rate: {metrics.get('failure_rate', 0):.2f}%")
 
-    if 'failure_rate' in metrics:
-        report.append(f"Failure Rate: {metrics['failure_rate']:.2f}%")
+    if metrics.get('avg_response_time'):
+        report.append(f"Average Response Time: {metrics['avg_response_time']:.2f}ms")
+
+    # Per-endpoint breakdown
+    if metrics.get('endpoints'):
+        report.append("")
+        report.append("Per-Endpoint Statistics:")
+        report.append("-" * 40)
+        for ep in metrics['endpoints']:
+            fail_rate = 0 if ep['num_requests'] == 0 else (ep['num_failures'] / ep['num_requests']) * 100
+            report.append(f"  {ep['name']}:")
+            report.append(f"    Requests: {ep['num_requests']}, Failures: {ep['num_failures']} ({fail_rate:.1f}%)")
+
+    if not metrics or not metrics.get('total_requests'):
+        report.append("No metrics found in report")
 
     report.append("")
     report.append("=" * 60)

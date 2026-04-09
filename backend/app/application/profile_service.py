@@ -5,13 +5,13 @@ from typing import List, Optional
 from app.domain.entities import VisitorProfile
 from app.domain.exceptions import EntityNotFoundError
 from app.domain.value_objects import ExhibitId, ProfileId, UserId
-from app.infra.postgres.repositories import PostgresVisitorProfileRepository
+from app.domain.repositories import VisitorProfileRepository
 
 
 class ProfileService:
     """访客画像服务，管理用户偏好和参观历史。"""
 
-    def __init__(self, profile_repository: PostgresVisitorProfileRepository):
+    def __init__(self, profile_repository: VisitorProfileRepository):
         self._repository = profile_repository
 
     async def get_or_create_profile(self, user_id: str) -> VisitorProfile:

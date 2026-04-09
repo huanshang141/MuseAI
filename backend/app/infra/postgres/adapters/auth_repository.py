@@ -1,58 +1,50 @@
-# backend/app/infra/postgres/adapters/auth_repository.py
-"""PostgreSQL adapter for user repository.
-
-This adapter implements the UserRepositoryPort protocol using SQLAlchemy.
-"""
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infra.postgres.models import User
+from app.domain.entities import User as UserEntity
+from app.infra.postgres.models import User as UserModel
 
 
 class PostgresUserRepository:
-    """PostgreSQL implementation of UserRepositoryPort."""
-
     def __init__(self, session: AsyncSession):
-        """Initialize with async session.
-
-        Args:
-            session: SQLAlchemy async session for database operations.
-        """
         self._session = session
 
-    async def get_by_email(self, email: str) -> User | None:
-        """Retrieve a user by their email address.
+    def _to_entity(self, model: UserModel) -> UserEntity:
+        return UserEntity(
+            id=model.id,
+            email=model.email,
+            password_hash=model.password_hash,
+            created_at=model.created_at,
+            role=model.role,
+        )
 
-        Args:
-            email: The email address to search for.
+    def _to_model(self, entity: UserEntity) -> UserModel:
+        return UserModel(
+            id=entity.id,
+            email=entity.email,
+            password_hash=entity.password_hash,
+            role=entity.role,
+        )
 
-        Returns:
-            The User ORM instance if found, None otherwise.
-        """
-        stmt = select(User).where(User.email == email)
+    async def get_by_email(self, email: str) -> UserEntity | None:
+        stmt = select(UserModel).where(UserModel.email == email)
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return self._to_entity(model)
 
-    async def get_by_id(self, user_id: str) -> User | None:
-        """Retrieve a user by their unique identifier.
-
-        Args:
-            user_id: The unique identifier of the user.
-
-        Returns:
-            The User ORM instance if found, None otherwise.
-        """
-        stmt = select(User).where(User.id == user_id)
+    async def get_by_id(self, user_id: str) -> UserEntity | None:
+        stmt = select(UserModel).where(UserModel.id == user_id)
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return self._to_entity(model)
 
-    async def add(self, user: User) -> None:
-        """Add a new user to the repository.
-
-        Args:
-            user: The User ORM instance to add.
-        """
-        self._session.add(user)
+    async def add(self, user: UserEntity) -> None:
+        model = self._to_model(user)
+        self._session.add(model)
         await self._session.flush()
-        await self._session.refresh(user)

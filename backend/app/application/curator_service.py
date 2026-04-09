@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 from app.domain.entities import Exhibit, VisitorProfile
 from app.domain.exceptions import EntityNotFoundError
 from app.domain.value_objects import ExhibitId, UserId
-from app.infra.langchain.curator_agent import CuratorAgent
+from app.application.ports.repositories import CuratorAgentPort
 
 from .exhibit_service import ExhibitService
 from .profile_service import ProfileService
@@ -16,7 +16,7 @@ class CuratorService:
 
     def __init__(
         self,
-        curator_agent: CuratorAgent,
+        curator_agent: CuratorAgentPort,
         profile_service: ProfileService,
         exhibit_service: ExhibitService,
     ):

@@ -5,13 +5,13 @@ from typing import List, Optional
 from app.domain.entities import Exhibit
 from app.domain.exceptions import EntityNotFoundError
 from app.domain.value_objects import ExhibitId, Location
-from app.infra.postgres.repositories import PostgresExhibitRepository
+from app.domain.repositories import ExhibitRepository
 
 
 class ExhibitService:
     """展品管理服务，提供展品的CRUD操作。"""
 
-    def __init__(self, exhibit_repository: PostgresExhibitRepository):
+    def __init__(self, exhibit_repository: ExhibitRepository):
         self._repository = exhibit_repository
 
     async def create_exhibit(

@@ -1,120 +1,42 @@
-# backend/app/application/ports/repositories.py
-"""Repository port interfaces for hexagonal architecture.
+from typing import Any, AsyncGenerator, Protocol
 
-These protocols define the contract that infrastructure adapters must implement.
-The application layer depends on these ports, not on concrete implementations.
-"""
-
-from typing import Protocol
+from app.domain.entities import (
+    ChatMessage,
+    ChatSession,
+    Document,
+    Exhibit,
+    IngestionJob,
+    TourPath,
+    User,
+    VisitorProfile,
+)
+from app.domain.value_objects import ExhibitId, ProfileId, TourPathId, UserId
 
 
 class UserRepositoryPort(Protocol):
-    """Port interface for user repository operations."""
+    async def get_by_email(self, email: str) -> User | None: ...
 
-    async def get_by_email(self, email: str) -> "UserORM | None":
-        """Retrieve a user by their email address.
+    async def get_by_id(self, user_id: str) -> User | None: ...
 
-        Args:
-            email: The email address to search for.
-
-        Returns:
-            The user ORM instance if found, None otherwise.
-        """
-        ...
-
-    async def get_by_id(self, user_id: str) -> "UserORM | None":
-        """Retrieve a user by their unique identifier.
-
-        Args:
-            user_id: The unique identifier of the user.
-
-        Returns:
-            The user ORM instance if found, None otherwise.
-        """
-        ...
-
-    async def add(self, user: "UserORM") -> None:
-        """Add a new user to the repository.
-
-        Args:
-            user: The user ORM instance to add.
-        """
-        ...
+    async def add(self, user: User) -> None: ...
 
 
 class DocumentRepositoryPort(Protocol):
-    """Port interface for document repository operations."""
-
-    async def get_by_id(self, document_id: str) -> "DocumentORM | None":
-        """Retrieve a document by its ID.
-
-        Args:
-            document_id: The unique identifier of the document.
-
-        Returns:
-            The document ORM instance if found, None otherwise.
-        """
-        ...
+    async def get_by_id(self, document_id: str) -> Document | None: ...
 
     async def get_by_user_id(
         self, user_id: str, limit: int = 20, offset: int = 0
-    ) -> list["DocumentORM"]:
-        """Retrieve documents for a specific user with pagination.
+    ) -> list[Document]: ...
 
-        Args:
-            user_id: The user ID to filter by.
-            limit: Maximum number of documents to return.
-            offset: Number of documents to skip.
+    async def get_all(self, limit: int = 20, offset: int = 0) -> list[Document]: ...
 
-        Returns:
-            List of document ORM instances.
-        """
-        ...
+    async def count_all(self) -> int: ...
 
-    async def get_all(self, limit: int = 20, offset: int = 0) -> list["DocumentORM"]:
-        """Retrieve all documents with pagination.
-
-        Args:
-            limit: Maximum number of documents to return.
-            offset: Number of documents to skip.
-
-        Returns:
-            List of document ORM instances.
-        """
-        ...
-
-    async def count_all(self) -> int:
-        """Count total documents across all users.
-
-        Returns:
-            Total document count.
-        """
-        ...
-
-    async def count_by_user_id(self, user_id: str) -> int:
-        """Count documents for a specific user.
-
-        Args:
-            user_id: The user ID to count documents for.
-
-        Returns:
-            Document count for the user.
-        """
-        ...
+    async def count_by_user_id(self, user_id: str) -> int: ...
 
     async def create(
         self, filename: str, user_id: str
-    ) -> tuple["DocumentORM", "IngestionJobORM"]:
-        """Create a new document with associated ingestion job.
-
-        Args:
-            filename: Name of the file.
-            user_id: ID of the user creating the document.
-
-        Returns:
-            Tuple of (document, ingestion_job) ORM instances.
-        """
-        ...
+    ) -> tuple[Document, IngestionJob]: ...
 
     async def update_status(
         self,
@@ -122,53 +44,132 @@ class DocumentRepositoryPort(Protocol):
         status: str,
         error: str | None = None,
         chunk_count: int | None = None,
-    ) -> "DocumentORM | None":
-        """Update document status and optionally error/chunk count.
+    ) -> Document | None: ...
 
-        Args:
-            document_id: ID of the document to update.
-            status: New status value.
-            error: Optional error message.
-            chunk_count: Optional chunk count.
-
-        Returns:
-            Updated document ORM instance, or None if not found.
-        """
-        ...
-
-    async def delete(self, document_id: str) -> bool:
-        """Delete a document by ID.
-
-        Args:
-            document_id: ID of the document to delete.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        ...
+    async def delete(self, document_id: str) -> bool: ...
 
     async def get_ingestion_job_by_document(
         self, document_id: str
-    ) -> "IngestionJobORM | None":
-        """Get ingestion job for a document.
-
-        Args:
-            document_id: ID of the document.
-
-        Returns:
-            Ingestion job ORM instance, or None if not found.
-        """
-        ...
+    ) -> IngestionJob | None: ...
 
 
-# Type aliases for ORM types (forward declarations for type hints)
-# These are placeholders that will be satisfied by actual ORM types from adapters
-UserORM = object  # type: ignore[misc]
-DocumentORM = object  # type: ignore[misc]
-IngestionJobORM = object  # type: ignore[misc]
+class ExhibitRepositoryPort(Protocol):
+    async def get_by_id(self, exhibit_id: ExhibitId) -> Exhibit | None: ...
+
+    async def list_all(self, include_inactive: bool = False) -> list[Exhibit]: ...
+
+    async def list_all_active(self) -> list[Exhibit]: ...
+
+    async def list_by_category(
+        self, category: str, include_inactive: bool = False
+    ) -> list[Exhibit]: ...
+
+    async def list_by_hall(
+        self, hall: str, include_inactive: bool = False
+    ) -> list[Exhibit]: ...
+
+    async def list_with_filters(
+        self,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> list[Exhibit]: ...
+
+    async def find_by_interests(
+        self, interests: list[str], limit: int = 10
+    ) -> list[Exhibit]: ...
+
+    async def search_by_name(
+        self,
+        query: str,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> list[Exhibit]: ...
+
+    async def get_distinct_categories(self) -> list[str]: ...
+
+    async def get_distinct_halls(self) -> list[str]: ...
+
+    async def save(self, exhibit: Exhibit) -> Exhibit: ...
+
+    async def delete(self, exhibit_id: ExhibitId) -> bool: ...
+
+
+class VisitorProfileRepositoryPort(Protocol):
+    async def get_by_id(self, profile_id: ProfileId) -> VisitorProfile | None: ...
+
+    async def get_by_user_id(self, user_id: UserId) -> VisitorProfile | None: ...
+
+    async def save(self, profile: VisitorProfile) -> VisitorProfile: ...
+
+    async def update(self, profile: VisitorProfile) -> VisitorProfile: ...
+
+
+class ChatSessionRepositoryPort(Protocol):
+    async def create(self, title: str, user_id: str) -> ChatSession: ...
+
+    async def get_by_id(self, session_id: str, user_id: str) -> ChatSession | None: ...
+
+    async def get_by_user_id(
+        self, user_id: str, limit: int = 20, offset: int = 0
+    ) -> list[ChatSession]: ...
+
+    async def count_by_user_id(self, user_id: str) -> int: ...
+
+    async def delete(self, session_id: str, user_id: str) -> bool: ...
+
+
+class ChatMessageRepositoryPort(Protocol):
+    async def add(
+        self, session_id: str, role: str, content: str, trace_id: str | None = None
+    ) -> ChatMessage: ...
+
+    async def get_by_session(
+        self, session_id: str, limit: int = 50, offset: int = 0
+    ) -> list[ChatMessage]: ...
+
+    async def count_by_session(self, session_id: str) -> int: ...
+
+
+class LLMProviderPort(Protocol):
+    async def generate(self, messages: list[dict[str, Any]]) -> Any: ...
+
+    def generate_stream(self, messages: list[dict[str, Any]]) -> Any: ...
+
+
+class CachePort(Protocol):
+    async def get(self, key: str) -> Any: ...
+
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> None: ...
+
+    async def delete(self, key: str) -> None: ...
+
+
+class CuratorAgentPort(Protocol):
+    async def plan_tour(
+        self, user_id: str, available_time: int, interests: list[str] | None = None
+    ) -> dict[str, Any]: ...
+
+    async def generate_narrative(
+        self, user_id: str, exhibit_id: str
+    ) -> dict[str, Any]: ...
+
+    async def get_reflection_prompts(
+        self, user_id: str, exhibit_id: str
+    ) -> dict[str, Any]: ...
 
 
 __all__ = [
     "UserRepositoryPort",
     "DocumentRepositoryPort",
+    "ExhibitRepositoryPort",
+    "VisitorProfileRepositoryPort",
+    "ChatSessionRepositoryPort",
+    "ChatMessageRepositoryPort",
+    "LLMProviderPort",
+    "CachePort",
+    "CuratorAgentPort",
 ]

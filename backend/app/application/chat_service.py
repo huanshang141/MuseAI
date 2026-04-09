@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.error_handling import sanitize_error_message
 from app.domain.exceptions import LLMError
-from app.infra.postgres.models import ChatMessage, ChatSession
-from app.infra.providers.llm import LLMProvider
-from app.infra.redis.cache import RedisCache
+from app.application.ports.repositories import LLMProviderPort, CachePort
+
+
 
 
 
@@ -164,7 +164,7 @@ async def ask_question_stream(
     session: AsyncSession,
     session_id: str,
     message: str,
-    llm_provider: LLMProvider,
+    llm_provider: LLMProviderPort,
     user_id: str,
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
@@ -205,7 +205,7 @@ async def ask_question_stream_with_rag(
     session_id: str,
     message: str,
     rag_agent: Any,
-    llm_provider: LLMProvider,
+    llm_provider: LLMProviderPort,
     user_id: str,
     session_maker: async_sessionmaker[AsyncSession] | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -412,8 +412,8 @@ async def ask_question_stream_guest(
     session_id: str,
     message: str,
     rag_agent: Any,
-    llm_provider: LLMProvider,
-    redis: RedisCache,
+    llm_provider: LLMProviderPort,
+    redis: CachePort,
 ) -> AsyncGenerator[str, None]:
     """Stream chat response for guest users (no DB persistence)."""
     trace_id = str(uuid.uuid4())

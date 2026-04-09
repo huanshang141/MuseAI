@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     RERANK_TOP_N: int = 5  # 返回top N结果
 
     # CORS settings
-    CORS_ORIGINS: str = "*"  # Comma-separated list or "*"
+    CORS_ORIGINS: str = "http://localhost:3000"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True
 
     # Allow insecure dev defaults for local development

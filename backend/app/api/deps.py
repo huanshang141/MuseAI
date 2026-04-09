@@ -161,7 +161,8 @@ async def get_optional_user(
         try:
             if await redis.is_token_blacklisted(jti):
                 return None
-        except RedisError:
+        except RedisError as e:
+            logger.warning(f"Redis error during optional user blacklist check, fail-open: {e}")
             # In development, continue without blacklist check
             pass
 
@@ -243,7 +244,8 @@ async def check_rate_limit(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded",
             )
-    except RedisError:
+    except RedisError as e:
+        logger.warning(f"Redis error during rate limit check, fail-open: {e}")
         # Log the error but allow request to proceed
         # This ensures availability during Redis outages
         pass

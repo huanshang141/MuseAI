@@ -8,9 +8,6 @@ fallback to hardcoded values for resilience.
 """
 
 from enum import Enum
-from typing import List
-
-from loguru import logger
 
 from app.application.prompt_gateway import PromptGateway
 
@@ -120,7 +117,7 @@ STYLE_KEY_MAP = {
 }
 
 
-def _parse_multiline_prompts(content: str) -> List[str]:
+def _parse_multiline_prompts(content: str) -> list[str]:
     """Parse multi-line prompt content into a list of prompts.
 
     Args:
@@ -172,7 +169,7 @@ async def get_reflection_prompts(
     knowledge_level: KnowledgeLevel,
     reflection_depth: int = 3,
     category: str | None = None,
-) -> List[str]:
+) -> list[str]:
     """Get reflection prompts based on knowledge level, depth, and category.
 
     Args:
@@ -191,7 +188,7 @@ async def get_reflection_prompts(
     if reflection_depth > 5:
         raise ValueError("reflection_depth cannot exceed 5")
 
-    prompts: List[str] = []
+    prompts: list[str] = []
 
     # Add category-specific prompts if category is provided
     if category:
@@ -256,7 +253,7 @@ def get_reflection_prompts_sync(
     knowledge_level: KnowledgeLevel,
     reflection_depth: int = 3,
     category: str | None = None,
-) -> List[str]:
+) -> list[str]:
     """Synchronous wrapper for backward compatibility.
 
     WARNING: This function uses hardcoded prompts only. For versioned prompts,
@@ -275,7 +272,7 @@ def get_reflection_prompts_sync(
     if reflection_depth > 5:
         raise ValueError("reflection_depth cannot exceed 5")
 
-    prompts: List[str] = []
+    prompts: list[str] = []
 
     if category and category in CATEGORY_REFLECTIONS:
         prompts.extend(CATEGORY_REFLECTIONS[category])

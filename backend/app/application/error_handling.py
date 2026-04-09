@@ -1,6 +1,5 @@
 from loguru import logger
 
-
 SANITIZED_ERROR_MESSAGE = "An unexpected error occurred. Please try again."
 
 

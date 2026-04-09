@@ -1,11 +1,11 @@
 from app.infra.providers.rerank import (
     BaseRerankProvider,
-    OpenAICompatibleRerankProvider,
-    SiliconFlowRerankProvider,
     MockRerankProvider,
+    OpenAICompatibleRerankProvider,
     RerankRequest,
-    RerankResult,
     RerankResponse,
+    RerankResult,
+    SiliconFlowRerankProvider,
     create_rerank_provider,
 )
 

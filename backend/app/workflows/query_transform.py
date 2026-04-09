@@ -2,8 +2,6 @@ import re
 from enum import Enum
 from typing import Any, Protocol
 
-from loguru import logger
-
 from app.application.prompt_gateway import PromptGateway
 
 

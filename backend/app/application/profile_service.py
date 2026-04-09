@@ -1,11 +1,10 @@
 # backend/app/application/profile_service.py
 from datetime import UTC, datetime
-from typing import List, Optional
 
 from app.domain.entities import VisitorProfile
 from app.domain.exceptions import EntityNotFoundError
-from app.domain.value_objects import ExhibitId, ProfileId, UserId
 from app.domain.repositories import VisitorProfileRepository
+from app.domain.value_objects import ExhibitId, ProfileId, UserId
 
 
 class ProfileService:
@@ -49,7 +48,7 @@ class ProfileService:
 
         return profile
 
-    async def get_profile(self, user_id: str) -> Optional[VisitorProfile]:
+    async def get_profile(self, user_id: str) -> VisitorProfile | None:
         """根据用户ID获取访客画像。
 
         Args:
@@ -63,10 +62,10 @@ class ProfileService:
     async def update_profile(
         self,
         user_id: str,
-        interests: Optional[List[str]] = None,
-        knowledge_level: Optional[str] = None,
-        narrative_preference: Optional[str] = None,
-        reflection_depth: Optional[str] = None,
+        interests: list[str] | None = None,
+        knowledge_level: str | None = None,
+        narrative_preference: str | None = None,
+        reflection_depth: str | None = None,
     ) -> VisitorProfile:
         """更新访客画像。
 
@@ -138,7 +137,7 @@ class ProfileService:
 
         return await self._repository.save(profile)
 
-    async def get_visited_exhibits(self, user_id: str) -> List[ExhibitId]:
+    async def get_visited_exhibits(self, user_id: str) -> list[ExhibitId]:
         """获取用户已参观的展品ID列表。
 
         Args:

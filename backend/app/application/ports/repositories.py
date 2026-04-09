@@ -1,4 +1,4 @@
-from typing import Any, AsyncGenerator, Protocol
+from typing import Any, Protocol
 
 from app.domain.entities import (
     ChatMessage,
@@ -6,11 +6,10 @@ from app.domain.entities import (
     Document,
     Exhibit,
     IngestionJob,
-    TourPath,
     User,
     VisitorProfile,
 )
-from app.domain.value_objects import ExhibitId, ProfileId, TourPathId, UserId
+from app.domain.value_objects import ExhibitId, ProfileId, UserId
 
 
 class UserRepositoryPort(Protocol):

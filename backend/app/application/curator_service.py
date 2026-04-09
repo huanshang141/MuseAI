@@ -1,11 +1,8 @@
 # backend/app/application/curator_service.py
-import uuid
-from typing import Any, List, Optional
+from typing import Any
 
-from app.domain.entities import Exhibit, VisitorProfile
-from app.domain.exceptions import EntityNotFoundError
-from app.domain.value_objects import ExhibitId, UserId
 from app.application.ports.repositories import CuratorAgentPort
+from app.domain.exceptions import EntityNotFoundError
 
 from .exhibit_service import ExhibitService
 from .profile_service import ProfileService
@@ -28,7 +25,7 @@ class CuratorService:
         self,
         user_id: str,
         available_time: int,
-        interests: Optional[List[str]] = None,
+        interests: list[str] | None = None,
     ) -> dict[str, Any]:
         """规划参观路线。
 
@@ -186,7 +183,7 @@ class CuratorService:
         self,
         user_id: str,
         message: str,
-        chat_history: Optional[List[dict[str, str]]] = None,
+        chat_history: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """与策展人进行对话。
 
@@ -247,7 +244,7 @@ class CuratorService:
             raise EntityNotFoundError(f"Exhibit not found: {exhibit_id}")
 
         # 获取用户画像
-        profile = await self._profile_service.get_or_create_profile(user_id)
+        await self._profile_service.get_or_create_profile(user_id)
 
         # 构建知识检索请求
         knowledge_request = f"""请检索以下展品的相关知识：

@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Curator Tools module for Digital Curation Agent.
 
 This module defines 5 LangChain tools for the curator agent:
@@ -10,26 +11,20 @@ This module defines 5 LangChain tools for the curator agent:
 
 import json
 import math
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from typing import TYPE_CHECKING
-
 from app.application.prompt_gateway import PromptGateway
 from app.domain.value_objects import ExhibitId, UserId
-from loguru import logger
-
 from app.workflows.reflection_prompts import (
     KnowledgeLevel,
     get_reflection_prompts,
 )
 
-
-
 if TYPE_CHECKING:
-    from app.domain.repositories import ExhibitRepository, VisitorProfileRepository
+    pass
 
 
 class PathPlanningInput(BaseModel):
@@ -228,7 +223,7 @@ class KnowledgeRetrievalTool(BaseTool):
         try:
             data = json.loads(query)
             input_data = KnowledgeRetrievalInput(**data)
-        except (json.JSONDecodeError, Exception) as e:
+        except (json.JSONDecodeError, Exception):
             # Try to use the raw query string
             input_data = KnowledgeRetrievalInput(query=query)
 

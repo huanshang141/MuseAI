@@ -246,7 +246,7 @@ async def get_exhibit(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid exhibit ID format: {exhibit_id}",
-        )
+        ) from None
 
     service = get_exhibit_service(session)
 

@@ -94,7 +94,7 @@ class ElasticsearchClient:
             return {"status": "created"}
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to create index {index_name}: {repr(e)}")
-            raise RetrievalError(f"Failed to create index: {type(e).__name__}")
+            raise RetrievalError(f"Failed to create index: {type(e).__name__}") from e
 
     async def index_chunk(self, chunk: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -103,7 +103,7 @@ class ElasticsearchClient:
             return cast(dict[str, Any], result)
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to index chunk: {type(e).__name__}")
-            raise RetrievalError("Failed to index chunk")
+            raise RetrievalError("Failed to index chunk") from e
 
     async def search_dense(
         self,
@@ -131,7 +131,7 @@ class ElasticsearchClient:
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
         except (ApiError, TransportError) as e:
             logger.error(f"Dense search failed: {type(e).__name__}")
-            raise RetrievalError("Dense search failed")
+            raise RetrievalError("Dense search failed") from e
 
     async def search_bm25(
         self,
@@ -161,7 +161,7 @@ class ElasticsearchClient:
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
         except (ApiError, TransportError) as e:
             logger.error(f"BM25 search failed: {type(e).__name__}")
-            raise RetrievalError("BM25 search failed")
+            raise RetrievalError("BM25 search failed") from e
 
     async def delete_by_document(self, document_id: str) -> dict[str, Any]:
         try:
@@ -171,7 +171,7 @@ class ElasticsearchClient:
             return cast(dict[str, Any], result)
         except (ApiError, TransportError) as e:
             logger.error(f"Delete by document failed: {type(e).__name__}")
-            raise RetrievalError("Delete by document failed")
+            raise RetrievalError("Delete by document failed") from e
 
     async def delete_by_query(
         self,
@@ -211,7 +211,7 @@ class ElasticsearchClient:
             return cast(dict[str, Any], result)
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to index exhibit: {type(e).__name__}")
-            raise RetrievalError("Failed to index exhibit")
+            raise RetrievalError("Failed to index exhibit") from e
 
     async def delete_exhibit(self, exhibit_id: str) -> dict[str, Any]:
         """Delete an exhibit document by ID."""
@@ -225,10 +225,10 @@ class ElasticsearchClient:
                 logger.warning(f"Exhibit not found: {exhibit_id}")
                 return {"status": "not_found"}
             logger.error(f"Failed to delete exhibit: {type(e).__name__}")
-            raise RetrievalError("Failed to delete exhibit")
+            raise RetrievalError("Failed to delete exhibit") from e
         except TransportError as e:
             logger.error(f"Failed to delete exhibit: {type(e).__name__}")
-            raise RetrievalError("Failed to delete exhibit")
+            raise RetrievalError("Failed to delete exhibit") from e
 
     async def search_exhibits(
         self,
@@ -264,4 +264,4 @@ class ElasticsearchClient:
             return [cast(dict[str, Any], hit["_source"]) for hit in response["hits"]["hits"]]
         except (ApiError, TransportError) as e:
             logger.error(f"Exhibit search failed: {type(e).__name__}")
-            raise RetrievalError("Exhibit search failed")
+            raise RetrievalError("Exhibit search failed") from e

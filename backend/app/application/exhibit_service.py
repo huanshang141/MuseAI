@@ -1,11 +1,10 @@
 # backend/app/application/exhibit_service.py
 from datetime import UTC, datetime
-from typing import List, Optional
 
 from app.domain.entities import Exhibit
 from app.domain.exceptions import EntityNotFoundError
-from app.domain.value_objects import ExhibitId, Location
 from app.domain.repositories import ExhibitRepository
+from app.domain.value_objects import ExhibitId, Location
 
 
 class ExhibitService:
@@ -67,7 +66,7 @@ class ExhibitService:
 
         return await self._repository.save(exhibit)
 
-    async def get_exhibit(self, exhibit_id: str) -> Optional[Exhibit]:
+    async def get_exhibit(self, exhibit_id: str) -> Exhibit | None:
         """根据ID获取展品。
 
         Args:
@@ -82,10 +81,10 @@ class ExhibitService:
         self,
         skip: int = 0,
         limit: int = 100,
-        category: Optional[str] = None,
-        hall: Optional[str] = None,
-        floor: Optional[int] = None,
-    ) -> List[Exhibit]:
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> list[Exhibit]:
         """获取展品列表，支持分页和筛选。
 
         Args:
@@ -118,18 +117,18 @@ class ExhibitService:
     async def update_exhibit(
         self,
         exhibit_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        location_x: Optional[float] = None,
-        location_y: Optional[float] = None,
-        floor: Optional[int] = None,
-        hall: Optional[str] = None,
-        category: Optional[str] = None,
-        era: Optional[str] = None,
-        importance: Optional[int] = None,
-        estimated_visit_time: Optional[int] = None,
-        document_id: Optional[str] = None,
-        is_active: Optional[bool] = None,
+        name: str | None = None,
+        description: str | None = None,
+        location_x: float | None = None,
+        location_y: float | None = None,
+        floor: int | None = None,
+        hall: str | None = None,
+        category: str | None = None,
+        era: str | None = None,
+        importance: int | None = None,
+        estimated_visit_time: int | None = None,
+        document_id: str | None = None,
+        is_active: bool | None = None,
     ) -> Exhibit:
         """更新展品信息。
 
@@ -205,7 +204,7 @@ class ExhibitService:
         """
         return await self._repository.delete(ExhibitId(exhibit_id))
 
-    async def find_by_interests(self, interests: List[str], limit: int = 10) -> List[Exhibit]:
+    async def find_by_interests(self, interests: list[str], limit: int = 10) -> list[Exhibit]:
         """根据兴趣标签查找相关展品。
 
         Args:
@@ -217,7 +216,7 @@ class ExhibitService:
         """
         return await self._repository.find_by_interests(interests, limit)
 
-    async def list_all_active(self) -> List[Exhibit]:
+    async def list_all_active(self) -> list[Exhibit]:
         """获取所有活跃展品。
 
         Returns:
@@ -230,10 +229,10 @@ class ExhibitService:
         query: str,
         skip: int = 0,
         limit: int = 20,
-        category: Optional[str] = None,
-        hall: Optional[str] = None,
-        floor: Optional[int] = None,
-    ) -> List[Exhibit]:
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> list[Exhibit]:
         """搜索展品（按名称）。
 
         Args:
@@ -256,7 +255,7 @@ class ExhibitService:
             limit=limit,
         )
 
-    async def get_all_categories(self) -> List[str]:
+    async def get_all_categories(self) -> list[str]:
         """获取所有类别。
 
         Returns:
@@ -264,7 +263,7 @@ class ExhibitService:
         """
         return await self._repository.get_distinct_categories()
 
-    async def get_all_halls(self) -> List[str]:
+    async def get_all_halls(self) -> list[str]:
         """获取所有展厅。
 
         Returns:

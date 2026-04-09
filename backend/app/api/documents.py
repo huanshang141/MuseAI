@@ -2,7 +2,7 @@ import os
 import tempfile
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
@@ -143,7 +143,7 @@ async def process_document_background(
             await session.commit()
 
             try:
-                async with aiofiles.open(temp_file_path, "r", encoding="utf-8") as f:
+                async with aiofiles.open(temp_file_path, encoding="utf-8") as f:
                     content = await f.read()
 
                 source = ContentSource(

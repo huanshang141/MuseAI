@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """RAG Agent模块。
 
 使用LangGraph实现多轮RAG检索状态机。

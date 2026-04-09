@@ -63,7 +63,7 @@ class IngestionService:
 
             # Prepare all documents with embeddings
             docs = []
-            for chunk, embedding in zip(chunks, embeddings_list):
+            for chunk, embedding in zip(chunks, embeddings_list, strict=False):
                 doc = {
                     "chunk_id": chunk.id,
                     "document_id": chunk.document_id,
@@ -81,8 +81,8 @@ class IngestionService:
             # Index to Elasticsearch concurrently with semaphore
             semaphore = asyncio.Semaphore(max_concurrency)
 
-            async def index_with_semaphore(doc: dict) -> None:
-                async with semaphore:
+            async def index_with_semaphore(doc: dict, _sem=semaphore) -> None:
+                async with _sem:
                     await self.es_client.index_chunk(doc)
 
             await asyncio.gather(*[index_with_semaphore(doc) for doc in docs])

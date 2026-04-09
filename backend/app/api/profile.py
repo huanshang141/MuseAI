@@ -1,5 +1,4 @@
 # backend/app/api/profile.py
-from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -14,21 +13,21 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 
 
 class UpdateProfileRequest(BaseModel):
-    interests: Optional[List[str]] = None
-    knowledge_level: Optional[str] = None
-    narrative_preference: Optional[str] = None
-    reflection_depth: Optional[str] = None
+    interests: list[str] | None = None
+    knowledge_level: str | None = None
+    narrative_preference: str | None = None
+    reflection_depth: str | None = None
 
 
 class ProfileResponse(BaseModel):
     id: str
     user_id: str
-    interests: List[str]
+    interests: list[str]
     knowledge_level: str
     narrative_preference: str
     reflection_depth: str
-    visited_exhibit_ids: List[str]
-    feedback_history: List[str]
+    visited_exhibit_ids: list[str]
+    feedback_history: list[str]
     created_at: str
     updated_at: str
 

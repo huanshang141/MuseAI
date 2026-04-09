@@ -1,7 +1,6 @@
 # backend/app/infra/postgres/repositories.py
-from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities import Exhibit, VisitorProfile
@@ -44,7 +43,7 @@ class PostgresExhibitRepository:
             updated_at=orm.updated_at,
         )
 
-    async def get_by_id(self, exhibit_id: ExhibitId) -> Optional[Exhibit]:
+    async def get_by_id(self, exhibit_id: ExhibitId) -> Exhibit | None:
         """Get an exhibit by its ID."""
         result = await self._session.execute(
             select(ExhibitORM).where(ExhibitORM.id == exhibit_id.value)
@@ -52,7 +51,7 @@ class PostgresExhibitRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
-    async def list_all(self, include_inactive: bool = False) -> List[Exhibit]:
+    async def list_all(self, include_inactive: bool = False) -> list[Exhibit]:
         """List all exhibits."""
         query = select(ExhibitORM)
         if not include_inactive:
@@ -62,7 +61,7 @@ class PostgresExhibitRepository:
 
     async def list_by_category(
         self, category: str, include_inactive: bool = False
-    ) -> List[Exhibit]:
+    ) -> list[Exhibit]:
         """List exhibits by category."""
         query = select(ExhibitORM).where(ExhibitORM.category == category)
         if not include_inactive:
@@ -72,7 +71,7 @@ class PostgresExhibitRepository:
 
     async def list_by_hall(
         self, hall: str, include_inactive: bool = False
-    ) -> List[Exhibit]:
+    ) -> list[Exhibit]:
         """List exhibits by hall."""
         query = select(ExhibitORM).where(ExhibitORM.hall == hall)
         if not include_inactive:
@@ -81,8 +80,8 @@ class PostgresExhibitRepository:
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def find_by_interests(
-        self, interests: List[str], limit: int = 10
-    ) -> List[Exhibit]:
+        self, interests: list[str], limit: int = 10
+    ) -> list[Exhibit]:
         """Find exhibits matching given interests (by category)."""
         if not interests:
             return []
@@ -147,7 +146,7 @@ class PostgresExhibitRepository:
         await self._session.flush()
         return True
 
-    async def list_all_active(self) -> List[Exhibit]:
+    async def list_all_active(self) -> list[Exhibit]:
         """Return all exhibits where is_active == True."""
         query = select(ExhibitORM).where(ExhibitORM.is_active.is_(True))
         result = await self._session.execute(query)
@@ -155,10 +154,10 @@ class PostgresExhibitRepository:
 
     async def list_with_filters(
         self,
-        category: Optional[str] = None,
-        hall: Optional[str] = None,
-        floor: Optional[int] = None,
-    ) -> List[Exhibit]:
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> list[Exhibit]:
         """List exhibits with optional filters for category, hall, and floor."""
         query = select(ExhibitORM).where(ExhibitORM.is_active.is_(True))
 
@@ -175,12 +174,12 @@ class PostgresExhibitRepository:
     async def search_by_name(
         self,
         query: str,
-        category: Optional[str] = None,
-        hall: Optional[str] = None,
-        floor: Optional[int] = None,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
         skip: int = 0,
         limit: int = 20,
-    ) -> List[Exhibit]:
+    ) -> list[Exhibit]:
         """Case-insensitive search on exhibit name with optional filters and pagination."""
         # Escape SQL LIKE wildcards to prevent unintended matching
         escaped_query = query.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
@@ -201,7 +200,7 @@ class PostgresExhibitRepository:
         result = await self._session.execute(sql_query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
-    async def get_distinct_categories(self) -> List[str]:
+    async def get_distinct_categories(self) -> list[str]:
         """Return distinct category values for active exhibits, sorted alphabetically."""
         query = (
             select(ExhibitORM.category)
@@ -213,7 +212,7 @@ class PostgresExhibitRepository:
         result = await self._session.execute(query)
         return [row[0] for row in result.all() if row[0] is not None]
 
-    async def get_distinct_halls(self) -> List[str]:
+    async def get_distinct_halls(self) -> list[str]:
         """Return distinct hall values for active exhibits, sorted alphabetically."""
         query = (
             select(ExhibitORM.hall)
@@ -253,7 +252,7 @@ class PostgresVisitorProfileRepository:
             updated_at=orm.updated_at,
         )
 
-    async def get_by_id(self, profile_id: ProfileId) -> Optional[VisitorProfile]:
+    async def get_by_id(self, profile_id: ProfileId) -> VisitorProfile | None:
         """Get a visitor profile by its ID."""
         result = await self._session.execute(
             select(VisitorProfileORM).where(VisitorProfileORM.id == profile_id.value)
@@ -261,7 +260,7 @@ class PostgresVisitorProfileRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
-    async def get_by_user_id(self, user_id: UserId) -> Optional[VisitorProfile]:
+    async def get_by_user_id(self, user_id: UserId) -> VisitorProfile | None:
         """Get a visitor profile by user ID."""
         result = await self._session.execute(
             select(VisitorProfileORM).where(

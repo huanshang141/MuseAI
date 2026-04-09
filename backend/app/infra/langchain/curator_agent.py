@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Curator Agent module for Digital Curation Agent System.
 
 This module implements a ReAct (Reasoning + Acting) agent that acts as a museum curator,

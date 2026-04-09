@@ -10,15 +10,15 @@ Records request/response information including:
 
 import time
 import uuid
-from typing import Callable
+from collections.abc import Callable
 
 from fastapi import Request, Response
+from loguru import logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.api.client_ip import extract_client_ip
 from app.config.settings import get_settings
-from loguru import logger
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -68,7 +68,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             log_level = "INFO" if response.status_code < 400 else "WARNING"
             logger.bind(request_id=request_id).log(
                 log_level,
-                f"Request completed: {request.method} {request.url.path} - {response.status_code} ({response_time_ms:.2f}ms)",
+                (f"Request completed: {request.method} {request.url.path} "
+                 f"- {response.status_code} ({response_time_ms:.2f}ms)"),
                 extra={"event": "request_completed", **response_data},
             )
 

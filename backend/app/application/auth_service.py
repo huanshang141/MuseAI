@@ -1,9 +1,9 @@
 import uuid
-from datetime import UTC, datetime
 from collections.abc import Callable
+from datetime import UTC, datetime
 
-from app.domain.entities import User as UserEntity
 from app.application.ports.repositories import UserRepositoryPort
+from app.domain.entities import User as UserEntity
 
 
 async def register_user(

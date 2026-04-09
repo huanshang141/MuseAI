@@ -1,3 +1,7 @@
+import os
+import tempfile
+
+import aiofiles
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from loguru import logger
 from pydantic import BaseModel
@@ -24,18 +28,7 @@ DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 
 
-# ============================================================================
-# Public Response Models (whitelisted fields for unauthenticated/guest access)
-# ============================================================================
-
-
 class PublicDocumentResponse(BaseModel):
-    """Public document response with whitelisted fields only.
-
-    This model formalizes the public document read contract, exposing only
-    fields that are safe for unauthenticated/guest access.
-    """
-
     id: str
     filename: str
     status: str
@@ -45,8 +38,6 @@ class PublicDocumentResponse(BaseModel):
 
 
 class PublicDocumentListResponse(BaseModel):
-    """Public document list response with whitelisted fields."""
-
     documents: list[PublicDocumentResponse]
     total: int
     limit: int
@@ -54,11 +45,6 @@ class PublicDocumentListResponse(BaseModel):
 
 
 class PublicIngestionJobResponse(BaseModel):
-    """Public ingestion job response with whitelisted fields only.
-
-    This model formalizes the public ingestion status read contract.
-    """
-
     id: str
     document_id: str
     status: str
@@ -69,14 +55,7 @@ class PublicIngestionJobResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ============================================================================
-# Admin/Full Response Models (include error field for operational needs)
-# ============================================================================
-
-
 class DocumentResponse(BaseModel):
-    """Full document response including error field for admin/operational use."""
-
     id: str
     filename: str
     status: str
@@ -99,8 +78,6 @@ class DeleteResponse(BaseModel):
 
 
 class IngestionJobResponse(BaseModel):
-    """Full ingestion job response including error field for admin/operational use."""
-
     id: str
     document_id: str
     status: str
@@ -113,15 +90,47 @@ class IngestionJobResponse(BaseModel):
 
 
 MAX_FILE_SIZE = 50 * 1024 * 1024
+CHUNK_SIZE = 64 * 1024
+
+
+async def stream_to_temp_file(file: UploadFile, max_size: int) -> tuple[str, int]:
+    """Stream upload file to a temporary file with size validation.
+
+    Reads the file in chunks, accumulating size and writing to disk.
+    Raises HTTPException if the file exceeds max_size.
+
+    Returns:
+        Tuple of (temp_file_path, total_bytes_written).
+    """
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".tmp", prefix="museai_upload_")
+    os.close(tmp_fd)
+
+    total_size = 0
+    try:
+        async with aiofiles.open(tmp_path, "wb") as f:
+            async for chunk in file.chunks(CHUNK_SIZE):
+                total_size += len(chunk)
+                if total_size > max_size:
+                    os.unlink(tmp_path)
+                    raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+                await f.write(chunk)
+    except HTTPException:
+        raise
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+    return tmp_path, total_size
 
 
 async def process_document_background(
     document_id: str,
-    content: str,
+    temp_file_path: str,
     filename: str,
     unified_indexing_service: UnifiedIndexingService,
 ):
-    """Background task to process uploaded document."""
+    """Background task to process uploaded document from temp file."""
     from app.config.settings import get_settings
 
     settings = get_settings()
@@ -130,30 +139,42 @@ async def process_document_background(
     async with get_session(session_maker) as session:
         try:
             doc_repo = PostgresDocumentRepository(session)
-            # Update status to processing
             await update_document_status(doc_repo, document_id, "processing", None)
             await session.commit()
 
-            # Use UnifiedIndexingService for indexing
-            source = ContentSource(
-                source_id=document_id,
-                source_type="document",
-                content=content,
-                metadata=ContentMetadata(filename=filename),
-            )
-            chunk_count = await unified_indexing_service.index_source(source)
+            try:
+                async with aiofiles.open(temp_file_path, "r", encoding="utf-8") as f:
+                    content = await f.read()
 
-            # Update status to completed
-            await update_document_status(doc_repo, document_id, "completed", None, chunk_count)
-            await session.commit()
+                source = ContentSource(
+                    source_id=document_id,
+                    source_type="document",
+                    content=content,
+                    metadata=ContentMetadata(filename=filename),
+                )
+                chunk_count = await unified_indexing_service.index_source(source)
 
-            logger.info(f"Document {document_id} indexed: {chunk_count} chunks")
+                await update_document_status(doc_repo, document_id, "completed", None, chunk_count)
+                await session.commit()
+
+                logger.info(f"Document {document_id} indexed: {chunk_count} chunks")
+            except UnicodeDecodeError:
+                logger.warning(f"Document {document_id} is not valid UTF-8, marking as failed")
+                await update_document_status(doc_repo, document_id, "failed", SANITIZED_ERROR_MESSAGE)
+                await session.commit()
         except Exception as e:
             logger.exception(f"Failed to process document {document_id}: {e}")
-            doc_repo = PostgresDocumentRepository(session)
-            # Use sanitized error message to prevent internal exception leakage
-            await update_document_status(doc_repo, document_id, "failed", SANITIZED_ERROR_MESSAGE)
-            await session.commit()
+            try:
+                doc_repo = PostgresDocumentRepository(session)
+                await update_document_status(doc_repo, document_id, "failed", SANITIZED_ERROR_MESSAGE)
+                await session.commit()
+            except Exception:
+                logger.exception(f"Failed to update document {document_id} status to failed")
+        finally:
+            try:
+                os.unlink(temp_file_path)
+            except OSError:
+                logger.warning(f"Failed to delete temp file {temp_file_path}")
 
 
 @router.post("/upload", response_model=DocumentResponse)
@@ -168,28 +189,19 @@ async def upload_document(
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename is required")
 
-    content = await file.read()
-    file_size = len(content)
-    await file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+    tmp_path, file_size = await stream_to_temp_file(file, MAX_FILE_SIZE)
 
     doc_repo = PostgresDocumentRepository(session)
     document = await create_document(doc_repo, file.filename, current_admin["id"])
     await session.commit()
 
-    try:
-        text_content = content.decode("utf-8")
-        background_tasks.add_task(
-            process_document_background,
-            document.id,
-            text_content,
-            file.filename,
-            unified_indexing_service,
-        )
-    except UnicodeDecodeError:
-        pass
+    background_tasks.add_task(
+        process_document_background,
+        document.id,
+        tmp_path,
+        file.filename,
+        unified_indexing_service,
+    )
 
     return DocumentResponse(
         id=document.id,
@@ -207,11 +219,6 @@ async def list_documents(
     limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     offset: int = Query(0, ge=0),
 ) -> PublicDocumentListResponse:
-    """List all documents with public field whitelist.
-
-    This endpoint is accessible to guests (unauthenticated) and authenticated users.
-    Only whitelisted public fields are exposed in the response.
-    """
     doc_repo = PostgresDocumentRepository(session)
     documents = await get_all_documents(doc_repo, limit=limit, offset=offset)
     total = await count_all_documents(doc_repo)
@@ -233,11 +240,6 @@ async def list_documents(
 
 @router.get("/{doc_id}", response_model=PublicDocumentResponse)
 async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> PublicDocumentResponse:
-    """Get a single document with public field whitelist.
-
-    This endpoint is accessible to guests (unauthenticated) and authenticated users.
-    Only whitelisted public fields are exposed in the response.
-    """
     doc_repo = PostgresDocumentRepository(session)
     document = await get_document_by_id_public(doc_repo, doc_id)
     if document is None:
@@ -255,11 +257,6 @@ async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> Pub
 async def get_document_status(
     session: SessionDep, doc_id: str, _: OptionalUser
 ) -> PublicIngestionJobResponse:
-    """Get document ingestion status with public field whitelist.
-
-    This endpoint is accessible to guests (unauthenticated) and authenticated users.
-    Only whitelisted public fields are exposed in the response.
-    """
     doc_repo = PostgresDocumentRepository(session)
     document = await get_document_by_id_public(doc_repo, doc_id)
     if document is None:
@@ -291,7 +288,6 @@ async def delete_document_endpoint(
     if not success:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # Delete from Elasticsearch
     try:
         await unified_indexing_service.delete_source(doc_id, source_type="document")
     except Exception as e:

@@ -8,11 +8,12 @@ ports (protocols) that are implemented by adapters in the infrastructure layer.
 
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from app.infra.postgres.models import Document, IngestionJob
 
 
-# Sanitized error message for public exposure
 SANITIZED_ERROR_MESSAGE = "processing_failed"
 
 
@@ -36,7 +37,7 @@ def sanitize_error_message(error: str | None) -> str | None:
     """
     if error is None:
         return None
-    # Always return a generic sanitized message to prevent any leakage
+    logger.error(f"Document service error (sanitized): {error}")
     return SANITIZED_ERROR_MESSAGE
 
 

@@ -7,6 +7,7 @@ from loguru import logger
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.error_handling import sanitize_error_message
 from app.domain.exceptions import LLMError
 from app.infra.postgres.models import ChatMessage, ChatSession
 from app.infra.providers.llm import LLMProvider
@@ -14,27 +15,7 @@ from app.infra.redis.cache import RedisCache
 
 
 def _sanitize_error_message(error: Exception) -> str:
-    """Sanitize error message for client display.
-
-    Returns a generic message that doesn't expose internal details.
-    """
-    # Build detailed error context for logging
-    error_type = type(error).__name__
-    error_msg = str(error) if str(error) else "(no message)"
-
-    # Include request URL for httpx errors if available
-    if hasattr(error, 'request'):
-        try:
-            request = error.request
-            error_msg = f"{error_msg} (URL: {request.url})"
-        except RuntimeError:
-            pass  # request property not set
-
-    # Log the actual error for debugging
-    logger.error(f"Chat service error: {error_type}: {error_msg}")
-
-    # Return generic message
-    return "An unexpected error occurred. Please try again."
+    return sanitize_error_message(error)
 
 
 async def create_session(session: AsyncSession, title: str, user_id: str) -> ChatSession:

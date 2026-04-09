@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from app.api.deps import CurrentUser, RateLimitDep, SessionDep
+from app.application.error_handling import sanitize_error_message
 from app.application.profile_service import ProfileService
 from app.domain.exceptions import EntityNotFoundError
 from app.infra.postgres.repositories import PostgresVisitorProfileRepository
@@ -86,7 +87,7 @@ async def update_profile(
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=sanitize_error_message(e),
         )
 
     return ProfileResponse(

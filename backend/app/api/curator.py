@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from app.api.deps import OptionalUser, RateLimitDep, SessionDep
 from app.application.curator_service import CuratorService
+from app.application.error_handling import sanitize_error_message
 from app.application.exhibit_service import ExhibitService
 from app.application.profile_service import ProfileService
 from app.domain.exceptions import EntityNotFoundError
@@ -155,7 +156,7 @@ async def generate_narrative(
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=sanitize_error_message(e),
         ) from None
 
     return NarrativeResponse(**result)
@@ -184,7 +185,7 @@ async def get_reflection_prompts(
     except EntityNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
+            detail=sanitize_error_message(e),
         ) from None
 
     return ReflectionResponse(**result)

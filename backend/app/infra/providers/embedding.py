@@ -63,7 +63,8 @@ class OllamaEmbeddingProvider:
 
                 if len(embedding) != self.dims:
                     raise ValueError(
-                        f"Embedding dimension mismatch: expected {self.dims}, got {len(embedding)}"
+                        f"Embedding dimension mismatch: "
+                        f"expected {self.dims}, got {len(embedding)}"
                     )
 
                 return embedding
@@ -72,58 +73,123 @@ class OllamaEmbeddingProvider:
                 if self._should_retry(e) and attempt < self.max_retries - 1:
                     delay = self.retry_delay * (2**attempt)
                     logger.warning(
-                        f"Embedding attempt {attempt + 1}/{self.max_retries} failed "
+                        f"Embedding attempt {attempt + 1} failed "
                         f"with HTTP {e.response.status_code}, retrying in {delay}s"
                     )
                     await asyncio.sleep(delay)
                 else:
                     raise RuntimeError(
-                        f"Embedding service returned error: {e.response.status_code}"
+                        f"Embedding service returned error: "
+                        f"{e.response.status_code}"
                     ) from e
             except httpx.TimeoutException as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
                     delay = self.retry_delay * (2**attempt)
                     logger.warning(
-                        f"Embedding attempt {attempt + 1}/{self.max_retries} timed out, "
+                        f"Embedding attempt {attempt + 1} timed out, "
                         f"retrying in {delay}s"
                     )
                     await asyncio.sleep(delay)
                 else:
                     raise RuntimeError(
-                        f"Embedding service at {self.base_url} timed out after {self.max_retries} attempts"
+                        f"Embedding service at {self.base_url} "
+                        f"timed out after {self.max_retries} attempts"
                     ) from e
             except httpx.ConnectTimeout as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
                     delay = self.retry_delay * (2**attempt)
                     logger.warning(
-                        f"Embedding attempt {attempt + 1}/{self.max_retries} connection timed out, "
-                        f"retrying in {delay}s"
+                        f"Embedding attempt {attempt + 1} "
+                        f"connection timed out, retrying in {delay}s"
                     )
                     await asyncio.sleep(delay)
                 else:
                     raise RuntimeError(
-                        f"Failed to connect to embedding service at {self.base_url} after {self.max_retries} attempts"
+                        f"Failed to connect to embedding service "
+                        f"at {self.base_url} after {self.max_retries} attempts"
                     ) from e
 
-        raise RuntimeError(f"Embedding failed after {self.max_retries} attempts: {last_error}") from last_error
+        raise RuntimeError(
+            f"Embedding failed after {self.max_retries} attempts: "
+            f"{last_error}"
+        ) from last_error
 
-    async def embed_batch(self, texts: list[str], max_concurrency: int = 5) -> list[list[float]]:
+    async def embed_batch(
+        self,
+        texts: list[str],
+        batch_size: int = 20,
+        max_concurrency: int = 5,
+    ) -> list[list[float]]:
+        if not texts:
+            return []
+
         semaphore = asyncio.Semaphore(max_concurrency)
 
-        async def embed_with_semaphore(text: str) -> list[float]:
+        async def embed_batch_chunk(
+            chunk: list[str],
+        ) -> list[list[float]]:
             async with semaphore:
-                return await self.embed(text)
+                last_error: Exception | None = None
+                for attempt in range(self.max_retries):
+                    try:
+                        response = await self.client.post(
+                            f"{self.base_url}/api/embed",
+                            json={"model": self.model, "input": chunk},
+                        )
+                        response.raise_for_status()
+                        data = response.json()
+                        embeddings = data.get("embeddings", [])
+                        if len(embeddings) != len(chunk):
+                            raise ValueError(
+                                f"Batch count mismatch: "
+                                f"expected {len(chunk)}, got {len(embeddings)}"
+                            )
+                        for i, emb in enumerate(embeddings):
+                            if len(emb) != self.dims:
+                                raise ValueError(
+                                    f"Dimension mismatch at {i}: "
+                                    f"expected {self.dims}, got {len(emb)}"
+                                )
+                        return embeddings
+                    except (
+                        httpx.TimeoutException,
+                        httpx.HTTPStatusError,
+                    ) as e:
+                        last_error = e
+                        if self._should_retry(e) and attempt < self.max_retries - 1:
+                            delay = self.retry_delay * (2**attempt)
+                            logger.warning(
+                                f"Batch attempt {attempt + 1} failed, "
+                                f"retrying in {delay}s"
+                            )
+                            await asyncio.sleep(delay)
+                        else:
+                            raise RuntimeError(
+                                f"Batch embedding failed: {last_error}"
+                            ) from e
+                raise RuntimeError(
+                    f"Batch failed after {self.max_retries} attempts: "
+                    f"{last_error}"
+                ) from last_error
+
+        batches = [
+            texts[i : i + batch_size]
+            for i in range(0, len(texts), batch_size)
+        ]
 
         results = await asyncio.gather(
-            *[embed_with_semaphore(text) for text in texts], return_exceptions=True
+            *[embed_batch_chunk(b) for b in batches],
+            return_exceptions=True,
         )
 
-        embeddings = []
+        all_embeddings = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                raise RuntimeError(f"Failed to embed text at index {i}: {result}")
-            embeddings.append(result)
+                raise RuntimeError(
+                    f"Failed to embed batch at index {i}: {result}"
+                ) from result
+            all_embeddings.extend(result)
 
-        return embeddings
+        return all_embeddings

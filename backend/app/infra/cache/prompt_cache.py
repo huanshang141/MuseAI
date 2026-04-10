@@ -51,7 +51,6 @@ class PromptCache:
             if key in self._cache:
                 return self._cache[key]
 
-        # Cache miss - try to load from database (outside lock)
         if self._repository:
             prompt = await self._repository.get_by_key(key)
             if prompt and prompt.is_active:
@@ -61,7 +60,7 @@ class PromptCache:
 
         return None
 
-    def refresh(self, prompt: Prompt) -> None:
+    async def refresh(self, prompt: Prompt) -> None:
         """Refresh a single prompt in cache.
 
         If the prompt is active, it's added/updated in cache.
@@ -71,22 +70,24 @@ class PromptCache:
             prompt: Prompt entity to cache
         """
         key = prompt.key
-        if prompt.is_active:
-            self._cache[key] = prompt
-            logger.info(f"Refreshed prompt in cache: {key}")
-        elif key in self._cache:
-            del self._cache[key]
-            logger.info(f"Removed inactive prompt from cache: {key}")
+        async with self._lock:
+            if prompt.is_active:
+                self._cache[key] = prompt
+                logger.info(f"Refreshed prompt in cache: {key}")
+            elif key in self._cache:
+                del self._cache[key]
+                logger.info(f"Removed inactive prompt from cache: {key}")
 
-    def invalidate(self, key: str) -> None:
+    async def invalidate(self, key: str) -> None:
         """Remove a prompt from cache.
 
         Args:
             key: Prompt key to remove
         """
-        if key in self._cache:
-            del self._cache[key]
-            logger.info(f"Invalidated prompt from cache: {key}")
+        async with self._lock:
+            if key in self._cache:
+                del self._cache[key]
+                logger.info(f"Invalidated prompt from cache: {key}")
 
     def clear(self) -> None:
         """Clear all prompts from cache."""

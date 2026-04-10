@@ -1,12 +1,12 @@
 import { ref } from 'vue'
 import { api } from '../api/index.js'
 
+const exhibits = ref([])
+const currentExhibit = ref(null)
+const loading = ref(false)
+const error = ref(null)
+
 export function useExhibits() {
-  // State is now encapsulated within each useExhibits instance
-  const exhibits = ref([])
-  const currentExhibit = ref(null)
-  const loading = ref(false)
-  const error = ref(null)
 
   async function fetchExhibits(params = {}) {
     loading.value = true
@@ -41,6 +41,13 @@ export function useExhibits() {
     return fetchExhibits({ hall })
   }
 
+  function reset() {
+    exhibits.value = []
+    currentExhibit.value = null
+    loading.value = false
+    error.value = null
+  }
+
   return {
     exhibits,
     currentExhibit,
@@ -49,6 +56,7 @@ export function useExhibits() {
     fetchExhibits,
     getExhibit,
     filterByCategory,
-    filterByHall
+    filterByHall,
+    reset,
   }
 }

@@ -54,7 +54,7 @@ async function requestWithRetry(path, options = {}, config = { retries: 0, baseD
   let attempt = 0
   while (true) {
     const result = await request(path, options)
-    const retryable = result.status === 0 || result.status >= 500
+    const retryable = result.status === 0 || result.status >= 500 || result.status === 429
 
     if (!retryable || attempt >= config.retries) {
       return result
@@ -72,14 +72,14 @@ export const api = {
 
   // Auth endpoints
   auth: {
-    register: (email, password) => request('/auth/register', {
+    register: (email, password) => requestWithRetry('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    }),
-    login: (email, password) => request('/auth/login', {
+    }, { retries: 1 }),
+    login: (email, password) => requestWithRetry('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    }),
+    }, { retries: 1 }),
     logout: () => request('/auth/logout', {
       method: 'POST',
     }),

@@ -1,9 +1,10 @@
 import { ref } from 'vue'
 import { api } from '../api/index.js'
 
+const loading = ref(false)
+const error = ref(null)
+
 export function useCurator() {
-  const loading = ref(false)
-  const error = ref(null)
 
   async function planTour(availableTime, interests) {
     loading.value = true
@@ -59,11 +60,17 @@ export function useCurator() {
     }
   }
 
+  function reset() {
+    loading.value = false
+    error.value = null
+  }
+
   return {
     loading,
     error,
     planTour,
     generateNarrative,
     getReflectionPrompts,
+    reset,
   }
 }

@@ -5,6 +5,8 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.domain.value_objects import DocumentId, JobId, SessionId, UserId
+
 
 class Base(DeclarativeBase):
     pass
@@ -19,6 +21,17 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+
+    def to_entity(self):
+        from app.domain.entities import User as UserEntity
+        return UserEntity(
+            id=UserId(self.id),
+            email=self.email,
+            password_hash=self.password_hash,
+            created_at=self.created_at,
+            role=self.role,
+        )
+
     sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     profile: Mapped["VisitorProfile"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
     created_tour_paths: Mapped[list["TourPath"]] = relationship(back_populates="creator")
@@ -31,6 +44,16 @@ class ChatSession(Base):
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+    def to_entity(self):
+        from app.domain.entities import ChatSession as ChatSessionEntity
+        return ChatSessionEntity(
+            id=SessionId(self.id),
+            user_id=UserId(self.user_id),
+            title=self.title,
+            created_at=self.created_at,
+        )
 
     user: Mapped["User"] = relationship(back_populates="sessions")
     messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan")
@@ -46,6 +69,18 @@ class ChatMessage(Base):
     trace_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+
+    def to_entity(self):
+        from app.domain.entities import ChatMessage as ChatMessageEntity
+        return ChatMessageEntity(
+            id=self.id,
+            session_id=SessionId(self.session_id),
+            role=self.role,
+            content=self.content,
+            trace_id=self.trace_id or "",
+            created_at=self.created_at,
+        )
+
     session: Mapped["ChatSession"] = relationship(back_populates="messages")
 
 
@@ -58,6 +93,17 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+
+    def to_entity(self):
+        from app.domain.entities import Document as DocumentEntity
+        return DocumentEntity(
+            id=DocumentId(self.id),
+            user_id=UserId(self.user_id),
+            filename=self.filename,
+            status=self.status,
+            created_at=self.created_at,
+        )
 
     ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(back_populates="document", cascade="all, delete-orphan")
     exhibits: Mapped[list["Exhibit"]] = relationship(back_populates="document")
@@ -75,6 +121,18 @@ class IngestionJob(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
+
+
+    def to_entity(self):
+        from app.domain.entities import IngestionJob as IngestionJobEntity
+        return IngestionJobEntity(
+            id=JobId(self.id),
+            document_id=DocumentId(self.document_id),
+            status=self.status,
+            chunk_count=self.chunk_count,
+            created_at=self.created_at,
+            error=self.error,
+        )
 
     document: Mapped["Document"] = relationship(back_populates="ingestion_jobs")
 

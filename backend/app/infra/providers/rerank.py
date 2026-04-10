@@ -219,9 +219,16 @@ def create_rerank_provider(settings: Settings) -> BaseRerankProvider | None:
         - "cohere": Cohere API（使用OpenAI兼容模式）
         - "mock": 模拟提供者（用于测试）
     """
-    logger.info(f"create_rerank_provider called: RERANK_PROVIDER={settings.RERANK_PROVIDER}, "
-                f"RERANK_API_KEY={'***' + settings.RERANK_API_KEY[-4:] if settings.RERANK_API_KEY else 'None'}, "
-                f"RERANK_MODEL={settings.RERANK_MODEL}")
+    masked_key = (
+        "***" + settings.RERANK_API_KEY[-4:]
+        if settings.RERANK_API_KEY and len(settings.RERANK_API_KEY) > 4
+        else "***" if settings.RERANK_API_KEY
+        else "None"
+    )
+    logger.info(
+        f"create_rerank_provider called: RERANK_PROVIDER={settings.RERANK_PROVIDER}, "
+        f"RERANK_API_KEY={masked_key}, RERANK_MODEL={settings.RERANK_MODEL}"
+    )
 
     provider_type = settings.RERANK_PROVIDER.lower()
 

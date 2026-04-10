@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -46,10 +47,37 @@ async def _with_heartbeat(
     Also sends an initial 'retry:' directive for client reconnection.
     """
     yield "retry: 3000\n\n"
-    async for event in stream:
-        yield event
-        if request and await request.is_disconnected():
-            return
+    stream_iter = stream.__aiter__()
+    pending_heartbeat = asyncio.ensure_future(asyncio.sleep(interval))
+    pending_event: asyncio.Task | None = None
+
+    try:
+        while True:
+            if pending_event is None:
+                pending_event = asyncio.ensure_future(stream_iter.__anext__())
+
+            done, _ = await asyncio.wait(
+                {pending_heartbeat, pending_event},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if pending_heartbeat in done:
+                yield ": heartbeat\n\n"
+                pending_heartbeat = asyncio.ensure_future(asyncio.sleep(interval))
+
+            if pending_event in done:
+                try:
+                    event = pending_event.result()
+                    yield event
+                    if request and await request.is_disconnected():
+                        return
+                    pending_event = None
+                except StopAsyncIteration:
+                    return
+    finally:
+        pending_heartbeat.cancel()
+        if pending_event is not None:
+            pending_event.cancel()
 
 
 class CreateSessionRequest(BaseModel):

@@ -59,7 +59,7 @@ class ReflectionResponse(BaseModel):
     session_id: str
 
 
-def get_curator_service(session: SessionDep, request: Request) -> CuratorService:
+async def get_curator_service(session: SessionDep, request: Request) -> CuratorService:
     """Get curator service instance with all dependencies."""
     # Create repositories
     profile_repository = PostgresVisitorProfileRepository(session)
@@ -86,7 +86,7 @@ def get_curator_service(session: SessionDep, request: Request) -> CuratorService
     )
 
     # Create curator agent
-    curator_agent = CuratorAgent(
+    curator_agent = await CuratorAgent.create(
         llm=llm,
         tools=tools,
         session_id=str(uuid.uuid4()),
@@ -121,7 +121,7 @@ async def plan_tour(
     Supports both authenticated users and guests.
     Guests get a temporary profile that won't persist.
     """
-    service = get_curator_service(session, http_request)
+    service = await get_curator_service(session, http_request)
     user_id = get_user_id(current_user)
 
     result = await service.plan_tour(
@@ -145,7 +145,7 @@ async def generate_narrative(
 
     Supports both authenticated users and guests.
     """
-    service = get_curator_service(session, http_request)
+    service = await get_curator_service(session, http_request)
     user_id = get_user_id(current_user)
 
     try:
@@ -174,7 +174,7 @@ async def get_reflection_prompts(
 
     Supports both authenticated users and guests.
     """
-    service = get_curator_service(session, http_request)
+    service = await get_curator_service(session, http_request)
     user_id = get_user_id(current_user)
 
     try:

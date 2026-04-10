@@ -21,7 +21,7 @@ class PostgresUserRepository:
 
     def _to_model(self, entity: UserEntity) -> UserModel:
         return UserModel(
-            id=entity.id,
+            id=entity.id if isinstance(entity.id, str) else entity.id.value,
             email=entity.email,
             password_hash=entity.password_hash,
             role=entity.role,

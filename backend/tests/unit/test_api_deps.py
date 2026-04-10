@@ -417,15 +417,13 @@ class TestCheckAuthRateLimit:
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(return_value=True)  # First request
+        mock_redis.check_rate_limit = AsyncMock(return_value=True)
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()
         mock_request.client.host = "192.168.1.1"
         mock_request.headers = {}
 
-        # Should not raise
         await check_auth_rate_limit(request=mock_request, redis=mock_redis)
 
     @pytest.mark.asyncio
@@ -434,9 +432,7 @@ class TestCheckAuthRateLimit:
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(return_value=False)  # Not first request
-        mock_redis.client.incr = AsyncMock(return_value=101)  # Exceeded limit
+        mock_redis.check_rate_limit = AsyncMock(return_value=False)
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()
@@ -450,21 +446,18 @@ class TestCheckAuthRateLimit:
         assert "too many" in exc_info.value.detail.lower()
 
     @pytest.mark.asyncio
-    async def test_allows_at_limit_boundary(self):
-        """check_auth_rate_limit should allow exactly 5 requests."""
+    async def test_allows_within_limit(self):
+        """check_auth_rate_limit should allow requests within limit."""
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(return_value=False)
-        mock_redis.client.incr = AsyncMock(return_value=5)  # Exactly at limit
+        mock_redis.check_rate_limit = AsyncMock(return_value=True)
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()
         mock_request.client.host = "192.168.1.1"
         mock_request.headers = {}
 
-        # Should not raise - exactly at limit is allowed
         await check_auth_rate_limit(request=mock_request, redis=mock_redis)
 
     @pytest.mark.asyncio
@@ -473,17 +466,16 @@ class TestCheckAuthRateLimit:
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(return_value=True)
+        mock_redis.check_rate_limit = AsyncMock(return_value=True)
 
         mock_request = MagicMock()
-        mock_request.client = None  # No client info
+        mock_request.client = None
         mock_request.headers = {}
 
-        # Should not raise, uses "unknown" as IP
         await check_auth_rate_limit(request=mock_request, redis=mock_redis)
 
-        call_args = mock_redis.client.set.call_args
+        mock_redis.check_rate_limit.assert_called_once()
+        call_args = mock_redis.check_rate_limit.call_args
         assert "unknown" in call_args[0][0]
 
     @pytest.mark.asyncio
@@ -492,12 +484,11 @@ class TestCheckAuthRateLimit:
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(return_value=True)
+        mock_redis.check_rate_limit = AsyncMock(return_value=True)
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()
-        mock_request.client.host = "10.0.0.1"  # Trusted proxy IP
+        mock_request.client.host = "10.0.0.1"
         mock_request.headers = {"X-Forwarded-For": "203.0.113.1, 10.0.0.1"}
 
         with patch("app.api.deps.get_settings") as mock_settings:
@@ -505,8 +496,7 @@ class TestCheckAuthRateLimit:
 
             await check_auth_rate_limit(request=mock_request, redis=mock_redis)
 
-            # Check that the key uses the forwarded IP (first in chain)
-            call_args = mock_redis.client.set.call_args
+            call_args = mock_redis.check_rate_limit.call_args
             assert "203.0.113.1" in call_args[0][0]
 
     @pytest.mark.asyncio
@@ -515,8 +505,7 @@ class TestCheckAuthRateLimit:
         from app.api.deps import check_auth_rate_limit
 
         mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.set = AsyncMock(side_effect=RedisError("Connection refused"))
+        mock_redis.check_rate_limit = AsyncMock(side_effect=RedisError("Connection refused"))
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()

@@ -148,9 +148,13 @@ async def test_plan_tour_endpoint(db_session, auth_token):
         "session_id": "test-session-123",
     }
 
+    mock_agent = MagicMock(run=AsyncMock(return_value=mock_result))
+    mock_curator_class = MagicMock()
+    mock_curator_class.create = AsyncMock(return_value=mock_agent)
+
     with patch(
         "app.api.curator.CuratorAgent",
-        return_value=MagicMock(run=AsyncMock(return_value=mock_result)),
+        mock_curator_class,
     ):
         try:
             transport = ASGITransport(app=app)
@@ -190,9 +194,13 @@ async def test_plan_tour_without_interests(db_session, auth_token):
         "session_id": "test-session-456",
     }
 
+    mock_agent = MagicMock(run=AsyncMock(return_value=mock_result))
+    mock_curator_class = MagicMock()
+    mock_curator_class.create = AsyncMock(return_value=mock_agent)
+
     with patch(
         "app.api.curator.CuratorAgent",
-        return_value=MagicMock(run=AsyncMock(return_value=mock_result)),
+        mock_curator_class,
     ):
         try:
             transport = ASGITransport(app=app)
@@ -226,9 +234,13 @@ async def test_narrative_endpoint(db_session, auth_token, exhibit_id):
         "session_id": "test-session-789",
     }
 
+    mock_agent = MagicMock(run=AsyncMock(return_value=mock_result))
+    mock_curator_class = MagicMock()
+    mock_curator_class.create = AsyncMock(return_value=mock_agent)
+
     with patch(
         "app.api.curator.CuratorAgent",
-        return_value=MagicMock(run=AsyncMock(return_value=mock_result)),
+        mock_curator_class,
     ):
         try:
             transport = ASGITransport(app=app)
@@ -292,9 +304,13 @@ async def test_reflection_endpoint(db_session, auth_token, exhibit_id):
         "session_id": "test-session-abc",
     }
 
+    mock_agent = MagicMock(run=AsyncMock(return_value=mock_result))
+    mock_curator_class = MagicMock()
+    mock_curator_class.create = AsyncMock(return_value=mock_agent)
+
     with patch(
         "app.api.curator.CuratorAgent",
-        return_value=MagicMock(run=AsyncMock(return_value=mock_result)),
+        mock_curator_class,
     ):
         try:
             transport = ASGITransport(app=app)

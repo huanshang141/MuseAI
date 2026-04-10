@@ -43,12 +43,14 @@ class ChatMessage:
 class Document:
     def update_status(self, status: str, error: str | None = None) -> None:
         self.status = status
+        self.error = error
 
     id: DocumentId
     user_id: UserId
     filename: str
     status: str
     created_at: datetime
+    error: str | None = None
 
 
 @dataclass
@@ -80,14 +82,33 @@ class IngestionJob:
 
 @dataclass
 class Exhibit:
-    def update_details(self, name: str = None, description: str = None, **kwargs) -> None:
+    def update_details(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+        hall: str | None = None,
+        category: str | None = None,
+        era: str | None = None,
+        importance: int | None = None,
+        estimated_visit_time: int | None = None,
+        document_id: str | None = None,
+    ) -> None:
         if name is not None:
             self.name = name
         if description is not None:
             self.description = description
-        for k, v in kwargs.items():
-            if hasattr(self, k) and v is not None:
-                setattr(self, k, v)
+        if hall is not None:
+            self.hall = hall
+        if category is not None:
+            self.category = category
+        if era is not None:
+            self.era = era
+        if importance is not None:
+            self.importance = importance
+        if estimated_visit_time is not None:
+            self.estimated_visit_time = estimated_visit_time
+        if document_id is not None:
+            self.document_id = document_id
 
     def deactivate(self) -> None:
         self.is_active = False
@@ -123,10 +144,21 @@ class TourPath:
 
 @dataclass
 class VisitorProfile:
-    def update_preferences(self, **kwargs) -> None:
-        for k, v in kwargs.items():
-            if hasattr(self, k) and v is not None:
-                setattr(self, k, v)
+    def update_preferences(
+        self,
+        interests: list[str] | None = None,
+        knowledge_level: str | None = None,
+        narrative_preference: str | None = None,
+        reflection_depth: str | None = None,
+    ) -> None:
+        if interests is not None:
+            self.interests = interests
+        if knowledge_level is not None:
+            self.knowledge_level = knowledge_level
+        if narrative_preference is not None:
+            self.narrative_preference = narrative_preference
+        if reflection_depth is not None:
+            self.reflection_depth = reflection_depth
 
     id: ProfileId
     user_id: UserId

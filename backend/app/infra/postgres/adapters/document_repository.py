@@ -143,7 +143,6 @@ class PostgresDocumentRepository:
         error: str | None = None,
         chunk_count: int | None = None,
     ) -> Document | None:
-        """Update document status and associated ingestion job in single flush."""
         """Update document status and optionally error/chunk count.
 
         Args:

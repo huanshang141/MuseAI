@@ -113,6 +113,7 @@ class Document(Base):
             filename=self.filename,
             status=self.status,
             created_at=self.created_at,
+            error=self.error,
         )
 
     ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(back_populates="document", cascade="all, delete-orphan")

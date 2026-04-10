@@ -131,7 +131,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {"id": user.id if isinstance(user.id, str) else user.id.value, "email": user.email, "role": user.role}
 
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
@@ -175,7 +175,7 @@ async def get_optional_user(
     if user is None:
         return None
 
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {"id": user.id if isinstance(user.id, str) else user.id.value, "email": user.email, "role": user.role}
 
 
 OptionalUser = Annotated[dict | None, Depends(get_optional_user)]
@@ -277,12 +277,7 @@ async def check_auth_rate_limit(
     key = f"auth_rate:{client_ip}"
 
     try:
-        first_request = await redis.client.set(key, 1, ex=60, nx=True)
-        if first_request:
-            return
-
-        count = await redis.client.incr(key)
-        if count > 100:  # 100 attempts per minute (increased from 5)
+        if not await redis.check_rate_limit(key, max_requests=100, window_seconds=60):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Too many authentication attempts. Please try again later.",

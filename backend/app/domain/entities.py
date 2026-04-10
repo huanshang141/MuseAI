@@ -17,6 +17,12 @@ class User:
 
 @dataclass
 class ChatSession:
+    def add_message(self, message: "ChatMessage") -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
     id: SessionId
     user_id: UserId
     title: str
@@ -35,6 +41,9 @@ class ChatMessage:
 
 @dataclass
 class Document:
+    def update_status(self, status: str, error: str | None = None) -> None:
+        self.status = status
+
     id: DocumentId
     user_id: UserId
     filename: str
@@ -71,6 +80,18 @@ class IngestionJob:
 
 @dataclass
 class Exhibit:
+    def update_details(self, name: str = None, description: str = None, **kwargs) -> None:
+        if name is not None:
+            self.name = name
+        if description is not None:
+            self.description = description
+        for k, v in kwargs.items():
+            if hasattr(self, k) and v is not None:
+                setattr(self, k, v)
+
+    def deactivate(self) -> None:
+        self.is_active = False
+
     id: ExhibitId
     name: str
     description: str
@@ -102,6 +123,11 @@ class TourPath:
 
 @dataclass
 class VisitorProfile:
+    def update_preferences(self, **kwargs) -> None:
+        for k, v in kwargs.items():
+            if hasattr(self, k) and v is not None:
+                setattr(self, k, v)
+
     id: ProfileId
     user_id: UserId
     interests: list[str]

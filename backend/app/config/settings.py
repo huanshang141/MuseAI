@@ -15,6 +15,14 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "MuseAI"
     APP_ENV: str = "development"
+
+    @field_validator("APP_ENV")
+    @classmethod
+    def validate_app_env(cls, v: str) -> str:
+        allowed = {"development", "test", "local", "production"}
+        if v not in allowed:
+            raise ValueError(f"APP_ENV must be one of {allowed}, got {v!r}")
+        return v
     DEBUG: bool = False  # Changed: Default to False
 
     DATABASE_URL: str = "sqlite+aiosqlite:///:memory:"
@@ -37,6 +45,13 @@ class Settings(BaseSettings):
     ELASTICSEARCH_INDEX: str = "museai_chunks_v1"
     EMBEDDING_DIMS: int = 768
 
+    @field_validator("EMBEDDING_DIMS")
+    @classmethod
+    def validate_embedding_dims(cls, v: int) -> int:
+        if v <= 0 or v > 4096:
+            raise ValueError(f"EMBEDDING_DIMS must be between 1 and 4096, got {v}")
+        return v
+
     # Rerank服务配置
     RERANK_PROVIDER: str = "openai"  # openai, cohere, custom
     RERANK_BASE_URL: str = ""
@@ -54,6 +69,15 @@ class Settings(BaseSettings):
 
     # Logging settings
     LOG_LEVEL: str = "INFO"
+
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        v_upper = v.upper()
+        if v_upper not in allowed:
+            raise ValueError(f"LOG_LEVEL must be one of {allowed}, got {v!r}")
+        return v_upper
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "json"  # "json" or "text"
 
@@ -77,12 +101,7 @@ class Settings(BaseSettings):
             return set()
         return {proxy.strip() for proxy in self.TRUSTED_PROXIES.split(",") if proxy.strip()}
 
-    @field_validator("EMBEDDING_DIMS")
-    @classmethod
-    def validate_embedding_dims(cls, v: int) -> int:
-        if v <= 0:
-            raise ValueError("EMBEDDING_DIMS must be positive")
-        return v
+    
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

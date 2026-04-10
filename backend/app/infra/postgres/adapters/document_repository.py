@@ -143,6 +143,7 @@ class PostgresDocumentRepository:
         error: str | None = None,
         chunk_count: int | None = None,
     ) -> Document | None:
+        """Update document status and associated ingestion job in single flush."""
         """Update document status and optionally error/chunk count.
 
         Args:
@@ -161,10 +162,7 @@ class PostgresDocumentRepository:
             return None
         document.status = status
         document.error = error
-        await self._session.flush()
-        await self._session.refresh(document)
 
-        # Also update the IngestionJob
         job_stmt = select(IngestionJob).where(IngestionJob.document_id == document_id)
         job_result = await self._session.execute(job_stmt)
         ingestion_job = job_result.scalar_one_or_none()
@@ -174,6 +172,8 @@ class PostgresDocumentRepository:
             if chunk_count is not None:
                 ingestion_job.chunk_count = chunk_count
 
+        await self._session.flush()
+        await self._session.refresh(document)
         return document
 
     async def delete(self, document_id: str) -> bool:

@@ -6,6 +6,7 @@ from jose import JWTError, jwt
 
 
 class JWTHandler:
+    REFRESH_EXPIRE_DAYS = 7
     def __init__(self, secret: str, algorithm: str, expire_minutes: int):
         self.secret = secret
         self.algorithm = algorithm

@@ -1,6 +1,7 @@
 """In-memory cache for prompts with hot-reload support."""
 
 import asyncio
+from collections import OrderedDict
 
 from loguru import logger
 
@@ -11,8 +12,9 @@ from app.infra.postgres.prompt_repository import PostgresPromptRepository
 class PromptCache:
     """In-memory cache for prompts with automatic refresh support."""
 
-    def __init__(self) -> None:
-        self._cache: dict[str, Prompt] = {}
+    def __init__(self, max_size: int = 100) -> None:
+        self._cache: OrderedDict[str, Prompt] = OrderedDict()
+        self._max_size = max_size
         self._repository: PostgresPromptRepository | None = None
         self._lock = asyncio.Lock()
 
@@ -49,6 +51,7 @@ class PromptCache:
         """
         async with self._lock:
             if key in self._cache:
+                self._cache.move_to_end(key)
                 return self._cache[key]
 
         if self._repository:
@@ -56,6 +59,8 @@ class PromptCache:
             if prompt and prompt.is_active:
                 async with self._lock:
                     self._cache[key] = prompt
+                    self._cache.move_to_end(key)
+                    self._evict_if_needed()
                 return prompt
 
         return None
@@ -88,6 +93,10 @@ class PromptCache:
             if key in self._cache:
                 del self._cache[key]
                 logger.info(f"Invalidated prompt from cache: {key}")
+
+    def _evict_if_needed(self) -> None:
+        while len(self._cache) > self._max_size:
+            self._cache.popitem(last=False)
 
     def clear(self) -> None:
         """Clear all prompts from cache."""

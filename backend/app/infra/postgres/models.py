@@ -5,7 +5,17 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from app.domain.value_objects import DocumentId, JobId, SessionId, UserId
+from app.domain.value_objects import (
+    DocumentId,
+    ExhibitId,
+    JobId,
+    Location,
+    ProfileId,
+    PromptId,
+    SessionId,
+    TourPathId,
+    UserId,
+)
 
 
 class Base(DeclarativeBase):
@@ -158,6 +168,24 @@ class Exhibit(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
+
+    def to_entity(self):
+        from app.domain.entities import Exhibit as ExhibitEntity
+        return ExhibitEntity(
+            id=ExhibitId(self.id),
+            name=self.name,
+            description=self.description or "",
+            location=Location(x=self.location_x or 0.0, y=self.location_y or 0.0),
+            hall=self.hall or "",
+            category=self.category or "",
+            era=self.era or "",
+            importance=self.importance,
+            estimated_visit_time=self.estimated_visit_time or 0,
+            document_id=self.document_id or "",
+            is_active=self.is_active,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
     document: Mapped["Document"] = relationship(back_populates="exhibits")
 
 
@@ -177,6 +205,21 @@ class TourPath(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
+
+    def to_entity(self):
+        from app.domain.entities import TourPath as TourPathEntity
+        return TourPathEntity(
+            id=TourPathId(self.id),
+            name=self.name,
+            description=self.description or "",
+            theme=self.theme or "",
+            estimated_duration=self.estimated_duration or 0,
+            exhibit_ids=[ExhibitId(eid) for eid in (self.exhibit_ids or [])],
+            is_active=self.is_active,
+            created_by=UserId(self.created_by) if self.created_by else UserId(""),
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
     creator: Mapped["User"] = relationship(back_populates="created_tour_paths")
 
 
@@ -196,6 +239,21 @@ class VisitorProfile(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
+
+    def to_entity(self):
+        from app.domain.entities import VisitorProfile as VPEntity
+        return VPEntity(
+            id=ProfileId(self.id),
+            user_id=UserId(self.user_id),
+            interests=self.interests or [],
+            knowledge_level=self.knowledge_level,
+            narrative_preference=self.narrative_preference,
+            reflection_depth=str(self.reflection_depth),
+            visited_exhibit_ids=[ExhibitId(eid) for eid in (self.visited_exhibit_ids or [])],
+            feedback_history=self.feedback_history or [],
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
     user: Mapped["User"] = relationship(back_populates="profile")
 
 
@@ -215,6 +273,21 @@ class Prompt(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
     )
 
+
+    def to_entity(self):
+        from app.domain.entities import Prompt as PromptEntity
+        return PromptEntity(
+            id=PromptId(self.id),
+            key=self.key,
+            name=self.name,
+            description=self.description,
+            category=self.category,
+            content=self.content,
+            variables=self.variables or [],
+            is_active=self.is_active,
+            created_at=self.created_at,
+            updated_at=self.updated_at,
+        )
     versions: Mapped[list["PromptVersion"]] = relationship(back_populates="prompt", cascade="all, delete-orphan")
 
 

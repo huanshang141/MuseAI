@@ -220,15 +220,15 @@ def test_password_no_digit():
 
 def test_valid_password_accepted():
     """Test that valid passwords meeting all requirements are accepted."""
-    request = RegisterRequest(email="test@example.com", password="ValidPass1")
-    assert request.password == "ValidPass1"
+    request = RegisterRequest(email="test@example.com", password="ValidPass1!")
+    assert request.password == "ValidPass1!"
     assert request.email == "test@example.com"
 
 
 def test_valid_password_complex():
     """Test that complex valid passwords are accepted."""
-    request = RegisterRequest(email="test@example.com", password="MySecure123Password")
-    assert request.password == "MySecure123Password"
+    request = RegisterRequest(email="test@example.com", password="MySecure123Password!")
+    assert request.password == "MySecure123Password!"
 
 
 def test_password_validation_error_messages_clear():

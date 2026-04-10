@@ -141,7 +141,7 @@ async def test_full_retrieval_pipeline(
 
     embeddings = await embedding_provider.embed_batch([c.content for c in chunks], max_concurrency=3)
 
-    for chunk, embedding in zip(chunks, embeddings):
+    for chunk, embedding in zip(chunks, embeddings, strict=False):
         chunk_doc = {
             "chunk_id": str(uuid.uuid4()),
             "document_id": chunk.document_id,

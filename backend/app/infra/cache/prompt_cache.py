@@ -37,7 +37,7 @@ class PromptCache:
 
         prompts = await self._repository.list_all(include_inactive=False)
         async with self._lock:
-            self._cache = {p.key: p for p in prompts}
+            self._cache = OrderedDict((p.key, p) for p in prompts)
         logger.info(f"Loaded {len(self._cache)} prompts into cache")
 
     async def get(self, key: str) -> Prompt | None:

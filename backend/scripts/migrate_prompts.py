@@ -16,13 +16,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config.settings import get_settings
 from app.infra.postgres.database import get_session, init_database
 from app.infra.postgres.models import Prompt, PromptVersion
-
+from sqlalchemy import select
 
 # Define all prompts to migrate
 PROMPTS_TO_MIGRATE: list[dict[str, Any]] = [
@@ -427,7 +424,6 @@ async def migrate_prompts() -> None:
                     continue
 
                 # Update existing prompt and create new version
-                old_content = existing_prompt.content
                 existing_prompt.name = prompt_data["name"]
                 existing_prompt.description = prompt_data["description"]
                 existing_prompt.category = prompt_data["category"]

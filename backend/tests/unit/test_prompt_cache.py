@@ -1,11 +1,11 @@
 """Unit tests for PromptCache."""
 
-import pytest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
-from app.infra.cache.prompt_cache import PromptCache
+import pytest
 from app.domain.entities import Prompt
+from app.infra.cache.prompt_cache import PromptCache
 
 
 @pytest.fixture
@@ -128,16 +128,18 @@ async def test_get_no_repository():
     assert result is None
 
 
-def test_refresh(sample_prompt):
+@pytest.mark.asyncio
+async def test_refresh(sample_prompt):
     """Test refreshing prompt in cache."""
     cache = PromptCache()
-    cache.refresh(sample_prompt)
+    await cache.refresh(sample_prompt)
 
     result = cache.get_all_keys()
     assert "test_prompt" in result
 
 
-def test_refresh_inactive_prompt():
+@pytest.mark.asyncio
+async def test_refresh_inactive_prompt():
     """Test refreshing inactive prompt removes it from cache."""
     cache = PromptCache()
 
@@ -155,7 +157,7 @@ def test_refresh_inactive_prompt():
         updated_at=datetime.now(UTC),
         current_version=1,
     )
-    cache.refresh(active_prompt)
+    await cache.refresh(active_prompt)
     assert "test_prompt" in cache.get_all_keys()
 
     # Now mark it as inactive
@@ -172,39 +174,42 @@ def test_refresh_inactive_prompt():
         updated_at=datetime.now(UTC),
         current_version=1,
     )
-    cache.refresh(inactive_prompt)
+    await cache.refresh(inactive_prompt)
 
     keys = cache.get_all_keys()
     assert "test_prompt" not in keys
 
 
-def test_invalidate(sample_prompt):
+@pytest.mark.asyncio
+async def test_invalidate(sample_prompt):
     """Test invalidating prompt from cache."""
     cache = PromptCache()
-    cache.refresh(sample_prompt)
+    await cache.refresh(sample_prompt)
 
-    cache.invalidate("test_prompt")
+    await cache.invalidate("test_prompt")
 
     # Cache should be empty
     keys = cache.get_all_keys()
     assert "test_prompt" not in keys
 
 
-def test_invalidate_nonexistent_key():
+@pytest.mark.asyncio
+async def test_invalidate_nonexistent_key():
     """Test invalidating a key that doesn't exist."""
     cache = PromptCache()
 
     # Should not raise an error
-    cache.invalidate("nonexistent")
+    await cache.invalidate("nonexistent")
 
     keys = cache.get_all_keys()
     assert len(keys) == 0
 
 
-def test_clear(sample_prompt):
+@pytest.mark.asyncio
+async def test_clear(sample_prompt):
     """Test clearing all prompts from cache."""
     cache = PromptCache()
-    cache.refresh(sample_prompt)
+    await cache.refresh(sample_prompt)
 
     cache.clear()
 
@@ -212,7 +217,8 @@ def test_clear(sample_prompt):
     assert len(keys) == 0
 
 
-def test_get_all_keys(sample_prompt):
+@pytest.mark.asyncio
+async def test_get_all_keys(sample_prompt):
     """Test getting all cached keys."""
     another_prompt = Prompt(
         id="another-id",
@@ -229,8 +235,8 @@ def test_get_all_keys(sample_prompt):
     )
 
     cache = PromptCache()
-    cache.refresh(sample_prompt)
-    cache.refresh(another_prompt)
+    await cache.refresh(sample_prompt)
+    await cache.refresh(another_prompt)
 
     keys = cache.get_all_keys()
     assert len(keys) == 2

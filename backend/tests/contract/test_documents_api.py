@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from app.api.deps import (
     get_db_session as original_get_db_session,
+)
+from app.api.deps import (
     get_unified_indexing_service_dep as original_get_unified_indexing_service,
 )
 from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository

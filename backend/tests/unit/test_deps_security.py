@@ -1,7 +1,8 @@
 # backend/tests/unit/test_deps_security.py
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 

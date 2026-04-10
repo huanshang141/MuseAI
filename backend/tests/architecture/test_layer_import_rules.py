@@ -71,8 +71,8 @@ def test_exhibit_service_uses_port():
     imports = _get_module_imports(path)
     for imp in imports:
         assert "app.infra.postgres.repositories" not in imp, (
-            f"exhibit_service.py should import ExhibitRepository from app.domain.repositories, "
-            f"not PostgresExhibitRepository from app.infra"
+            "exhibit_service.py should import ExhibitRepository from app.domain.repositories, "
+            "not PostgresExhibitRepository from app.infra"
         )
 
 
@@ -83,8 +83,8 @@ def test_profile_service_uses_port():
     imports = _get_module_imports(path)
     for imp in imports:
         assert "app.infra.postgres.repositories" not in imp, (
-            f"profile_service.py should import VisitorProfileRepository from app.domain.repositories, "
-            f"not PostgresVisitorProfileRepository from app.infra"
+            "profile_service.py should import VisitorProfileRepository from app.domain.repositories, "
+            "not PostgresVisitorProfileRepository from app.infra"
         )
 
 
@@ -95,8 +95,8 @@ def test_curator_service_uses_port():
     imports = _get_module_imports(path)
     for imp in imports:
         assert "app.infra.langchain.curator_agent" not in imp, (
-            f"curator_service.py should import CuratorAgentPort from app.application.ports.repositories, "
-            f"not CuratorAgent from app.infra.langchain"
+            "curator_service.py should import CuratorAgentPort from app.application.ports.repositories, "
+            "not CuratorAgent from app.infra.langchain"
         )
 
 

@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from app.config.settings import Settings
 from app.infra.providers.rerank import (
     MockRerankProvider,
     OpenAICompatibleRerankProvider,
     RerankRequest,
     RerankResult,
 )
-from app.config.settings import Settings
 
 
 class TestRerankRequest:
@@ -189,7 +189,7 @@ class TestOpenAICompatibleRerankProvider:
 class TestCreateRerankProvider:
     def test_create_siliconflow_provider(self):
         """测试创建 SiliconFlow provider。"""
-        from app.infra.providers.rerank import create_rerank_provider, SiliconFlowRerankProvider
+        from app.infra.providers.rerank import SiliconFlowRerankProvider, create_rerank_provider
 
         settings = Settings(
             RERANK_PROVIDER="siliconflow",
@@ -205,7 +205,7 @@ class TestCreateRerankProvider:
 
     def test_create_openai_provider(self):
         """测试创建 OpenAI compatible provider。"""
-        from app.infra.providers.rerank import create_rerank_provider, OpenAICompatibleRerankProvider
+        from app.infra.providers.rerank import OpenAICompatibleRerankProvider, create_rerank_provider
 
         settings = Settings(
             RERANK_PROVIDER="openai",
@@ -220,7 +220,7 @@ class TestCreateRerankProvider:
 
     def test_create_mock_provider(self):
         """测试创建 Mock provider。"""
-        from app.infra.providers.rerank import create_rerank_provider, MockRerankProvider
+        from app.infra.providers.rerank import MockRerankProvider, create_rerank_provider
 
         settings = Settings(
             RERANK_PROVIDER="mock",
@@ -258,7 +258,7 @@ class TestCreateRerankProvider:
 
     def test_create_provider_case_insensitive(self):
         """测试provider名称大小写不敏感。"""
-        from app.infra.providers.rerank import create_rerank_provider, SiliconFlowRerankProvider
+        from app.infra.providers.rerank import SiliconFlowRerankProvider, create_rerank_provider
 
         settings = Settings(
             RERANK_PROVIDER="SILICONFLOW",  # 大写

@@ -1,12 +1,12 @@
 """Unit tests for PromptService."""
 
-import pytest
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from app.application.prompt_service import PromptService
 from app.domain.entities import Prompt
-from app.domain.exceptions import PromptNotFoundError, PromptVariableError
+from app.domain.exceptions import PromptVariableError
 
 
 @pytest.fixture

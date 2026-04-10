@@ -1,12 +1,12 @@
 """Contract tests for prompt management API."""
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
-from app.api.deps import check_auth_rate_limit, get_db_session as original_get_db_session
+from app.api.deps import check_auth_rate_limit
+from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.main import app
+from httpx import ASGITransport, AsyncClient
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -42,13 +42,13 @@ async def admin_token(db_session):
             # Register a user
             await client.post(
                 "/api/v1/auth/register",
-                json={"email": "admin_prompts@example.com", "password": "AdminPass123"},
+                json={"email": "admin_prompts@example.com", "password": "AdminPass123!"},
             )
 
             # Login to get token
             login_response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": "admin_prompts@example.com", "password": "AdminPass123"},
+                json={"email": "admin_prompts@example.com", "password": "AdminPass123!"},
             )
             token = login_response.json()["access_token"]
 
@@ -83,13 +83,13 @@ async def user_token(db_session):
             # Register a user
             await client.post(
                 "/api/v1/auth/register",
-                json={"email": "user_prompts@example.com", "password": "UserPass123"},
+                json={"email": "user_prompts@example.com", "password": "UserPass123!"},
             )
 
             # Login to get token
             login_response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": "user_prompts@example.com", "password": "UserPass123"},
+                json={"email": "user_prompts@example.com", "password": "UserPass123!"},
             )
             return login_response.json()["access_token"]
     finally:
@@ -99,7 +99,8 @@ async def user_token(db_session):
 @pytest.fixture
 def mock_prompt_cache():
     """Create mock prompt cache for tests."""
-    from unittest.mock import MagicMock, AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
+
     from app.main import app as fastapi_app
 
     cache = MagicMock()
@@ -122,9 +123,10 @@ def mock_prompt_cache():
 @pytest.fixture
 async def created_prompt_id(db_session, admin_token, mock_prompt_cache):
     """Create a prompt and return its ID."""
-    from app.infra.postgres.models import Prompt, PromptVersion
-    from datetime import datetime, UTC
     import uuid
+    from datetime import UTC, datetime
+
+    from app.infra.postgres.models import Prompt, PromptVersion
 
     prompt_id = str(uuid.uuid4())
     now = datetime.now(UTC)

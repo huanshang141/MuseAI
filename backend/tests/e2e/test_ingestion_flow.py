@@ -117,7 +117,7 @@ async def test_full_ingestion_pipeline(
 
     assert len(embeddings) == min(3, len(chunks)), "Should generate embeddings for requested chunks"
 
-    for i, (chunk, embedding) in enumerate(zip(chunks[:3], embeddings)):
+    for _i, (chunk, embedding) in enumerate(zip(chunks[:3], embeddings, strict=False)):
         chunk_doc = {
             "chunk_id": str(uuid.uuid4()),
             "document_id": chunk.document_id,

@@ -1,12 +1,16 @@
 """Unit tests for guest chat rate limiting."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from app.api.deps import (
+    get_llm_provider as original_get_llm_provider,
+)
+from app.api.deps import (
+    get_rag_agent as original_get_rag_agent,
+)
 from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
-    get_rag_agent as original_get_rag_agent,
-    get_llm_provider as original_get_llm_provider,
 )
 from app.main import app
 from httpx import ASGITransport, AsyncClient

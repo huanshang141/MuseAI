@@ -10,7 +10,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.application.chunking import ChunkConfig, TextChunker
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.unified_indexing_service import UnifiedIndexingService

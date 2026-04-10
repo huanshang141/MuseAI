@@ -1,6 +1,5 @@
 """Tests for client IP extraction with trusted proxy support."""
 
-import pytest
 from unittest.mock import MagicMock
 
 from app.api.client_ip import extract_client_ip

@@ -1,7 +1,6 @@
 """Tests for reflection prompts module."""
 
 import pytest
-
 from app.workflows.reflection_prompts import (
     BEGINNER_PROMPTS,
     CATEGORY_REFLECTIONS,

@@ -10,8 +10,8 @@ This migration creates three new tables for the Digital Curation Agent:
 - visitor_profiles: Personalized visitor preferences and history
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import JSON
 
 # revision identifiers

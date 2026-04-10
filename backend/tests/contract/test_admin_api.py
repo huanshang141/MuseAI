@@ -1,7 +1,8 @@
 """Contract tests for Admin API endpoints."""
 
 import pytest
-from app.api.deps import check_auth_rate_limit, get_db_session as original_get_db_session
+from app.api.deps import check_auth_rate_limit
+from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.main import app
@@ -41,13 +42,13 @@ async def admin_token(db_session):
             # Register a user
             await client.post(
                 "/api/v1/auth/register",
-                json={"email": "admin_test@example.com", "password": "AdminPass123"},
+                json={"email": "admin_test@example.com", "password": "AdminPass123!"},
             )
 
             # Login to get token
             login_response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": "admin_test@example.com", "password": "AdminPass123"},
+                json={"email": "admin_test@example.com", "password": "AdminPass123!"},
             )
             token = login_response.json()["access_token"]
 
@@ -82,13 +83,13 @@ async def user_token(db_session):
             # Register a user
             await client.post(
                 "/api/v1/auth/register",
-                json={"email": "user_test@example.com", "password": "UserPass123"},
+                json={"email": "user_test@example.com", "password": "UserPass123!"},
             )
 
             # Login to get token
             login_response = await client.post(
                 "/api/v1/auth/login",
-                json={"email": "user_test@example.com", "password": "UserPass123"},
+                json={"email": "user_test@example.com", "password": "UserPass123!"},
             )
             return login_response.json()["access_token"]
     finally:

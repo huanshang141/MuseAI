@@ -125,8 +125,7 @@ def test_settings_parses_admin_emails_from_string():
 def test_settings_admin_emails_defaults_to_empty():
     """Test that ADMIN_EMAILS defaults to empty list via get_admin_emails()."""
     from app.config.settings import Settings
-
-    settings = Settings()
+    settings = Settings(_env_file=None, ALLOW_INSECURE_DEV_DEFAULTS=True)
     assert settings.get_admin_emails() == []
 
 
@@ -147,6 +146,7 @@ def test_settings_rejects_wildcard_cors_in_production(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "a" * 32)
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("CORS_ORIGINS", "*")
+    monkeypatch.setenv("RERANK_PROVIDER", "")
 
     from app.config.settings import Settings
 

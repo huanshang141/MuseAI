@@ -1,13 +1,14 @@
 # backend/tests/unit/test_redis_singleton.py
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
 
 
 def test_get_redis_cache_returns_singleton():
     """get_redis_cache should return the same instance from app.state."""
-    from app.main import app
     from app.infra.redis.cache import RedisCache
+    from app.main import app
 
     # Mock the app.state to have a redis_cache
     mock_cache = MagicMock(spec=RedisCache)
@@ -45,7 +46,6 @@ def test_redis_client_reuses_connection():
 async def test_redis_close_cleans_up():
     """RedisCache.close should close the connection."""
     from app.infra.redis.cache import RedisCache
-    from unittest.mock import AsyncMock
 
     cache = RedisCache("redis://localhost:6379")
     cache.client.close = AsyncMock()
@@ -58,8 +58,8 @@ async def test_redis_close_cleans_up():
 def test_deps_get_redis_cache_uses_singleton():
     """deps.get_redis_cache should return singleton from request.app.state."""
     from app.api.deps import get_redis_cache
-    from app.main import app
     from app.infra.redis.cache import RedisCache
+    from app.main import app
 
     # Mock the app.state to have a redis_cache
     mock_cache = MagicMock(spec=RedisCache)

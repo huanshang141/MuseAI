@@ -1,9 +1,9 @@
 """Tests for API dependencies module."""
 
 import inspect
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 
@@ -15,6 +15,7 @@ class TestGetDbSession:
     async def test_yields_database_session(self):
         """get_db_session should yield database sessions."""
         from contextlib import asynccontextmanager
+
         from app.api.deps import get_db_session
 
         mock_session = AsyncMock()
@@ -51,10 +52,11 @@ class TestGetRedisCache:
 
     def test_get_redis_cache_returns_cache(self):
         """get_redis_cache should return a RedisCache instance from app.state."""
+        from unittest.mock import MagicMock
+
         from app.api.deps import get_redis_cache
         from app.infra.redis.cache import RedisCache
         from app.main import app
-        from unittest.mock import MagicMock
 
         # Mock the app.state to have a redis_cache
         mock_cache = MagicMock(spec=RedisCache)
@@ -434,7 +436,7 @@ class TestCheckAuthRateLimit:
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
         mock_redis.client.set = AsyncMock(return_value=False)  # Not first request
-        mock_redis.client.incr = AsyncMock(return_value=6)  # Exceeded limit
+        mock_redis.client.incr = AsyncMock(return_value=101)  # Exceeded limit
 
         mock_request = MagicMock()
         mock_request.client = MagicMock()

@@ -5,7 +5,6 @@ exposed through public API responses, preventing internal implementation details
 from leaking to users.
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 from app.api.deps import (

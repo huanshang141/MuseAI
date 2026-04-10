@@ -111,26 +111,25 @@ async def test_set_retrieval():
 
 @pytest.mark.asyncio
 async def test_check_rate_limit_within_limit():
-    mock_redis = AsyncMock()
-    mock_redis.set.return_value = False
-    mock_redis.incr.return_value = 5
+    mock_script = AsyncMock(return_value=1)
 
     cache = RedisCache.__new__(RedisCache)
-    cache.client = mock_redis
+    cache._rate_limit_script = mock_script
 
     result = await cache.check_rate_limit("user-123", max_requests=60)
 
     assert result is True
+    mock_script.assert_called_once_with(
+        keys=["rate:user-123"], args=["60", "60"]
+    )
 
 
 @pytest.mark.asyncio
 async def test_check_rate_limit_exceeded():
-    mock_redis = AsyncMock()
-    mock_redis.set.return_value = False
-    mock_redis.incr.return_value = 61
+    mock_script = AsyncMock(return_value=0)
 
     cache = RedisCache.__new__(RedisCache)
-    cache.client = mock_redis
+    cache._rate_limit_script = mock_script
 
     result = await cache.check_rate_limit("user-123", max_requests=60)
 
@@ -139,16 +138,14 @@ async def test_check_rate_limit_exceeded():
 
 @pytest.mark.asyncio
 async def test_check_rate_limit_first_request():
-    mock_redis = AsyncMock()
-    mock_redis.set.return_value = True
+    mock_script = AsyncMock(return_value=1)
 
     cache = RedisCache.__new__(RedisCache)
-    cache.client = mock_redis
+    cache._rate_limit_script = mock_script
 
     result = await cache.check_rate_limit("user-123", max_requests=60)
 
     assert result is True
-    mock_redis.set.assert_called_once_with("rate:user-123", 1, ex=60, nx=True)
 
 
 @pytest.mark.asyncio

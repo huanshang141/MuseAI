@@ -17,7 +17,7 @@ sys.path.insert(0, str(project_root))
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from backend.tests.performance.config import TestConfig, get_config
+from backend.tests.performance.config import get_config
 
 # Setup logging
 logging.basicConfig(

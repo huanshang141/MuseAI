@@ -41,7 +41,7 @@ def test_ci_workflow_frontend_quality_job_structure() -> None:
         raise AssertionError("frontend-quality job not found")
 
     steps = jobs["frontend-quality"]["steps"]
-    step_names = [step.get("name", step.get("uses", "")) for step in steps]
+    [step.get("name", step.get("uses", "")) for step in steps]
 
     # Check for npm ci/install step
     has_npm_install = any(

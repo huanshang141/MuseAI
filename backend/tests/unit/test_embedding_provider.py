@@ -46,7 +46,7 @@ async def test_embed_single_text():
 
 @pytest.mark.asyncio
 async def test_embed_batch_concurrent():
-    response_data = {"embedding": [0.1] * 768}
+    response_data = {"embeddings": [[0.1] * 768, [0.1] * 768, [0.1] * 768]}
     mock_client = MockAsyncClient(response_data)
 
     with patch("app.infra.providers.embedding.httpx.AsyncClient") as mock_client_class:
@@ -58,7 +58,7 @@ async def test_embed_batch_concurrent():
 
         assert len(embeddings) == 3
         assert all(len(e) == 768 for e in embeddings)
-        assert mock_client.post_count == 3
+        assert mock_client.post_count == 1
 
 
 @pytest.mark.asyncio
@@ -134,18 +134,11 @@ async def test_context_manager():
 
 @pytest.mark.asyncio
 async def test_embed_batch_partial_failure():
-    call_count = 0
-
     async def post_with_failure(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 2:
-            raise Exception("Simulated failure")
-        return MockResponse({"embedding": [0.1] * 768})
+        raise Exception("Simulated failure")
 
     mock_client = MagicMock()
     mock_client.post = post_with_failure
-    mock_client.aclose = MagicMock(return_value=None)
 
     async def mock_aclose():
         pass
@@ -158,5 +151,5 @@ async def test_embed_batch_partial_failure():
         provider = OllamaEmbeddingProvider(base_url="http://localhost:11434", model="qwen3-embedding:8b", dims=768)
         texts = ["text 1", "text 2", "text 3"]
 
-        with pytest.raises(RuntimeError, match="Failed to embed text at index 1"):
+        with pytest.raises(RuntimeError, match="Failed to embed batch"):
             await provider.embed_batch(texts)

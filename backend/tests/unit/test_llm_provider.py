@@ -1,12 +1,10 @@
-import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from loguru import logger
-
 from app.config.settings import Settings
 from app.domain.exceptions import LLMError
 from app.infra.providers.llm import LLMResponse, OpenAICompatibleProvider
+from loguru import logger
 
 
 class TestOpenAICompatibleProvider:
@@ -198,9 +196,7 @@ class TestOpenAICompatibleProvider:
     @pytest.mark.asyncio
     async def test_generate_warns_on_none_usage(self, caplog: pytest.LogCaptureFixture, tmp_path):
         """Test that a warning is logged when usage is None."""
-        import sys
 
-        from loguru import logger
 
         mock_client = AsyncMock()
         mock_response = MagicMock()

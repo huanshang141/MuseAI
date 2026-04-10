@@ -2,11 +2,9 @@
 
 import json
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.documents import Document
-
 from app.domain.entities import Exhibit, VisitorProfile
 from app.domain.value_objects import ExhibitId, Location, ProfileId, UserId
 from app.infra.langchain.curator_tools import (
@@ -17,7 +15,7 @@ from app.infra.langchain.curator_tools import (
     ReflectionPromptTool,
     create_curator_tools,
 )
-from app.workflows.reflection_prompts import KnowledgeLevel
+from langchain_core.documents import Document
 
 
 @pytest.fixture

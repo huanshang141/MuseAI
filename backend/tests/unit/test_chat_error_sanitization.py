@@ -1,7 +1,8 @@
 # backend/tests/unit/test_chat_error_sanitization.py
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 def _mock_existing_session() -> AsyncMock:

@@ -9,17 +9,16 @@ with behavior-based tests.
 import uuid
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-
 from app.application.document_service import (
-    create_document,
-    get_document_by_id_public,
-    delete_document_by_id,
     count_all_documents,
+    create_document,
+    delete_document_by_id,
+    get_document_by_id_public,
 )
 from app.infra.postgres.adapters.document_repository import PostgresDocumentRepository
 from app.infra.postgres.models import Base
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture

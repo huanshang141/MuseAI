@@ -5,7 +5,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.infra.langchain.retrievers import UnifiedRetriever
 
 

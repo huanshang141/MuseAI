@@ -253,7 +253,7 @@ async def test_stream_ownership_check_before_streaming(db_session, session_maker
         events.append(event)
         # Log access during streaming
         if '"type": "chunk"' in event:
-            session_access_log.append(f"chunk_event_while_session_active")
+            session_access_log.append("chunk_event_while_session_active")
 
     # Verify streaming produced output
     assert any('"type": "chunk"' in e for e in events)

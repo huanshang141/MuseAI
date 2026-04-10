@@ -1,22 +1,20 @@
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
 
 
 @pytest.mark.asyncio
 async def test_list_documents_pagination():
     """list_documents should support limit and offset."""
-    from app.api.documents import list_documents
-    from fastapi import Request
 
-    mock_session = AsyncMock()
-    mock_user = {"id": "user-123"}
+    AsyncMock()
 
     # Mock the service function
-    with pytest.MonkeyPatch.context() as m:
-        from app.application import document_service
-
+    with pytest.MonkeyPatch.context():
         # Check that get_documents_by_user accepts limit/offset
         import inspect
+
+        from app.application import document_service
         sig = inspect.signature(document_service.get_documents_by_user)
         params = list(sig.parameters.keys())
 
@@ -27,8 +25,9 @@ async def test_list_documents_pagination():
 @pytest.mark.asyncio
 async def test_list_sessions_pagination():
     """list_sessions should support limit and offset."""
-    from app.application.chat_service import get_sessions_by_user
     import inspect
+
+    from app.application.chat_service import get_sessions_by_user
 
     sig = inspect.signature(get_sessions_by_user)
     params = list(sig.parameters.keys())
@@ -39,7 +38,6 @@ async def test_list_sessions_pagination():
 
 def test_pagination_defaults():
     """Pagination should have sensible defaults."""
-    from pydantic import BaseModel
 
     # Check that pagination params have defaults
     # Default limit should be 20, max 100

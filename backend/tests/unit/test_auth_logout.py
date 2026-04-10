@@ -1,10 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.api.auth import logout
 from fastapi import HTTPException
 from redis.exceptions import RedisError
-
-from app.api.auth import logout
 
 
 @pytest.mark.asyncio

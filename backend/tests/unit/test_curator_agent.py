@@ -3,9 +3,8 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-
 from app.infra.langchain.curator_agent import CuratorAgent
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 @pytest.fixture
@@ -44,9 +43,10 @@ class TestCuratorAgent:
         assert agent.tools == []
         assert agent.session_id == "test-session-456"
         assert agent.verbose is True
-        assert agent._agent is not None
+        assert agent._agent is None
 
-    def test_get_system_prompt(self):
+    @pytest.mark.asyncio
+    async def test_get_system_prompt(self):
         """Test system prompt generation."""
         with patch(
             "app.infra.langchain.curator_agent.create_react_agent",
@@ -58,7 +58,7 @@ class TestCuratorAgent:
                 session_id="test",
             )
 
-        prompt = agent._get_system_prompt()
+        prompt = await agent._get_system_prompt()
 
         assert "博物馆" in prompt
         assert "策展人" in prompt
@@ -199,7 +199,7 @@ class TestCuratorAgent:
         with patch(
             "app.infra.langchain.curator_agent.create_react_agent",
             return_value=mock_agent,
-        ) as mock_create:
+        ):
             agent = CuratorAgent(
                 llm=mock_llm,
                 tools=[],
@@ -207,8 +207,7 @@ class TestCuratorAgent:
                 verbose=False,
             )
 
-            assert agent._agent is not None
-            mock_create.assert_called_once()
+            assert agent._agent is None
 
 
 class TestCuratorAgentIntegration:
@@ -258,7 +257,8 @@ class TestCuratorAgentIntegration:
 
         assert "Here are some ceramic exhibits..." in result["output"]
 
-    def test_system_prompt_contains_all_tools(self):
+    @pytest.mark.asyncio
+    async def test_system_prompt_contains_all_tools(self):
         """Verify system prompt contains all tool descriptions."""
         with patch(
             "app.infra.langchain.curator_agent.create_react_agent",
@@ -270,7 +270,7 @@ class TestCuratorAgentIntegration:
                 session_id="test",
             )
 
-        prompt = agent._get_system_prompt()
+        prompt = await agent._get_system_prompt()
 
         # Check for all tool names
         assert "path_planning" in prompt

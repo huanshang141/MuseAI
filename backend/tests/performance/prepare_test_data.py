@@ -13,16 +13,14 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from loguru import logger
-
 from app.config.settings import get_settings
 from app.infra.elasticsearch.client import ElasticsearchClient
 from app.infra.postgres.database import get_session, init_database
 from app.infra.postgres.models import User
 from app.infra.security.password import hash_password
+from loguru import logger
 
 from backend.tests.performance.config import TestConfig, get_config
-
 
 # Sample museum content for testing
 SAMPLE_DOCUMENTS = [
@@ -206,7 +204,7 @@ def main():
     logger.info(f"Preparing test data for scenario: {args.scenario}")
     results = asyncio.run(prepare_test_data(config))
 
-    print(f"\nTest data preparation complete:")
+    print("\nTest data preparation complete:")
     print(f"  Documents created: {results.get('documents', 0)}")
     print(f"  Users created: {results.get('users', 0)}")
 

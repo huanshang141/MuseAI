@@ -1,11 +1,11 @@
+
 import pytest
-import asyncio
 
 
 @pytest.mark.asyncio
 async def test_get_session_maker_returns_singleton():
     """get_session_maker should return the same instance."""
-    from app.infra.postgres.database import get_session_maker, close_database
+    from app.infra.postgres.database import close_database, get_session_maker
 
     try:
         maker1 = get_session_maker("sqlite+aiosqlite:///:memory:")
@@ -37,8 +37,9 @@ async def test_init_database_disposes_old_engine():
 
 def test_get_db_session_uses_global_session_maker():
     """get_db_session should use the global session maker."""
-    from app.api.deps import get_db_session
     import inspect
+
+    from app.api.deps import get_db_session
 
     # Check that get_db_session doesn't create its own session maker
     source = inspect.getsource(get_db_session)

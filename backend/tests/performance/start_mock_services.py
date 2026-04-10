@@ -118,9 +118,9 @@ def main():
         print("\nConfiguration for tests:")
         print(f"  LLM_BASE_URL=http://localhost:{llm_port}/v1")
         print(f"  RERANK_BASE_URL=http://localhost:{rerank_port}")
-        print(f"  LLM_API_KEY=mock-key")
-        print(f"  RERANK_API_KEY=mock-key")
-        print(f"  RERANK_MODEL=mock-rerank-model")
+        print("  LLM_API_KEY=mock-key")
+        print("  RERANK_API_KEY=mock-key")
+        print("  RERANK_MODEL=mock-rerank-model")
 
         # Keep running until interrupted
         while True:

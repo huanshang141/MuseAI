@@ -1,7 +1,7 @@
 """Shared fixtures for contract tests with proper database isolation."""
 
-import pytest
 import app.infra.postgres.database as db_module
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +40,8 @@ def reset_database_globals():
 @pytest.fixture(autouse=True)
 def mock_app_state(monkeypatch):
     """Mock app.state singletons for contract tests."""
-    from unittest.mock import MagicMock, AsyncMock
+    from unittest.mock import AsyncMock, MagicMock
+
     from app.main import app
 
     # Create mock singletons

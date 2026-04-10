@@ -1,12 +1,18 @@
 import json
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from app.api.deps import (
     get_db_session as original_get_db_session,
+)
+from app.api.deps import (
     get_db_session_maker as original_get_db_session_maker,
+)
+from app.api.deps import (
     get_llm_provider as original_get_llm_provider,
+)
+from app.api.deps import (
     get_rag_agent as original_get_rag_agent,
 )
 from app.application.chat_service import create_session

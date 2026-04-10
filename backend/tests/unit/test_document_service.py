@@ -1,8 +1,8 @@
 """Tests for document_service module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
+
+import pytest
 
 
 def create_mock_doc_repo():
@@ -273,7 +273,7 @@ class TestUpdateDocumentStatus:
         mock_repo = create_mock_doc_repo()
         mock_repo.update_status = AsyncMock(return_value=mock_document)
 
-        result = await update_document_status(
+        await update_document_status(
             mock_repo,
             "doc-123",
             "completed",

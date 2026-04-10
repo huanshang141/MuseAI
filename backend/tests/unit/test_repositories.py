@@ -3,9 +3,6 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-
 from app.domain.entities import Exhibit, VisitorProfile
 from app.domain.value_objects import (
     ExhibitId,
@@ -13,11 +10,13 @@ from app.domain.value_objects import (
     ProfileId,
     UserId,
 )
-from app.infra.postgres.models import Base, Exhibit as ExhibitORM, VisitorProfile as VisitorProfileORM
+from app.infra.postgres.models import Base
 from app.infra.postgres.repositories import (
     PostgresExhibitRepository,
     PostgresVisitorProfileRepository,
 )
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 
 # Use in-memory SQLite for testing

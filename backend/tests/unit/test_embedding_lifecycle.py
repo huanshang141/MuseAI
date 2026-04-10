@@ -1,13 +1,14 @@
 # backend/tests/unit/test_embedding_lifecycle.py
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 
 
 def test_ollama_provider_supports_external_client():
     """OllamaEmbeddingProvider should accept external httpx client."""
-    from app.infra.providers.embedding import OllamaEmbeddingProvider
     import httpx
+    from app.infra.providers.embedding import OllamaEmbeddingProvider
 
     external_client = httpx.AsyncClient()
     provider = OllamaEmbeddingProvider(

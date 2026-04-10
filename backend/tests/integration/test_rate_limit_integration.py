@@ -7,9 +7,8 @@ with behavior-based tests.
 """
 
 import pytest
-from redis.asyncio import Redis
-
 from app.infra.redis.cache import RedisCache
+from redis.asyncio import Redis
 
 
 @pytest.fixture
@@ -75,7 +74,6 @@ class TestRateLimitIntegration:
     async def test_rate_limit_count_increments_correctly(self, redis_cache, redis_client):
         """Test that rate limit counter increments correctly."""
         user_id = "test_user_count"
-        key = f"rate:{user_id}"
 
         # Initial count should be 0
         count = await redis_cache.get_rate_limit_count(user_id)

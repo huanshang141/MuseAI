@@ -5,11 +5,9 @@ These tests verify the actual behavior of the unified indexing service,
 focusing on outcomes rather than implementation details.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from app.application.chunking import ChunkConfig, TextChunker
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.unified_indexing_service import UnifiedIndexingService
@@ -89,7 +87,7 @@ class TestUnifiedIndexingServiceBehavior:
         content = "Embedding test content. " * 30
 
         chunker = TextChunker(config)
-        test_chunks = chunker.chunk(text=content, document_id="test-doc", source="document")
+        chunker.chunk(text=content, document_id="test-doc", source="document")
 
         mock_embeddings = MagicMock()
         mock_embeddings.aembed_documents = mock_aembed_documents
@@ -227,7 +225,7 @@ class TestUnifiedIndexingServiceDelete:
             chunk_configs=[],
         )
 
-        result = await service.delete_source("doc-123")
+        await service.delete_source("doc-123")
 
         # Verify delete was called
         assert len(delete_calls) == 1
@@ -255,7 +253,7 @@ class TestUnifiedIndexingServiceDelete:
             chunk_configs=[],
         )
 
-        result = await service.delete_source("exhibit-456", source_type="exhibit")
+        await service.delete_source("exhibit-456", source_type="exhibit")
 
         # Verify both filters were applied
         query = delete_calls[0]["body"]["query"]

@@ -1,7 +1,8 @@
 """Tests for chat_service streaming functions."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestAskQuestionStream:
@@ -415,9 +416,10 @@ class TestAskQuestionStreamWithRag:
 @pytest.mark.asyncio
 async def test_ask_question_stream_guest():
     """Test guest chat streaming without DB persistence."""
-    from app.application.chat_service import ask_question_stream_guest
-    from unittest.mock import MagicMock, AsyncMock
     import json
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.application.chat_service import ask_question_stream_guest
 
     mock_redis = AsyncMock()
     mock_redis.get_guest_session.return_value = None
@@ -467,8 +469,9 @@ async def test_streaming_emits_llm_tokens_not_fixed_50_char_slices():
     The key assertion is that the chunk contents should match what the LLM provider
     yields, NOT be fixed 50-char slices of a complete answer.
     """
-    from app.application.chat_service import ask_question_stream_with_rag
     import json
+
+    from app.application.chat_service import ask_question_stream_with_rag
 
     mock_session = AsyncMock()
 

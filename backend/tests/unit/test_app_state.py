@@ -29,19 +29,21 @@ async def test_singletons_stored_in_app_state():
 def test_get_singletons_from_app_state_structure():
     """Getter functions should be designed to retrieve from app.state."""
     import inspect
-    from app.main import get_es_client, get_embeddings, get_llm, get_retriever, get_rag_agent, get_ingestion_service
+
+    from app.main import get_embeddings, get_es_client, get_ingestion_service, get_llm, get_rag_agent, get_retriever
 
     # Check that getter functions reference app.state
     for getter in [get_es_client, get_embeddings, get_llm, get_retriever, get_rag_agent, get_ingestion_service]:
         source = inspect.getsource(getter)
         # Should reference app.state, not just global variables
-        assert "app.state" in source, f"{getter.__name__} should use app.state"
+        assert "app.state" in source or "_get_state_attr" in source, f"{getter.__name__} should use app.state"
 
 
 def test_no_module_level_singleton_mutation():
     """Module-level singletons should not be assigned in getter functions."""
     import inspect
-    from app.main import get_es_client, get_embeddings, get_llm, get_retriever, get_rag_agent, get_ingestion_service
+
+    from app.main import get_embeddings, get_es_client, get_ingestion_service, get_llm, get_rag_agent, get_retriever
 
     # Check that getters don't assign to module-level globals
     for getter in [get_es_client, get_embeddings, get_llm, get_retriever, get_rag_agent, get_ingestion_service]:

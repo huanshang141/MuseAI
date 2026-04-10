@@ -13,16 +13,16 @@ from typing import Any
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-import httpx
-from locust import HttpUser, between, events, task
-
-from backend.tests.performance.config import TestConfig, get_config
-from backend.tests.performance.test_users import UserTokenPool
-
-
 # Global config and token pool
 # Get scenario from environment variable or default to 'load'
 import os
+
+import httpx
+from locust import HttpUser, between, events, task
+
+from backend.tests.performance.config import get_config
+from backend.tests.performance.test_users import UserTokenPool
+
 _scenario = os.environ.get("PERF_TEST_SCENARIO", "load")
 config = get_config(_scenario)
 token_pool: UserTokenPool | None = None
@@ -277,7 +277,7 @@ class GuestChatUser(BaseChatUser):
                 response.success()
 
                 # Capture session ID from header for follow-up
-                session_id = response.headers.get("X-Session-Id")
+                response.headers.get("X-Session-Id")
 
                 # Log performance metrics
                 if metrics.get("first_chunk_time"):

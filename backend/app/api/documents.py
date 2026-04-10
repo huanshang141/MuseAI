@@ -108,7 +108,10 @@ async def stream_to_temp_file(file: UploadFile, max_size: int) -> tuple[str, int
     total_size = 0
     try:
         async with aiofiles.open(tmp_path, "wb") as f:
-            async for chunk in file.chunks(CHUNK_SIZE):
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
                 total_size += len(chunk)
                 if total_size > max_size:
                     os.unlink(tmp_path)

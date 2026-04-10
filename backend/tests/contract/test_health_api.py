@@ -99,6 +99,7 @@ async def test_ready_all_healthy_returns_200():
 @pytest.mark.asyncio
 async def test_ready_returns_503_when_elasticsearch_unhealthy():
     from unittest.mock import AsyncMock
+
     from app.main import app
 
     # Configure ES mock to return unhealthy
@@ -164,6 +165,7 @@ async def test_ready_returns_503_when_database_not_ready(engine, status):
 )
 async def test_ready_handles_probe_exceptions(es_error, redis_error, expected_es, expected_redis):
     from unittest.mock import AsyncMock
+
     from app.main import app
 
     # Configure ES mock behavior

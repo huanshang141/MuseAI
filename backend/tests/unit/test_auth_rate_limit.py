@@ -1,9 +1,8 @@
 # backend/tests/unit/test_auth_rate_limit.py
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+
+import pytest
 
 
 @pytest.fixture

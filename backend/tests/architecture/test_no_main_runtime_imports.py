@@ -99,8 +99,4 @@ def test_no_runtime_import_from_main_outside_main_module():
             f"  - {v['file']}:{v['line']}: {v['import']}"
             for v in violations
         )
-        assert False, (
-            f"Deep modules should not import from app.main at runtime.\n"
-            f"Use dependency injection through constructors instead.\n"
-            f"Found {len(violations)} violations:\n{violation_details}"
-        )
+        raise AssertionError(f"Deep modules should not import from app.main at runtime.\n" f"Use dependency injection through constructors instead.\n" f"Found {len(violations)} violations:\n{violation_details}")

@@ -1,5 +1,6 @@
 import pytest
-from app.api.deps import check_auth_rate_limit, get_db_session as original_get_db_session
+from app.api.deps import check_auth_rate_limit
+from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.main import app
@@ -40,7 +41,7 @@ async def test_register_endpoint(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "test@example.com",
-                    "password": "Password123",
+                    "password": "Password123!",
                 },
             )
 
@@ -70,7 +71,7 @@ async def test_login_endpoint(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "login@example.com",
-                    "password": "LoginPass123",
+                    "password": "LoginPass123!",
                 },
             )
 
@@ -78,7 +79,7 @@ async def test_login_endpoint(db_session):
                 "/api/v1/auth/login",
                 json={
                     "email": "login@example.com",
-                    "password": "LoginPass123",
+                    "password": "LoginPass123!",
                 },
             )
 
@@ -106,7 +107,7 @@ async def test_login_wrong_password(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "wrong@example.com",
-                    "password": "WrongPass123",
+                    "password": "WrongPass123!",
                 },
             )
 
@@ -114,7 +115,7 @@ async def test_login_wrong_password(db_session):
                 "/api/v1/auth/login",
                 json={
                     "email": "wrong@example.com",
-                    "password": "Wrongpassword1",
+                    "password": "Wrongpassword1!",
                 },
             )
 
@@ -140,7 +141,7 @@ async def test_login_sets_http_only_cookie(db_session):
                 "/api/v1/auth/register",
                 json={
                     "email": "cookie@example.com",
-                    "password": "CookiePass123",
+                    "password": "CookiePass123!",
                 },
             )
 
@@ -149,7 +150,7 @@ async def test_login_sets_http_only_cookie(db_session):
                 "/api/v1/auth/login",
                 json={
                     "email": "cookie@example.com",
-                    "password": "CookiePass123",
+                    "password": "CookiePass123!",
                 },
             )
 

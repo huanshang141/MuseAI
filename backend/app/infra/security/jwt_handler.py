@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 
 class JWTHandler:
     REFRESH_EXPIRE_DAYS = 7
+
     def __init__(self, secret: str, algorithm: str, expire_minutes: int):
         self.secret = secret
         self.algorithm = algorithm
@@ -22,13 +23,37 @@ class JWTHandler:
             "exp": expire,
             "iat": now,
             "jti": str(uuid.uuid4()),
+            "type": "access",
         })
+
+        return jwt.encode(payload, self.secret, algorithm=self.algorithm)
+
+    def create_refresh_token(self, user_id: str) -> str:
+        now = datetime.now(UTC)
+        expire = now + timedelta(days=self.REFRESH_EXPIRE_DAYS)
+
+        payload = {
+            "sub": user_id,
+            "exp": expire,
+            "iat": now,
+            "jti": str(uuid.uuid4()),
+            "type": "refresh",
+        }
 
         return jwt.encode(payload, self.secret, algorithm=self.algorithm)
 
     def verify_token(self, token: str) -> str | None:
         try:
             payload = jwt.decode(token, self.secret, algorithms=[self.algorithm])
+            return payload.get("sub")
+        except JWTError:
+            return None
+
+    def verify_refresh_token(self, token: str) -> str | None:
+        try:
+            payload = jwt.decode(token, self.secret, algorithms=[self.algorithm])
+            if payload.get("type") != "refresh":
+                return None
             return payload.get("sub")
         except JWTError:
             return None
@@ -40,6 +65,5 @@ class JWTHandler:
             return None
 
     def get_jti(self, token: str) -> str | None:
-        """Extract the JWT ID (jti) from a token."""
         payload = self.decode_token(token)
         return payload.get("jti") if payload else None

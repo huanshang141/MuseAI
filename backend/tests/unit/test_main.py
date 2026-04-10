@@ -8,6 +8,8 @@ APP_MAIN_PATH = Path(__file__).resolve().parents[2] / "app" / "main.py"
 
 
 def _load_isolated_app():
+    from app.config.settings import reset_settings
+    reset_settings()
     module_name = f"app_main_test_{uuid.uuid4().hex}"
     spec = importlib.util.spec_from_file_location(module_name, APP_MAIN_PATH)
     assert spec is not None and spec.loader is not None

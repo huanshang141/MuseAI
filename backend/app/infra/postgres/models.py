@@ -308,3 +308,16 @@ class PromptVersion(Base):
     __table_args__ = (
         UniqueConstraint("prompt_id", "version", name="uq_prompt_version"),
     )
+
+    def to_entity(self):
+        from app.domain.entities import PromptVersion as PromptVersionEntity
+        from app.domain.value_objects import PromptId
+        return PromptVersionEntity(
+            id=self.id,
+            prompt_id=PromptId(self.prompt_id),
+            version=self.version,
+            content=self.content,
+            changed_by=self.changed_by,
+            change_reason=self.change_reason,
+            created_at=self.created_at,
+        )

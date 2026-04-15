@@ -14,6 +14,7 @@ from app.api.documents import router as documents_router
 from app.api.exhibits import router as exhibits_router
 from app.api.health import router as health_router
 from app.api.profile import router as profile_router
+from app.api.tour import router as tour_router
 from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
 from app.application.prompt_service_adapter import PromptServiceAdapter
@@ -211,4 +212,5 @@ app.include_router(admin_exhibits_router, prefix="/api/v1")
 app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(curator_router, prefix="/api/v1")
 app.include_router(profile_router, prefix="/api/v1")
+app.include_router(tour_router, prefix="/api/v1")
 app.include_router(exhibits_router, prefix="/api/v1")

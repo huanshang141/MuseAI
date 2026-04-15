@@ -108,7 +108,10 @@ async def _verify_ownership(
     db_session,
 ) -> None:
     if user:
-        tour_session = await get_session(db_session, session_id)
+        try:
+            tour_session = await get_session(db_session, session_id)
+        except TourSessionNotFound:
+            raise HTTPException(status_code=404, detail="Tour session not found") from None
         uid = (
             tour_session.user_id.value
             if hasattr(tour_session.user_id, "value")
@@ -119,6 +122,8 @@ async def _verify_ownership(
     elif token:
         try:
             await verify_session_token(db_session, session_id, token)
+        except TourSessionNotFound:
+            raise HTTPException(status_code=404, detail="Tour session not found") from None
         except TourSessionTokenMismatch:
             raise HTTPException(status_code=403, detail="Invalid session token") from None
     else:

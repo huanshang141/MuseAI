@@ -123,5 +123,9 @@ async def find_active_session_by_guest(session: AsyncSession, guest_id: str) -> 
 
 
 def _check_expiry(model: TourSessionModel) -> None:
-    if model.last_active_at and datetime.now(UTC) - model.last_active_at > timedelta(hours=SESSION_EXPIRY_HOURS):
-        raise TourSessionExpired(f"Tour session {model.id} has expired")
+    if model.last_active_at:
+        last_active = model.last_active_at
+        if last_active.tzinfo is None:
+            last_active = last_active.replace(tzinfo=UTC)
+        if datetime.now(UTC) - last_active > timedelta(hours=SESSION_EXPIRY_HOURS):
+            raise TourSessionExpired(f"Tour session {model.id} has expired")

@@ -96,12 +96,20 @@ def get_report_theme(persona: str) -> str:
     return {"A": "archaeology", "B": "village", "C": "homework"}.get(persona, "archaeology")
 
 
+def _ensure_aware(dt):
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt
+
+
 def aggregate_stats(events: list, tour_session) -> dict:
     total_duration = 0.0
-    if tour_session.started_at and tour_session.completed_at:
-        total_duration = (tour_session.completed_at - tour_session.started_at).total_seconds() / 60.0
-    elif tour_session.started_at:
-        total_duration = (datetime.now(UTC) - tour_session.started_at).total_seconds() / 60.0
+    started_at = _ensure_aware(tour_session.started_at)
+    completed_at = _ensure_aware(tour_session.completed_at)
+    if started_at and completed_at:
+        total_duration = (completed_at - started_at).total_seconds() / 60.0
+    elif started_at:
+        total_duration = (datetime.now(UTC) - started_at).total_seconds() / 60.0
 
     exhibit_durations: dict[str, int] = {}
     hall_durations: dict[str, int] = {}

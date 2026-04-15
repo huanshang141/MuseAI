@@ -390,7 +390,7 @@ class TourEventModel(Base):
     exhibit_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("exhibits.id"), nullable=True)
     hall: Mapped[str | None] = mapped_column(String(50), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    event_meta: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     __table_args__ = (
@@ -406,7 +406,7 @@ class TourEventModel(Base):
             exhibit_id=ExhibitId(self.exhibit_id) if self.exhibit_id else None,
             hall=self.hall,
             duration_seconds=self.duration_seconds,
-            metadata=self.metadata,
+            metadata=self.event_meta,
             created_at=self.created_at,
         )
 

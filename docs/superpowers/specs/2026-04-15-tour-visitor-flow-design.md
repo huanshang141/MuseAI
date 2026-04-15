@@ -52,6 +52,19 @@ HALL_COMPLETE ──(展厅完成)──> [HALL_SELECT | TOUR_REPORT]
 | `HALL_COMPLETE` | 当前展厅所有展品完成 | 展厅停留时间、展品交互统计 |
 | `TOUR_REPORT` | 游览报告展示 | 聚合统计数据、五型图、标签、一句话 |
 
+### 2.1.1 前端状态与后端 status 映射
+
+前端使用细粒度的 `tourStep` 管理UI阶段，后端 `tour_sessions.status` 使用粗粒度状态：
+
+| 前端 tourStep | 后端 status | 说明 |
+|---------------|-------------|------|
+| onboarding | onboarding | 问卷阶段 |
+| opening | opening | 开场白阶段 |
+| hall_select, hall_intro, exhibit_tour, hall_complete | touring | 导览进行中 |
+| report | completed | 报告展示 |
+
+后端 `status` 枚举值：`onboarding / opening / touring / completed`。前端细粒度状态由前端自行管理，不持久化到后端。
+
 ### 2.2 展品交互子循环
 
 ```
@@ -101,18 +114,22 @@ TourView.vue (导览主容器)
 |------|------|------|
 | `id` | UUID (PK) | 导览会话 ID |
 | `user_id` | UUID (FK→users, nullable) | 登录用户 ID，游客为 null |
-| `guest_id` | VARCHAR(64) | 游客 ID（格式：guest-{uuid}） |
+| `guest_id` | VARCHAR(64, nullable) | 游客 ID（格式：guest-{uuid}），登录用户为 null |
+| `session_token` | VARCHAR(64) | 会话令牌，用于游客会话归属验证（创建时随机生成） |
 | `interest_type` | VARCHAR(1) | 兴趣方向：A=生存技术/B=符号艺术/C=社会结构 |
 | `persona` | VARCHAR(1) | 导览身份：A=考古队长/B=半坡原住民/C=历史老师 |
 | `assumption` | VARCHAR(1) | 初始假设：A=平等年代/B=荒野求生/C=阶级雏形 |
-| `current_hall` | VARCHAR(50) | 当前展厅 slug |
+| `current_hall` | VARCHAR(50, nullable) | 当前展厅 slug |
 | `current_exhibit_id` | UUID (FK→exhibits, nullable) | 当前展品 ID |
 | `visited_halls` | JSON | 已参观展厅列表 |
 | `visited_exhibit_ids` | JSON | 已参观展品 ID 列表 |
 | `status` | VARCHAR(20) | 状态：onboarding/opening/touring/completed |
+| `last_active_at` | TIMESTAMP | 最后活跃时间，用于会话过期判断 |
 | `started_at` | TIMESTAMP | 导览开始时间 |
 | `completed_at` | TIMESTAMP | 导览完成时间 |
 | `created_at` | TIMESTAMP | 创建时间 |
+
+约束：`CHECK (user_id IS NOT NULL OR guest_id IS NOT NULL)`，确保登录用户和游客至少有一个标识。
 
 ### 3.2 新增表：`tour_events`
 
@@ -123,7 +140,7 @@ TourView.vue (导览主容器)
 | `event_type` | VARCHAR(30) | 事件类型：exhibit_view/exhibit_question/exhibit_deep_dive/hall_enter/hall_leave |
 | `exhibit_id` | UUID (FK→exhibits, nullable) | 关联展品 ID |
 | `hall` | VARCHAR(50, nullable) | 关联展厅 |
-| `duration_seconds` | INTEGER | 停留时长（秒） |
+| `duration_seconds` | INTEGER, nullable | 停留时长（秒），仅 exhibit_view/hall_enter/hall_leave 有效 |
 | `metadata` | JSON | 附加数据（如提问内容、深入主题等） |
 | `created_at` | TIMESTAMP | 事件时间 |
 
@@ -134,15 +151,15 @@ TourView.vue (导览主容器)
 | `id` | UUID (PK) | 报告 ID |
 | `tour_session_id` | UUID (FK→tour_sessions, unique) | 导览会话 ID |
 | `total_duration_minutes` | FLOAT | 总游览时长 |
-| `most_viewed_exhibit_id` | UUID (FK→exhibits) | 最关注展品 |
-| `most_viewed_exhibit_duration` | INTEGER | 最关注展品停留秒数 |
-| `longest_hall` | VARCHAR(50) | 停留最长的展厅 |
-| `longest_hall_duration` | INTEGER | 最长展厅停留秒数 |
+| `most_viewed_exhibit_id` | UUID (FK→exhibits, nullable) | 最关注展品（无展品访问时为 null） |
+| `most_viewed_exhibit_duration` | INTEGER, nullable | 最关注展品停留秒数 |
+| `longest_hall` | VARCHAR(50, nullable) | 停留最长的展厅（无展厅访问时为 null） |
+| `longest_hall_duration` | INTEGER, nullable | 最长展厅停留秒数 |
 | `total_questions` | INTEGER | 总提问次数 |
 | `total_exhibits_viewed` | INTEGER | 总参观展品数 |
 | `ceramic_questions` | INTEGER | 陶器相关提问次数 |
-| `identity_tags` | JSON | 身份标签列表 |
-| `radar_scores` | JSON | 五型图分数 |
+| `identity_tags` | JSON | 身份标签列表，格式：`["标签1", "标签2", "标签3"]` |
+| `radar_scores` | JSON | 五型图分数，格式：`{"civilization_resonance": 2, "imagination_breadth": 1, "history_collection": 3, "life_experience": 2, "ceramic_aesthetics": 1}` |
 | `one_liner` | TEXT | 游览一句话 |
 | `report_theme` | VARCHAR(20) | 报告主题：archaeology/village/homework |
 | `created_at` | TIMESTAMP | 创建时间 |
@@ -155,9 +172,8 @@ TourView.vue (导览主容器)
 |------|------|------|
 | `hall` | VARCHAR(50) | 展厅 slug（relic-hall / site-hall） |
 | `display_order` | INTEGER | 展厅内展示顺序 |
-| `next_exhibit_id` | UUID (FK→exhibits, nullable) | 推荐的下一个展品 |
 
-讲解词和推荐语由 LLM 根据展品基础数据 + 身份人设动态生成，不存储在数据库中。
+讲解词和推荐语由 LLM 根据展品基础数据 + 身份人设动态生成，不存储在数据库中。展品推荐顺序由 `display_order` 决定，推荐逻辑由服务层根据 persona 动态计算。
 
 ### 3.5 新增领域实体
 
@@ -166,6 +182,7 @@ class TourSession:
     id: TourSessionId
     user_id: UserId | None
     guest_id: str | None
+    session_token: str
     interest_type: str  # A/B/C
     persona: str        # A/B/C
     assumption: str     # A/B/C
@@ -173,7 +190,8 @@ class TourSession:
     current_exhibit_id: ExhibitId | None
     visited_halls: list[str]
     visited_exhibit_ids: list[str]
-    status: str
+    status: str  # onboarding/opening/touring/completed
+    last_active_at: datetime
     started_at: datetime
     completed_at: datetime | None
     created_at: datetime
@@ -184,18 +202,18 @@ class TourEvent:
     event_type: str
     exhibit_id: ExhibitId | None
     hall: str | None
-    duration_seconds: int
-    metadata: dict
+    duration_seconds: int | None
+    metadata: dict | None
     created_at: datetime
 
 class TourReport:
     id: TourReportId
     tour_session_id: TourSessionId
     total_duration_minutes: float
-    most_viewed_exhibit_id: ExhibitId
-    most_viewed_exhibit_duration: int
-    longest_hall: str
-    longest_hall_duration: int
+    most_viewed_exhibit_id: ExhibitId | None
+    most_viewed_exhibit_duration: int | None
+    longest_hall: str | None
+    longest_hall_duration: int | None
     total_questions: int
     total_exhibits_viewed: int
     ceramic_questions: int
@@ -218,18 +236,87 @@ TourReportId = NewType('TourReportId', str)
 
 ### 4.1 导览 API（`/api/v1/tour`）
 
-| 方法 | 路径 | 说明 | 认证 |
-|------|------|------|------|
-| POST | `/tour/sessions` | 创建导览会话（提交问卷结果） | 可选 |
-| GET | `/tour/sessions/{id}` | 获取导览会话状态 | 可选 |
-| PUT | `/tour/sessions/{id}` | 更新导览会话 | 可选 |
-| POST | `/tour/sessions/{id}/events` | 记录导览事件（批量） | 可选 |
-| GET | `/tour/sessions/{id}/events` | 获取导览事件列表 | 可选 |
-| POST | `/tour/sessions/{id}/complete-hall` | 完成当前展厅 | 可选 |
-| POST | `/tour/sessions/{id}/report` | 生成游览报告 | 可选 |
-| GET | `/tour/sessions/{id}/report` | 获取游览报告 | 可选 |
-| POST | `/tour/sessions/{id}/chat/stream` | 导览专属 SSE 流式对话 | 可选 |
-| GET | `/tour/halls` | 获取导览可用展厅列表 | 无 |
+所有路径前缀为 `/api/v1`。认证标注"可选"表示同时支持登录用户和游客。
+
+**会话归属验证**：游客请求需在 Header 中携带 `X-Session-Token`（创建会话时返回的 `session_token`），后端验证 token 与会话匹配。登录用户通过 JWT Cookie 验证。
+
+| 方法 | 路径 | 说明 | 认证 | 速率限制 |
+|------|------|------|------|---------|
+| POST | `/tour/sessions` | 创建导览会话 | 无 | 10/min/IP |
+| GET | `/tour/sessions/{id}` | 获取导览会话状态 | 可选 | 30/min |
+| PATCH | `/tour/sessions/{id}` | 更新导览会话（仅允许更新 current_hall, current_exhibit_id, status） | 可选 | 30/min |
+| POST | `/tour/sessions/{id}/events` | 记录导览事件（批量） | 可选 | 10/min |
+| GET | `/tour/sessions/{id}/events` | 获取导览事件列表 | 可选 | 30/min |
+| POST | `/tour/sessions/{id}/complete-hall` | 完成当前展厅 | 可选 | 10/min |
+| POST | `/tour/sessions/{id}/report` | 生成游览报告（幂等：已存在则返回 200 + 已有报告） | 可选 | 5/min |
+| GET | `/tour/sessions/{id}/report` | 获取游览报告 | 可选 | 30/min |
+| POST | `/tour/sessions/{id}/chat/stream` | 导览专属 SSE 流式对话 | 可选 | 20/min/IP |
+| GET | `/tour/halls` | 获取导览可用展厅列表 | 无 | 60/min |
+
+### 4.1.1 请求/响应 Pydantic 模型
+
+**创建导览会话**：
+```python
+class TourSessionCreate(BaseModel):
+    interest_type: Literal["A", "B", "C"]
+    persona: Literal["A", "B", "C"]
+    assumption: Literal["A", "B", "C"]
+    guest_id: str | None = None  # 游客提供
+
+class TourSessionResponse(BaseModel):
+    id: str
+    session_token: str  # 游客需保存，后续请求携带
+    interest_type: str
+    persona: str
+    assumption: str
+    status: str
+    current_hall: str | None
+    current_exhibit_id: str | None
+    visited_halls: list[str]
+    visited_exhibit_ids: list[str]
+    started_at: datetime
+```
+
+**更新导览会话**：
+```python
+class TourSessionUpdate(BaseModel):
+    current_hall: str | None = None
+    current_exhibit_id: str | None = None
+    status: Literal["onboarding", "opening", "touring", "completed"] | None = None
+```
+
+**批量记录事件**：
+```python
+class TourEventItem(BaseModel):
+    event_type: Literal["exhibit_view", "exhibit_question", "exhibit_deep_dive", "hall_enter", "hall_leave"]
+    exhibit_id: str | None = None
+    hall: str | None = None
+    duration_seconds: int | None = None
+    metadata: dict | None = None  # 结构约束：exhibit_question 必须含 question 字段
+
+class TourEventBatch(BaseModel):
+    events: list[TourEventItem]  # 最多 50 条
+```
+
+**导览聊天请求**：
+```python
+class TourChatRequest(BaseModel):
+    message: str = Field(..., max_length=2000)
+    exhibit_id: str | None = None
+```
+
+**展厅列表响应**：
+```python
+class TourHallItem(BaseModel):
+    slug: str
+    name: str
+    description: str
+    exhibit_count: int
+    estimated_duration_minutes: int
+
+class TourHallListResponse(BaseModel):
+    halls: list[TourHallItem]
+```
 
 ### 4.2 导览专属聊天端点
 
@@ -366,15 +453,15 @@ LLM 生成游览一句话
 
 ### 6.2 五型图评分规则
 
-| 维度 | 计算方式 | B级 | A级 | S级 |
+| 维度 | 计算方式 | B级(1分) | A级(2分) | S级(3分) |
 |------|---------|-----|-----|-----|
 | 文明共鸣度 | 总游览时长 | <30min | 30-60min | >60min |
 | 脑洞广度 | 提问次数 | <10 | 10-15 | >15 |
 | 历史碎片收集度 | 参观展品数 | <5 | 5-10 | >10 |
 | 半坡生活体验度 | 遗址展厅停留时间(分钟) | <10 | 10-20 | >20 |
-| 彩陶审美力 | 陶器相关提问次数 | 0次=A | ≥1次=S | — |
+| 彩陶审美力 | 陶器相关提问次数 | 0次 | 1-2次 | ≥3次 |
 
-分数映射：B=1, A=2, S=3。
+分数映射：B=1, A=2, S=3。所有维度统一使用 B/A/S 三级评分。
 
 ### 6.3 身份标签选择逻辑
 
@@ -566,13 +653,63 @@ class TourReportService:
 | 场景 | 处理方式 |
 |------|---------|
 | 导览会话不存在 | 返回 404，前端重定向到 /tour |
-| 游客会话过期 | 返回 410，前端提示重新开始 |
-| SSE 连接断开 | 自动重连，从最后一条消息继续 |
+| 游客会话过期（last_active_at 超过 24 小时） | 返回 410，前端提示重新开始 |
+| 会话 token 不匹配 | 返回 403，前端提示无权限 |
+| SSE 连接断开 | 前端自动重连，重新发送当前展品上下文，从断点继续对话（不使用 Last-Event-ID，而是通过展品上下文恢复） |
 | LLM 生成失败 | 降级到预设模板回答 |
 | 报告生成失败 | 重试一次，仍失败则返回基础统计（无一句话） |
 | 展品数据缺失 | 跳过该展品，继续下一个 |
+| 报告已存在 | 返回 200 + 已有报告（幂等） |
+| 事件批量提交超限（>50条） | 返回 422，前端分批重试 |
 
-## 10. 测试策略
+## 10. 会话恢复与持久化
+
+### 10.1 会话恢复
+
+用户中途离开（关闭浏览器）后再次访问 `/tour` 时：
+- 登录用户：自动恢复最近的未完成会话（status != completed）
+- 游客：通过 localStorage 保存 `tour_session_id` + `session_token`，再次访问时尝试恢复
+- 恢复时根据后端 `current_hall` 和 `current_exhibit_id` 同步前端状态
+
+### 10.2 事件缓存持久化
+
+前端事件缓存使用 `localStorage` 持久化，防止页面崩溃丢失：
+- 每次记录事件时同步写入 localStorage
+- 批量提交成功后清除已提交事件
+- 页面 `beforeunload` 时紧急提交未发送事件
+
+### 10.3 游客会话过期
+
+- 过期阈值：`last_active_at` 超过 24 小时
+- 每次 API 请求自动更新 `last_active_at`
+- 过期后返回 410 Gone，前端引导重新开始
+
+## 11. 陶器提问检测关键词
+
+用于 `is_ceramic_question` 判断的关键词列表（可后续通过配置文件维护）：
+
+```
+陶, 瓷, 盆, 罐, 瓶, 碗, 鼎, 甑, 釜, 纹, 彩陶, 人面鱼纹, 鱼纹, 几何纹, 绳纹, 
+尖底瓶, 红陶, 灰陶, 黑陶, 泥塑, 陶塑, 陶器, 瓷器, 素面, 刻划, 彩绘
+```
+
+## 12. 数据库迁移策略
+
+使用 Alembic 管理迁移，新增迁移脚本：
+
+1. 新增 `tour_sessions`、`tour_events`、`tour_reports` 三张表
+2. 扩展 `exhibits` 表新增 `hall`、`display_order` 字段
+3. 为 `tour_sessions.session_token` 创建索引
+4. 为 `tour_events.tour_session_id` + `event_type` 创建复合索引
+
+## 13. 展品数据初始化
+
+通过管理后台或种子数据脚本准备半坡博物馆展品数据：
+- 2 个展厅：relic-hall（出土文物展厅）、site-hall（遗址保护展厅）
+- 每个展厅配置展品，设置 `hall` 和 `display_order` 字段
+- 展品描述需包含准确的历史背景信息，供 RAG 检索使用
+
+## 14. 测试策略
 
 | 层级 | 覆盖范围 |
 |------|---------|

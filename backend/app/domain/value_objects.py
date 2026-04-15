@@ -57,3 +57,18 @@ class Location:
     x: float
     y: float
     floor: int = 1
+
+
+@dataclass(frozen=True)
+class TourSessionId:
+    value: str
+
+
+@dataclass(frozen=True)
+class TourEventId:
+    value: str
+
+
+@dataclass(frozen=True)
+class TourReportId:
+    value: str

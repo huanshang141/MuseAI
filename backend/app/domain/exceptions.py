@@ -31,3 +31,15 @@ class PromptNotFoundError(DomainError):
 class PromptVariableError(DomainError):
     """Raised when a required prompt variable is missing."""
     pass
+
+
+class TourSessionNotFound(DomainError):
+    pass
+
+
+class TourSessionExpired(DomainError):
+    pass
+
+
+class TourSessionTokenMismatch(DomainError):
+    pass

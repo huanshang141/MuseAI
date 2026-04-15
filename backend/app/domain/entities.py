@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .exceptions import PromptVariableError
-from .value_objects import DocumentId, ExhibitId, JobId, Location, ProfileId, PromptId, SessionId, TourPathId, UserId
+from .value_objects import DocumentId, ExhibitId, JobId, Location, ProfileId, PromptId, SessionId, TourEventId, TourPathId, TourReportId, TourSessionId, UserId
 
 
 @dataclass
@@ -205,4 +205,76 @@ class PromptVersion:
     content: str
     changed_by: str | None
     change_reason: str | None
+    created_at: datetime
+
+
+@dataclass
+class TourSession:
+    id: TourSessionId
+    user_id: UserId | None
+    guest_id: str | None
+    session_token: str
+    interest_type: str
+    persona: str
+    assumption: str
+    current_hall: str | None
+    current_exhibit_id: ExhibitId | None
+    visited_halls: list[str]
+    visited_exhibit_ids: list[str]
+    status: str
+    last_active_at: datetime
+    started_at: datetime
+    completed_at: datetime | None
+    created_at: datetime
+
+    def start_tour(self) -> None:
+        if self.status != "onboarding":
+            raise ValueError("Can only start tour from onboarding status")
+        self.status = "opening"
+
+    def begin_touring(self) -> None:
+        if self.status not in ("opening", "touring"):
+            raise ValueError("Can only begin touring from opening or touring status")
+        self.status = "touring"
+
+    def complete(self) -> None:
+        if self.status != "touring":
+            raise ValueError("Can only complete from touring status")
+        self.status = "completed"
+        from datetime import UTC
+        self.completed_at = datetime.now(UTC)
+
+    def touch_active(self) -> None:
+        from datetime import UTC
+        self.last_active_at = datetime.now(UTC)
+
+
+@dataclass
+class TourEvent:
+    id: TourEventId
+    tour_session_id: TourSessionId
+    event_type: str
+    exhibit_id: ExhibitId | None
+    hall: str | None
+    duration_seconds: int | None
+    metadata: dict | None
+    created_at: datetime
+
+
+@dataclass
+class TourReport:
+    id: TourReportId
+    tour_session_id: TourSessionId
+    total_duration_minutes: float
+    most_viewed_exhibit_id: ExhibitId | None
+    most_viewed_exhibit_duration: int | None
+    longest_hall: str | None
+    longest_hall_duration: int | None
+    total_questions: int
+    total_exhibits_viewed: int
+    ceramic_questions: int
+    identity_tags: list[str]
+    radar_scores: dict
+    one_liner: str
+    report_theme: str
     created_at: datetime

@@ -288,4 +288,76 @@ export const api = {
       body: JSON.stringify(data),
     }),
   },
+
+  tour: {
+    createSession: (data) => request('/tour/sessions', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    getSession: (id, token) => request(`/tour/sessions/${id}`, {
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    updateSession: (id, data, token) => request(`/tour/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    recordEvents: (id, events, token) => request(`/tour/sessions/${id}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ events }),
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    getEvents: (id, token) => request(`/tour/sessions/${id}/events`, {
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    completeHall: (id, token) => request(`/tour/sessions/${id}/complete-hall`, {
+      method: 'POST',
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    generateReport: (id, token) => request(`/tour/sessions/${id}/report`, {
+      method: 'POST',
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    getReport: (id, token) => request(`/tour/sessions/${id}/report`, {
+      headers: token ? { 'X-Session-Token': token } : {},
+    }),
+    chatStream: async function* (id, message, token, exhibitId = null) {
+      const headers = { 'Content-Type': 'application/json' }
+      if (token) headers['X-Session-Token'] = token
+      const body = { message }
+      if (exhibitId) body.exhibit_id = exhibitId
+
+      const response = await fetch(`${BASE_URL}/tour/sessions/${id}/chat/stream`, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(body),
+      })
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6)
+            if (data === '[DONE]') return
+            try {
+              yield JSON.parse(data)
+            } catch {
+              // skip unparseable lines
+            }
+          }
+        }
+      }
+    },
+    getHalls: () => request('/tour/halls'),
+  },
 }

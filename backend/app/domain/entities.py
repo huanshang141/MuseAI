@@ -3,7 +3,20 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .exceptions import PromptVariableError
-from .value_objects import DocumentId, ExhibitId, JobId, Location, ProfileId, PromptId, SessionId, TourEventId, TourPathId, TourReportId, TourSessionId, UserId
+from .value_objects import (
+    DocumentId,
+    ExhibitId,
+    JobId,
+    Location,
+    ProfileId,
+    PromptId,
+    SessionId,
+    TourEventId,
+    TourPathId,
+    TourReportId,
+    TourSessionId,
+    UserId,
+)
 
 
 @dataclass

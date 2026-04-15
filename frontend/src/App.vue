@@ -1,5 +1,6 @@
 <script setup>
-import { ref, provide } from 'vue'
+import { ref, provide, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AuthModal from './components/auth/AuthModal.vue'
@@ -8,14 +9,17 @@ const showAuthModal = ref(false)
 provide('showAuthModal', (show = true) => {
   showAuthModal.value = show
 })
+
+const route = useRoute()
+const isTourMode = computed(() => route.path.startsWith('/tour'))
 </script>
 
 <template>
   <div class="app-container">
-    <AppHeader />
+    <AppHeader v-if="!isTourMode" />
     <div class="app-body">
-      <AppSidebar />
-      <div class="app-main">
+      <AppSidebar v-if="!isTourMode" />
+      <div class="app-main" :class="{ 'tour-mode': isTourMode }">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -47,6 +51,11 @@ provide('showAuthModal', (show = true) => {
   overflow: auto;
   padding: 20px;
   background: #f5f7fa;
+}
+
+.app-main.tour-mode {
+  padding: 0;
+  background: #1a1a2e;
 }
 
 .fade-enter-active,

@@ -27,6 +27,12 @@ const routes = [
     meta: { title: '个人设置', icon: 'User', requiresAuth: true }
   },
   {
+    path: '/tour',
+    name: 'tour',
+    component: () => import('../views/TourView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
     path: '/admin',
     name: 'admin',
     component: () => import('../views/AdminView.vue'),

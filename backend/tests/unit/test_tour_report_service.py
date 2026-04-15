@@ -1,8 +1,8 @@
 from app.application.tour_report_service import (
     calculate_radar_scores,
     detect_ceramic_question,
-    select_identity_tags,
     get_report_theme,
+    select_identity_tags,
 )
 
 

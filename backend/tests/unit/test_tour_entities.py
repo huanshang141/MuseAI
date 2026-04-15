@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 
 import pytest
-
 from app.domain.entities import TourSession
-from app.domain.value_objects import TourSessionId, UserId
+from app.domain.value_objects import TourSessionId
 
 
 def _make_session(**overrides):

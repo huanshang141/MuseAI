@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAuth } from '../../composables/useAuth.js'
 import AuthModal from '../auth/AuthModal.vue'
 import { api } from '../../api/index.js'
-import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting } from '@element-plus/icons-vue'
+import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting, Compass } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
@@ -12,6 +12,7 @@ const { user, isAuthenticated, isAdmin, logout } = useAuth()
 // Navigation items
 const navItems = [
   { path: '/', title: '智能问答', icon: ChatDotRound, requiresAuth: false },
+  { path: '/tour', title: 'AI导览', icon: Compass, requiresAuth: false },
   { path: '/curator', title: '导览助手', icon: MapLocation, requiresAuth: true },
   { path: '/exhibits', title: '展品浏览', icon: Collection, requiresAuth: true },
   { path: '/admin', title: '管理后台', icon: Setting, requiresAuth: true, requiresAdmin: true }

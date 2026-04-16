@@ -4,9 +4,11 @@ import DocumentList from '../knowledge/DocumentList.vue'
 import { useAuth } from '../../composables/useAuth.js'
 import { useRoute } from 'vue-router'
 import { computed, inject } from 'vue'
-import { MapLocation, Collection, Setting, Document } from '@element-plus/icons-vue'
+import { MapLocation, Collection, Setting, Document, Compass } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 
 const route = useRoute()
+const router = useRouter()
 const { isAuthenticated } = useAuth()
 
 // Inject showAuthModal from App.vue's provide
@@ -30,6 +32,14 @@ function handleLogin() {
   <div class="app-sidebar">
     <!-- Home route: Knowledge base management -->
     <template v-if="sidebarMode === 'home'">
+      <div class="sidebar-tour-entry" @click="router.push('/tour')">
+        <el-icon class="tour-entry-icon"><Compass /></el-icon>
+        <div class="tour-entry-text">
+          <strong>AI 智能导览</strong>
+          <span>开启半坡博物馆之旅</span>
+        </div>
+      </div>
+
       <div style="padding: 16px; border-bottom: 1px solid #e4e7ed;">
         <h3 style="margin: 0; font-size: 16px;">知识库管理</h3>
       </div>
@@ -119,3 +129,40 @@ function handleLogin() {
     </template>
   </div>
 </template>
+
+<style scoped>
+.sidebar-tour-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
+  background: linear-gradient(135deg, #2c1810 0%, #5a3a28 100%);
+  transition: opacity 0.2s;
+}
+
+.sidebar-tour-entry:hover {
+  opacity: 0.9;
+}
+
+.tour-entry-icon {
+  font-size: 28px;
+  color: #d4a574;
+}
+
+.tour-entry-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tour-entry-text strong {
+  color: #f0e6d3;
+  font-size: 14px;
+}
+
+.tour-entry-text span {
+  color: rgba(240, 230, 211, 0.7);
+  font-size: 12px;
+}
+</style>

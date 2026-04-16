@@ -32,6 +32,7 @@ class RAGState(TypedDict):
     transformations: list[str]
     answer: str
     conversation_history: list[dict[str, str]]
+    system_prompt: str
 
 
 class RAGAgent:
@@ -234,24 +235,25 @@ class RAGAgent:
 
     async def generate(self, state: RAGState) -> dict[str, Any]:
         """生成答案。"""
-        # 优先使用rerank后的文档
         docs = state.get("reranked_documents") or state["documents"]
         context = "\n\n".join(doc.page_content for doc in docs)
 
-        # 从PromptGateway获取prompt
-        prompt = None
-        if self.prompt_gateway:
-            prompt = await self.prompt_gateway.render(
-                "rag_answer_generation",
-                {"context": context, "query": state["query"]}
-            )
+        custom_system_prompt = state.get("system_prompt", "")
 
-        # 如果PromptGateway返回None，使用fallback prompt
-        if prompt is None:
-            prompt = self.FALLBACK_PROMPT.format(
-                context=context,
-                query=state["query"],
-            )
+        if custom_system_prompt:
+            prompt = f"{custom_system_prompt}\n\n参考上下文：\n{context}\n\n用户问题：{state['query']}\n\n请基于以上信息回答："
+        else:
+            prompt = None
+            if self.prompt_gateway:
+                prompt = await self.prompt_gateway.render(
+                    "rag_answer_generation",
+                    {"context": context, "query": state["query"]}
+                )
+            if prompt is None:
+                prompt = self.FALLBACK_PROMPT.format(
+                    context=context,
+                    query=state["query"],
+                )
 
         response = await self.llm.ainvoke(prompt)
         return {"answer": response.content}
@@ -260,12 +262,14 @@ class RAGAgent:
         self,
         query: str,
         conversation_history: list[dict[str, str]] | None = None,
+        system_prompt: str | None = None,
     ) -> RAGState:
         """运行RAG流程。
 
         Args:
             query: 用户查询
             conversation_history: 对话历史（可选）
+            system_prompt: 自定义系统提示词（可选，用于导览等场景）
 
         Returns:
             最终状态
@@ -280,6 +284,7 @@ class RAGAgent:
             "transformations": [],
             "answer": "",
             "conversation_history": conversation_history or [],
+            "system_prompt": system_prompt or "",
         }
         result = await self._graph.ainvoke(initial_state)
         return result  # type: ignore[no-any-return]

@@ -142,3 +142,26 @@ def test_each_token_has_unique_jti():
     jti2 = handler.get_jti(token2)
 
     assert jti1 != jti2
+
+
+def test_verify_token_rejects_refresh_token():
+    """A refresh token (type='refresh') must NOT be accepted by verify_token."""
+    handler = JWTHandler(secret="test-secret", algorithm="HS256", expire_minutes=60)
+
+    refresh_token = handler.create_refresh_token("user-123")
+
+    user_id = handler.verify_token(refresh_token)
+
+    assert user_id is None, (
+        "verify_token must reject refresh tokens: got sub=%r" % user_id
+    )
+
+
+def test_verify_token_accepts_access_token_explicitly():
+    """Sanity: a normal access token still passes verify_token."""
+    handler = JWTHandler(secret="test-secret", algorithm="HS256", expire_minutes=60)
+    access_token = handler.create_token("user-123")
+
+    user_id = handler.verify_token(access_token)
+
+    assert user_id == "user-123"

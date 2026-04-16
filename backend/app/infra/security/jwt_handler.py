@@ -45,9 +45,11 @@ class JWTHandler:
     def verify_token(self, token: str) -> str | None:
         try:
             payload = jwt.decode(token, self.secret, algorithms=[self.algorithm])
-            return payload.get("sub")
         except JWTError:
             return None
+        if payload.get("type") != "access":
+            return None
+        return payload.get("sub")
 
     def verify_refresh_token(self, token: str) -> str | None:
         try:

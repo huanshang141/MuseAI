@@ -144,17 +144,49 @@ def test_each_token_has_unique_jti():
     assert jti1 != jti2
 
 
-def test_verify_token_rejects_refresh_token():
-    """A refresh token (type='refresh') must NOT be accepted by verify_token."""
+def test_verify_token_rejects_non_access_token():
+    """A token with type != 'access' must NOT be accepted by verify_token."""
+    from datetime import UTC, datetime, timedelta
+
+    from jose import jwt
+
     handler = JWTHandler(secret="test-secret", algorithm="HS256", expire_minutes=60)
 
-    refresh_token = handler.create_refresh_token("user-123")
+    now = datetime.now(UTC)
+    forged_payload = {
+        "sub": "user-123",
+        "exp": now + timedelta(days=7),
+        "iat": now,
+        "type": "refresh",
+    }
+    forged_token = jwt.encode(forged_payload, handler.secret, algorithm=handler.algorithm)
 
-    user_id = handler.verify_token(refresh_token)
+    user_id = handler.verify_token(forged_token)
 
     assert user_id is None, (
-        "verify_token must reject refresh tokens: got sub=%r" % user_id
+        f"verify_token must reject non-access tokens: got sub={user_id!r}"
     )
+
+
+def test_verify_token_rejects_token_with_missing_type():
+    """A token without a 'type' claim must NOT be accepted by verify_token."""
+    from datetime import UTC, datetime, timedelta
+
+    from jose import jwt
+
+    handler = JWTHandler(secret="test-secret", algorithm="HS256", expire_minutes=60)
+
+    now = datetime.now(UTC)
+    payload = {
+        "sub": "user-123",
+        "exp": now + timedelta(minutes=60),
+        "iat": now,
+    }
+    legacy_token = jwt.encode(payload, handler.secret, algorithm=handler.algorithm)
+
+    user_id = handler.verify_token(legacy_token)
+
+    assert user_id is None
 
 
 def test_verify_token_accepts_access_token_explicitly():

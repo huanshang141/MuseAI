@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.application.context_manager import ConversationContextManager
+from app.application.ports.context_manager import ConversationContextManagerPort
 from app.infra.langchain.tools import (
     ContextSummaryTool,
     PreferenceTool,
@@ -82,7 +82,7 @@ class TestRecommendTool:
 class TestPreferenceTool:
     @pytest.fixture
     def mock_context_manager(self):
-        manager = MagicMock(spec=ConversationContextManager)
+        manager = MagicMock(spec=ConversationContextManagerPort)
         manager.get_user_preferences = AsyncMock(return_value=None)
         manager.set_user_preferences = AsyncMock()
         return manager
@@ -143,7 +143,7 @@ class TestPreferenceTool:
 class TestContextSummaryTool:
     @pytest.fixture
     def mock_context_manager(self):
-        manager = MagicMock(spec=ConversationContextManager)
+        manager = MagicMock(spec=ConversationContextManagerPort)
         manager.get_formatted_context = AsyncMock(return_value="用户：你好\n助手：您好！")
         return manager
 
@@ -169,7 +169,7 @@ class TestCreateMuseumTools:
     def test_create_all_tools(self):
         """测试创建所有工具。"""
         mock_agent = MagicMock()
-        mock_context = MagicMock(spec=ConversationContextManager)
+        mock_context = MagicMock(spec=ConversationContextManagerPort)
 
         tools = create_museum_tools(mock_agent, mock_context, "test-session")
 

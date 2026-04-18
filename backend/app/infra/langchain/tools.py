@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
-from app.application.context_manager import ConversationContextManager
+from app.application.ports.context_manager import ConversationContextManagerPort
 
 
 class RAGRetrievalTool(BaseTool):
@@ -64,7 +64,7 @@ class PreferenceTool(BaseTool):
         "输入应该是偏好描述，如'请用中文回答'或'我喜欢详细的讲解'。"
     )
 
-    context_manager: ConversationContextManager = Field(..., description="上下文管理器实例")
+    context_manager: Any = Field(..., description="上下文管理器实例")
     session_id: str = Field(..., description="当前会话ID")
 
     async def _arun(self, preference: str) -> str:
@@ -112,7 +112,7 @@ class ContextSummaryTool(BaseTool):
         "用于了解之前讨论过的内容。无需输入参数。"
     )
 
-    context_manager: ConversationContextManager = Field(..., description="上下文管理器实例")
+    context_manager: Any = Field(..., description="上下文管理器实例")
     session_id: str = Field(..., description="当前会话ID")
 
     async def _arun(self, _: str = "") -> str:
@@ -127,7 +127,7 @@ class ContextSummaryTool(BaseTool):
 
 def create_museum_tools(
     rag_agent: Any,
-    context_manager: ConversationContextManager,
+    context_manager: ConversationContextManagerPort,
     session_id: str,
 ) -> list[BaseTool]:
     """创建博物馆导览工具集。

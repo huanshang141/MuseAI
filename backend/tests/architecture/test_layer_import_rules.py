@@ -18,7 +18,6 @@ APP_ROOT = BACKEND_ROOT / "app"
 # Known violations pending remediation. Each entry is (source_file_relative_to_app, imported_module, resolving_batch).
 # When the batch lands and removes the violation, delete the entry.
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {
-    ("infra/langchain/tools.py", "app.application.context_manager"),
     ("infra/langchain/retrievers.py", "app.application.retrieval"),
 }
 
@@ -173,6 +172,26 @@ def test_infra_has_repository_adapters():
     ]
     for adapter in required_adapters:
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
+
+
+def test_context_manager_port_exists_in_ports():
+    """ConversationContextManagerPort must exist in application/ports/context_manager.py.
+
+    After B2-2b, infra/langchain/tools.py imports the Port from
+    application/ports/ instead of the concrete ConversationContextManager
+    from application/context_manager.py.
+    """
+    port_file = APP_ROOT / "application" / "ports" / "context_manager.py"
+    assert port_file.exists(), (
+        "application/ports/context_manager.py must exist with "
+        "ConversationContextManagerPort Protocol."
+    )
+
+    content = port_file.read_text()
+    assert "ConversationContextManagerPort" in content, (
+        "application/ports/context_manager.py must define "
+        "ConversationContextManagerPort Protocol."
+    )
 
 
 def test_prompt_gateway_lives_in_ports():

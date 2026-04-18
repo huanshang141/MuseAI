@@ -1,0 +1,9 @@
+from typing import Any, Protocol
+
+
+class ConversationContextManagerPort(Protocol):
+    async def get_context(self, session_id: str) -> list[dict[str, Any]]: ...
+
+    async def add_message(self, session_id: str, role: str, content: str) -> None: ...
+
+    async def clear(self, session_id: str) -> None: ...

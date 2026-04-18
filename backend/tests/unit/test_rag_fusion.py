@@ -1,5 +1,5 @@
 import pytest
-from app.application.retrieval import rrf_fusion
+from app.domain.services.retrieval import rrf_fusion
 
 
 def test_rrf_fusion_basic():

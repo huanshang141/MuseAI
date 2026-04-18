@@ -17,9 +17,7 @@ APP_ROOT = BACKEND_ROOT / "app"
 
 # Known violations pending remediation. Each entry is (source_file_relative_to_app, imported_module, resolving_batch).
 # When the batch lands and removes the violation, delete the entry.
-KNOWN_VIOLATIONS: set[tuple[str, str]] = {
-    ("infra/langchain/retrievers.py", "app.application.retrieval"),
-}
+KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
 
 
 def _get_module_imports(file_path: Path) -> list[str]:
@@ -172,6 +170,30 @@ def test_infra_has_repository_adapters():
     ]
     for adapter in required_adapters:
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
+
+
+def test_rrf_fusion_lives_in_domain_services():
+    """rrf_fusion is a pure algorithm and must live in domain/services/retrieval.py.
+
+    After B2-3, application/retrieval.py is deleted and the function
+    is in domain/services/retrieval.py. Infra must not import from
+    application/retrieval.
+    """
+    old_location = APP_ROOT / "application" / "retrieval.py"
+    assert not old_location.exists(), (
+        "application/retrieval.py should be deleted (ARCH-P1-03). "
+        "rrf_fusion must live in domain/services/retrieval.py."
+    )
+
+    new_location = APP_ROOT / "domain" / "services" / "retrieval.py"
+    assert new_location.exists(), (
+        "domain/services/retrieval.py must exist with rrf_fusion function."
+    )
+
+    content = new_location.read_text()
+    assert "rrf_fusion" in content, (
+        "domain/services/retrieval.py must define rrf_fusion function."
+    )
 
 
 def test_context_manager_port_exists_in_ports():

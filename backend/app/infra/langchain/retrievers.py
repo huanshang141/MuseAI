@@ -5,7 +5,7 @@ from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 from pydantic import ConfigDict
 
-from app.application.retrieval import rrf_fusion
+from app.domain.services.retrieval import rrf_fusion
 
 
 class RRFRetriever(BaseRetriever):

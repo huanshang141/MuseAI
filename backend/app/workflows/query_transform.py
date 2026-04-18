@@ -2,7 +2,7 @@ import re
 from enum import Enum
 from typing import Any, Protocol
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 
 
 class QueryTransformStrategy(Enum):

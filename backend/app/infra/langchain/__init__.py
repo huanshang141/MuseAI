@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain_openai import ChatOpenAI
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 from app.config.settings import Settings
 from app.infra.langchain.agents import RAGAgent
 from app.infra.langchain.curator_agent import CuratorAgent

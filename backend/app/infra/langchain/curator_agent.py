@@ -14,7 +14,7 @@ from langchain_core.tools import BaseTool
 from langgraph.prebuilt import create_react_agent
 from loguru import logger
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 
 
 class CuratorAgent:

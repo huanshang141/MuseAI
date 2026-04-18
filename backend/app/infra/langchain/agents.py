@@ -12,7 +12,7 @@ from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import END, StateGraph
 from loguru import logger
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 from app.infra.providers.rerank import BaseRerankProvider, RerankResult
 from app.workflows.query_transform import ConversationAwareQueryRewriter
 

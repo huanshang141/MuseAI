@@ -9,7 +9,7 @@ fallback to hardcoded values for resilience.
 
 from enum import Enum
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 
 
 class KnowledgeLevel(Enum):

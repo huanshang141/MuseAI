@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 from app.domain.value_objects import ExhibitId, UserId
 from app.workflows.reflection_prompts import (
     KnowledgeLevel,

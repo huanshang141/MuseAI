@@ -18,13 +18,7 @@ APP_ROOT = BACKEND_ROOT / "app"
 # Known violations pending remediation. Each entry is (source_file_relative_to_app, imported_module, resolving_batch).
 # When the batch lands and removes the violation, delete the entry.
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {
-    # B2-2: move PromptGateway/ConversationContextManager into application/ports/
-    ("infra/langchain/agents.py", "app.application.prompt_gateway"),
-    ("infra/langchain/__init__.py", "app.application.prompt_gateway"),
-    ("infra/langchain/curator_agent.py", "app.application.prompt_gateway"),
-    ("infra/langchain/curator_tools.py", "app.application.prompt_gateway"),
     ("infra/langchain/tools.py", "app.application.context_manager"),
-    # B2-3: move rrf_fusion to domain/services/retrieval.py
     ("infra/langchain/retrievers.py", "app.application.retrieval"),
 }
 
@@ -62,7 +56,11 @@ def _files_in(layer: str) -> list[Path]:
     return sorted(p for p in (APP_ROOT / layer).rglob("*.py") if "__pycache__" not in p.parts)
 
 
-def _violations(layer: str, forbidden_prefixes: tuple[str, ...]) -> list[tuple[str, str]]:
+def _violations(
+    layer: str,
+    forbidden_prefixes: tuple[str, ...],
+    allowed_prefixes: tuple[str, ...] = (),
+) -> list[tuple[str, str]]:
     """Return a list of (relative_path_from_app, offending_import) tuples."""
     out: list[tuple[str, str]] = []
     for path in _files_in(layer):
@@ -70,13 +68,19 @@ def _violations(layer: str, forbidden_prefixes: tuple[str, ...]) -> list[tuple[s
         for imp in _get_module_imports(path):
             for prefix in forbidden_prefixes:
                 if imp == prefix or imp.startswith(prefix + "."):
+                    if any(imp == ap or imp.startswith(ap + ".") for ap in allowed_prefixes):
+                        continue
                     out.append((rel, imp))
     return out
 
 
-def _assert_no_new_violations(layer: str, forbidden_prefixes: tuple[str, ...]) -> None:
+def _assert_no_new_violations(
+    layer: str,
+    forbidden_prefixes: tuple[str, ...],
+    allowed_prefixes: tuple[str, ...] = (),
+) -> None:
     """Fail if the layer contains violations NOT in KNOWN_VIOLATIONS."""
-    violations = _violations(layer, forbidden_prefixes)
+    violations = _violations(layer, forbidden_prefixes, allowed_prefixes)
     unexpected = [v for v in violations if v not in KNOWN_VIOLATIONS]
 
     if unexpected:
@@ -106,8 +110,8 @@ def test_application_does_not_import_api():
 
 
 def test_infra_does_not_import_application_or_api():
-    """infra/ implements ports defined in domain/application; never calls them at module load."""
-    _assert_no_new_violations("infra", ("app.application", "app.api"))
+    """infra/ implements ports defined in application/ports/; never calls application services or api directly."""
+    _assert_no_new_violations("infra", ("app.application", "app.api"), allowed_prefixes=("app.application.ports",))
 
 
 def test_workflows_does_not_import_api():
@@ -169,6 +173,30 @@ def test_infra_has_repository_adapters():
     ]
     for adapter in required_adapters:
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
+
+
+def test_prompt_gateway_lives_in_ports():
+    """PromptGateway Protocol must live in application/ports/prompt_gateway.py.
+
+    After B2-2a, application/prompt_gateway.py is deleted and the Protocol
+    is in application/ports/prompt_gateway.py. Infra and workflows must
+    import from the ports location, not from application root.
+    """
+    old_location = APP_ROOT / "application" / "prompt_gateway.py"
+    assert not old_location.exists(), (
+        "application/prompt_gateway.py should be deleted (ARCH-P1-01). "
+        "PromptGateway Protocol must live in application/ports/prompt_gateway.py."
+    )
+
+    new_location = APP_ROOT / "application" / "ports" / "prompt_gateway.py"
+    assert new_location.exists(), (
+        "application/ports/prompt_gateway.py must exist with the PromptGateway Protocol."
+    )
+
+    content = new_location.read_text()
+    assert "class PromptGateway" in content, (
+        "application/ports/prompt_gateway.py must define the PromptGateway Protocol."
+    )
 
 
 def test_application_does_not_import_domain_repositories():

@@ -6,7 +6,7 @@ that uses the application's PromptService for prompt operations.
 
 from loguru import logger
 
-from app.application.prompt_gateway import PromptGateway
+from app.application.ports.prompt_gateway import PromptGateway
 from app.application.prompt_service import PromptService
 from app.infra.cache.prompt_cache import PromptCache
 from app.infra.postgres.prompt_repository import PostgresPromptRepository

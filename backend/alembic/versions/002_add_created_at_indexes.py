@@ -7,7 +7,6 @@ Create Date: 2026-04-10
 This migration adds indexes on created_at columns for chat_messages and documents.
 """
 
-import sqlalchemy as sa
 from alembic import op
 
 revision = "002"

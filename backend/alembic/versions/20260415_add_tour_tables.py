@@ -159,7 +159,12 @@ def downgrade() -> None:
                 op.drop_index(idx_name, table_name='tour_events')
         op.drop_table('tour_events')
     if _table_exists('tour_sessions'):
-        for idx_name in ['ix_tour_sessions_status', 'ix_tour_sessions_session_token', 'ix_tour_sessions_guest_id', 'ix_tour_sessions_user_id']:
+        for idx_name in [
+            'ix_tour_sessions_status',
+            'ix_tour_sessions_session_token',
+            'ix_tour_sessions_guest_id',
+            'ix_tour_sessions_user_id',
+        ]:
             if _index_exists(idx_name):
                 op.drop_index(idx_name, table_name='tour_sessions')
         op.drop_table('tour_sessions')

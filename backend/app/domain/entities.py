@@ -1,6 +1,7 @@
 # backend/app/domain/entities.py
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from .exceptions import PromptVariableError
 from .value_objects import (
@@ -270,7 +271,7 @@ class TourEvent:
     exhibit_id: ExhibitId | None
     hall: str | None
     duration_seconds: int | None
-    metadata: dict | None
+    metadata: dict[str, Any] | None
     created_at: datetime
 
 
@@ -287,7 +288,7 @@ class TourReport:
     total_exhibits_viewed: int
     ceramic_questions: int
     identity_tags: list[str]
-    radar_scores: dict
+    radar_scores: dict[str, Any]
     one_liner: str
     report_theme: str
     created_at: datetime

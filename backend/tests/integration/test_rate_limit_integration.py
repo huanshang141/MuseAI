@@ -251,4 +251,6 @@ class TestRateLimitConcurrency:
 
         # Should have exactly max_requests allowed and the rest blocked
         assert allowed == max_requests, f"Expected {max_requests} allowed, got {allowed}"
-        assert blocked == num_concurrent - max_requests, f"Expected {num_concurrent - max_requests} blocked, got {blocked}"
+        assert blocked == num_concurrent - max_requests, (
+            f"Expected {num_concurrent - max_requests} blocked, got {blocked}"
+        )

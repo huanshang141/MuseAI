@@ -20,7 +20,7 @@ from app.infra.postgres.models import User
 from app.infra.security.password import hash_password
 from loguru import logger
 
-from backend.tests.performance.config import TestConfig, get_config
+from backend.tests.performance.config import PerfTestConfig, get_config
 
 # Sample museum content for testing
 SAMPLE_DOCUMENTS = [
@@ -111,7 +111,7 @@ async def create_test_documents(
     return created
 
 
-async def create_test_users_db(config: TestConfig) -> int:
+async def create_test_users_db(config: PerfTestConfig) -> int:
     """Create test users directly in the database."""
     logger.info(f"Creating {config.num_test_users} test users in database...")
 
@@ -150,7 +150,7 @@ async def create_test_users_db(config: TestConfig) -> int:
     return created
 
 
-async def prepare_test_data(config: TestConfig) -> dict[str, int]:
+async def prepare_test_data(config: PerfTestConfig) -> dict[str, int]:
     """Prepare all test data."""
     results = {}
 

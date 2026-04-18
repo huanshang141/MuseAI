@@ -41,7 +41,9 @@ async def db_session(db_engine: AsyncEngine, test_settings: Settings) -> AsyncSe
     async with session_maker() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, email, password_hash) VALUES ('test-user-e2e', 'e2e@test.com', 'test_hash') ON CONFLICT (id) DO NOTHING"
+                "INSERT INTO users (id, email, password_hash) "
+                "VALUES ('test-user-e2e', 'e2e@test.com', 'test_hash') "
+                "ON CONFLICT (id) DO NOTHING"
             )
         )
         await session.commit()

@@ -101,7 +101,7 @@ def main():
         # Wait for servers to be ready
         print("\nWaiting for servers to be ready...")
         all_ready = True
-        for name, proc, url in processes:
+        for name, _proc, url in processes:
             if wait_for_server(url):
                 print(f"  ✓ {name} server ready at {url}")
             else:

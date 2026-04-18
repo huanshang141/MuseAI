@@ -7,7 +7,7 @@ from typing import Literal
 
 
 @dataclass
-class TestConfig:
+class PerfTestConfig:
     """Test configuration settings."""
 
     # Server endpoints
@@ -53,7 +53,7 @@ class TestConfig:
 
 # Preset scenarios
 SCENARIOS = {
-    "smoke": TestConfig(
+    "smoke": PerfTestConfig(
         scenario="smoke",
         spawn_rate=5,
         run_time="2m",
@@ -61,7 +61,7 @@ SCENARIOS = {
         guest_user_weight=1,
         num_test_users=10,
     ),
-    "load": TestConfig(
+    "load": PerfTestConfig(
         scenario="load",
         spawn_rate=10,
         run_time="5m",
@@ -69,7 +69,7 @@ SCENARIOS = {
         guest_user_weight=7,
         num_test_users=100,
     ),
-    "stress": TestConfig(
+    "stress": PerfTestConfig(
         scenario="stress",
         spawn_rate=20,
         run_time="10m",
@@ -77,7 +77,7 @@ SCENARIOS = {
         guest_user_weight=5,
         num_test_users=500,
     ),
-    "spike": TestConfig(
+    "spike": PerfTestConfig(
         scenario="spike",
         spawn_rate=50,
         run_time="3m",
@@ -88,6 +88,6 @@ SCENARIOS = {
 }
 
 
-def get_config(scenario: str = "load") -> TestConfig:
+def get_config(scenario: str = "load") -> PerfTestConfig:
     """Get configuration for a specific test scenario."""
     return SCENARIOS.get(scenario, SCENARIOS["load"])

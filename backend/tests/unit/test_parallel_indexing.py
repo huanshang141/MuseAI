@@ -320,15 +320,15 @@ class TestParallelIndexingTiming:
             max_observed = 0
             lock = asyncio.Lock()
 
-            async def mock_index_chunk(doc):
+            async def mock_index_chunk(doc, _lock: asyncio.Lock = lock):
                 nonlocal concurrent_count, max_observed
-                async with lock:
+                async with _lock:
                     concurrent_count += 1
                     max_observed = max(max_observed, concurrent_count)
 
                 await asyncio.sleep(0.01)
 
-                async with lock:
+                async with _lock:
                     concurrent_count -= 1
 
             mock_es = MagicMock()

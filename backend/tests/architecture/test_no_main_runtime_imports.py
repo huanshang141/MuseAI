@@ -44,9 +44,12 @@ def find_runtime_imports_from_main(directory: str) -> list[dict]:
         # Track nodes that are in TYPE_CHECKING blocks
         type_checking_nodes: set[int] = set()
 
-        def find_type_checking_nodes(node: ast.AST, in_type_checking: bool = False) -> None:
+        def find_type_checking_nodes(
+            node: ast.AST,
+            in_type_checking: bool = False,
+            _tc_nodes: set[int] = type_checking_nodes,
+        ) -> None:
             """Recursively find all nodes inside TYPE_CHECKING blocks."""
-            # Check if this is a TYPE_CHECKING if statement
             is_type_checking = in_type_checking
             if isinstance(node, ast.If):
                 if isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
@@ -55,10 +58,10 @@ def find_runtime_imports_from_main(directory: str) -> list[dict]:
                     is_type_checking = True
 
             if is_type_checking:
-                type_checking_nodes.add(id(node))
+                _tc_nodes.add(id(node))
 
             for child in ast.iter_child_nodes(node):
-                find_type_checking_nodes(child, is_type_checking)
+                find_type_checking_nodes(child, is_type_checking, _tc_nodes)
 
         find_type_checking_nodes(tree)
 
@@ -99,4 +102,8 @@ def test_no_runtime_import_from_main_outside_main_module():
             f"  - {v['file']}:{v['line']}: {v['import']}"
             for v in violations
         )
-        raise AssertionError(f"Deep modules should not import from app.main at runtime.\n" f"Use dependency injection through constructors instead.\n" f"Found {len(violations)} violations:\n{violation_details}")
+        raise AssertionError(
+            "Deep modules should not import from app.main at runtime.\n"
+            "Use dependency injection through constructors instead.\n"
+            f"Found {len(violations)} violations:\n{violation_details}"
+        )

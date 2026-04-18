@@ -10,7 +10,7 @@ sys.path.insert(0, str(project_root))
 
 import httpx
 
-from backend.tests.performance.config import TestConfig
+from backend.tests.performance.config import PerfTestConfig
 
 
 async def create_test_user(
@@ -58,7 +58,7 @@ async def login_user(
 
 
 async def create_test_users_batch(
-    config: TestConfig,
+    config: PerfTestConfig,
 ) -> list[dict[str, Any]]:
     """Create a batch of test users for load testing."""
     users = []
@@ -103,7 +103,7 @@ async def get_auth_tokens_batch(
     return tokens
 
 
-def generate_user_credentials(user_index: int, config: TestConfig) -> tuple[str, str]:
+def generate_user_credentials(user_index: int, config: PerfTestConfig) -> tuple[str, str]:
     """Generate deterministic user credentials."""
     email = f"{config.test_user_email_prefix}_{user_index}@test.example.com"
     return email, config.test_user_password
@@ -112,7 +112,7 @@ def generate_user_credentials(user_index: int, config: TestConfig) -> tuple[str,
 class UserTokenPool:
     """Pool of pre-authenticated user tokens for load testing."""
 
-    def __init__(self, config: TestConfig):
+    def __init__(self, config: PerfTestConfig):
         self.config = config
         self._tokens: dict[str, str] = {}
         self._emails: list[str] = []

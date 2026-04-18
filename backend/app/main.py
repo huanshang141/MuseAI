@@ -30,8 +30,8 @@ from app.infra.langchain import (
     create_rerank_provider,
     create_retriever,
 )
+from app.infra.postgres.adapters import PostgresPromptRepository
 from app.infra.postgres.database import close_database, get_session, init_database
-from app.infra.postgres.prompt_repository import PostgresPromptRepository
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware

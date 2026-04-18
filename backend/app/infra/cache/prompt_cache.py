@@ -6,7 +6,7 @@ from collections import OrderedDict
 from loguru import logger
 
 from app.domain.entities import Prompt
-from app.infra.postgres.prompt_repository import PostgresPromptRepository
+from app.infra.postgres.adapters import PostgresPromptRepository
 
 
 class PromptCache:

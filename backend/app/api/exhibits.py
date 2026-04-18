@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.api.deps import SessionDep
 from app.application.exhibit_service import ExhibitService
-from app.infra.postgres.repositories import PostgresExhibitRepository
+from app.infra.postgres.adapters import PostgresExhibitRepository
 
 router = APIRouter(prefix="/exhibits", tags=["exhibits"])
 

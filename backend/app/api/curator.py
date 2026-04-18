@@ -12,7 +12,7 @@ from app.application.profile_service import ProfileService
 from app.domain.exceptions import EntityNotFoundError
 from app.infra.langchain import create_curator_tools
 from app.infra.langchain.curator_agent import CuratorAgent
-from app.infra.postgres.repositories import PostgresExhibitRepository, PostgresVisitorProfileRepository
+from app.infra.postgres.adapters import PostgresExhibitRepository, PostgresVisitorProfileRepository
 
 router = APIRouter(prefix="/curator", tags=["curator"])
 

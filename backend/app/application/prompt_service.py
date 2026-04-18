@@ -4,7 +4,7 @@ from loguru import logger
 
 from app.domain.entities import Prompt, PromptVersion
 from app.infra.cache.prompt_cache import PromptCache
-from app.infra.postgres.prompt_repository import PostgresPromptRepository
+from app.infra.postgres.adapters import PostgresPromptRepository
 
 
 class PromptService:

@@ -10,11 +10,11 @@ from app.domain.value_objects import (
     ProfileId,
     UserId,
 )
-from app.infra.postgres.models import Base
-from app.infra.postgres.repositories import (
+from app.infra.postgres.adapters import (
     PostgresExhibitRepository,
     PostgresVisitorProfileRepository,
 )
+from app.infra.postgres.models import Base
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 

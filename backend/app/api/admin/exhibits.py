@@ -11,7 +11,7 @@ from app.application.content_source import ContentMetadata, ContentSource
 from app.application.exhibit_service import ExhibitService
 from app.application.unified_indexing_service import UnifiedIndexingService
 from app.domain.exceptions import EntityNotFoundError
-from app.infra.postgres.repositories import PostgresExhibitRepository
+from app.infra.postgres.adapters import PostgresExhibitRepository
 
 router = APIRouter(prefix="/admin/exhibits", tags=["admin-exhibits"])
 

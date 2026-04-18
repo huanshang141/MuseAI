@@ -9,7 +9,7 @@ from loguru import logger
 from app.application.ports.prompt_gateway import PromptGateway
 from app.application.prompt_service import PromptService
 from app.infra.cache.prompt_cache import PromptCache
-from app.infra.postgres.prompt_repository import PostgresPromptRepository
+from app.infra.postgres.adapters import PostgresPromptRepository
 
 
 class PromptServiceAdapter(PromptGateway):

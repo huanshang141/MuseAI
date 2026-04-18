@@ -172,6 +172,35 @@ def test_infra_has_repository_adapters():
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
 
 
+def test_postgres_adapters_consolidated():
+    """infra/postgres/ adapters must be consolidated into infra/postgres/adapters/.
+
+    After B2-4, infra/postgres/repositories.py and
+    infra/postgres/prompt_repository.py are deleted; their classes
+    live in infra/postgres/adapters/.
+    """
+    old_repos = APP_ROOT / "infra" / "postgres" / "repositories.py"
+    old_prompt = APP_ROOT / "infra" / "postgres" / "prompt_repository.py"
+    assert not old_repos.exists(), (
+        "infra/postgres/repositories.py should be deleted (ARCH-P2-01). "
+        "Move contents to infra/postgres/adapters/."
+    )
+    assert not old_prompt.exists(), (
+        "infra/postgres/prompt_repository.py should be deleted (ARCH-P2-01). "
+        "Move contents to infra/postgres/adapters/."
+    )
+
+    adapters_dir = APP_ROOT / "infra" / "postgres" / "adapters"
+    assert adapters_dir.is_dir(), "infra/postgres/adapters/ must be a directory"
+
+    adapter_files = list(adapters_dir.glob("*.py"))
+    adapter_names = [f.name for f in adapter_files if f.name != "__init__.py"]
+    assert len(adapter_names) >= 2, (
+        "infra/postgres/adapters/ must contain at least 2 adapter modules "
+        "(exhibit, profile, prompt, etc.)"
+    )
+
+
 def test_rrf_fusion_lives_in_domain_services():
     """rrf_fusion is a pure algorithm and must live in domain/services/retrieval.py.
 

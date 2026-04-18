@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.api.deps import CurrentAdminUser, PromptCacheDep, SessionDep
 from app.domain.entities import Prompt, PromptVersion
 from app.domain.exceptions import PromptNotFoundError
-from app.infra.postgres.prompt_repository import PostgresPromptRepository
+from app.infra.postgres.adapters import PostgresPromptRepository
 
 router = APIRouter(prefix="/admin/prompts", tags=["admin-prompts"])
 

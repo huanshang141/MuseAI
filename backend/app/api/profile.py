@@ -7,7 +7,7 @@ from app.api.deps import CurrentUser, RateLimitDep, SessionDep
 from app.application.error_handling import sanitize_error_message
 from app.application.profile_service import ProfileService
 from app.domain.exceptions import EntityNotFoundError
-from app.infra.postgres.repositories import PostgresVisitorProfileRepository
+from app.infra.postgres.adapters import PostgresVisitorProfileRepository
 
 router = APIRouter(prefix="/profile", tags=["profile"])
 

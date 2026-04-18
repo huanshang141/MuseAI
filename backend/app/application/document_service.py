@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from app.application.ports.repositories import DocumentRepositoryPort
+
 if TYPE_CHECKING:
     from app.infra.postgres.models import Document, IngestionJob
 
@@ -227,9 +229,6 @@ async def delete_document_by_id(
     """
     return await doc_repo.delete(doc_id)
 
-
-# Import the protocol for type hints
-from app.application.ports.repositories import DocumentRepositoryPort  # noqa: E402
 
 __all__ = [
     "create_document",

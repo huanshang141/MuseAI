@@ -172,6 +172,20 @@ def test_infra_has_repository_adapters():
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
 
 
+def test_document_service_no_e402_imports():
+    """document_service.py must not have noqa: E402 imports.
+
+    After B2-5, the bottom-of-file import of DocumentRepositoryPort
+    is moved to the top of the file alongside other imports.
+    """
+    doc_service = APP_ROOT / "application" / "document_service.py"
+    content = doc_service.read_text()
+    assert "noqa: E402" not in content, (
+        "application/document_service.py must not contain noqa: E402 "
+        "imports (ARCH-P2-02). Move imports to the top of the file."
+    )
+
+
 def test_postgres_adapters_consolidated():
     """infra/postgres/ adapters must be consolidated into infra/postgres/adapters/.
 

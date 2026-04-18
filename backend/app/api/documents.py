@@ -92,6 +92,53 @@ class IngestionJobResponse(BaseModel):
 MAX_FILE_SIZE = 50 * 1024 * 1024
 CHUNK_SIZE = 64 * 1024
 
+ALLOWED_EXTENSIONS = frozenset({".txt", ".md", ".markdown"})
+ALLOWED_CONTENT_TYPES = frozenset({
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "application/octet-stream",
+})
+MAGIC_SNIFF_BYTES = 8192
+
+
+def validate_upload_metadata(file: UploadFile) -> None:
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is required")
+
+    filename_lower = file.filename.lower()
+    if not any(filename_lower.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+        raise HTTPException(
+            status_code=415,
+            detail=f"File extension not allowed. Accepted: {sorted(ALLOWED_EXTENSIONS)}",
+        )
+
+    ct = (file.content_type or "").lower()
+    if ct and ct not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Content-type not allowed: {ct}",
+        )
+
+
+def validate_upload_content(temp_path: str) -> None:
+    with open(temp_path, "rb") as f:
+        head = f.read(MAGIC_SNIFF_BYTES)
+
+    if b"\x00" in head:
+        raise HTTPException(
+            status_code=415,
+            detail="File content appears binary (null bytes detected)",
+        )
+
+    try:
+        head.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=415,
+            detail="File content is not valid UTF-8 text",
+        ) from e
+
 
 async def stream_to_temp_file(file: UploadFile, max_size: int) -> tuple[str, int]:
     """Stream upload file to a temporary file with size validation.
@@ -189,10 +236,18 @@ async def upload_document(
     unified_indexing_service: UnifiedIndexingServiceDep,
     file: UploadFile = File(...),  # noqa: B008
 ) -> DocumentResponse:
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="Filename is required")
+    validate_upload_metadata(file)
 
     tmp_path, file_size = await stream_to_temp_file(file, MAX_FILE_SIZE)
+
+    try:
+        validate_upload_content(tmp_path)
+    except HTTPException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
     doc_repo = PostgresDocumentRepository(session)
     document = await create_document(doc_repo, file.filename, current_admin["id"])

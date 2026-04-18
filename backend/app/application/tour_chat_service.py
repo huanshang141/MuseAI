@@ -1,4 +1,3 @@
-import json
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -6,6 +5,7 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.sse_events import sse_tour_event
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import detect_ceramic_question
 from app.application.tour_session_service import get_session
@@ -93,18 +93,17 @@ async def ask_stream_tour(
             yield event
     except Exception as e:
         logger.error(f"Tour chat RAG error: {e}")
-        error_data = json.dumps({
-            "event": "error",
-            "data": {"code": "llm_error", "message": "AI导览暂时不可用，请稍后再试"},
-        })
-        yield f"data: {error_data}\n\n"
+        yield sse_tour_event(
+            "error",
+            data={"code": "llm_error", "message": "AI导览暂时不可用，请稍后再试"},
+        )
+        return
 
-    done_data = {
-        "event": "done",
-        "trace_id": trace_id,
-        "is_ceramic_question": is_ceramic,
-    }
-    yield f"data: {json.dumps(done_data)}\n\n"
+    yield sse_tour_event(
+        "done",
+        trace_id=trace_id,
+        is_ceramic_question=is_ceramic,
+    )
 
     try:
         async with session_maker() as event_session:
@@ -124,5 +123,4 @@ async def _stream_rag(rag_agent: Any, message: str, system_prompt: str) -> Async
     result = await rag_agent.run(message, system_prompt=system_prompt)
     answer = result.get("answer", "")
 
-    chunk_data = json.dumps({"event": "chunk", "data": {"content": answer}})
-    yield f"data: {chunk_data}\n\n"
+    yield sse_tour_event("chunk", data={"content": answer})

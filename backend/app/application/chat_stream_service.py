@@ -1,4 +1,3 @@
-import json
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -10,6 +9,7 @@ from app.application.chat_message_service import add_message
 from app.application.chat_session_service import get_session_by_id
 from app.application.error_handling import sanitize_error_message
 from app.application.ports.repositories import CachePort, LLMProviderPort
+from app.application.sse_events import sse_chat_event
 from app.domain.exceptions import LLMError
 
 
@@ -80,13 +80,13 @@ async def ask_question_stream(
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
-        yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
+        yield sse_chat_event("error", code="SESSION_NOT_FOUND", message="Session not found")
         return
 
     trace_id = str(uuid.uuid4())
 
-    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
-    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '检索完成'})}\n\n"
+    yield sse_chat_event("thinking", stage="retrieve", content="正在检索...")
+    yield sse_chat_event("thinking", stage="retrieve", content="检索完成")
 
     messages = [{"role": "user", "content": message}]
     chunks: list[str] = []
@@ -94,20 +94,20 @@ async def ask_question_stream(
     try:
         async for chunk in llm_provider.generate_stream(messages):
             chunks.append(chunk)
-            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+            yield sse_chat_event("chunk", stage="generate", content=chunk)
 
         full_content = "".join(chunks)
         await add_message(session, session_id, "user", message)
         await add_message(session, session_id, "assistant", full_content, trace_id=trace_id)
         await session.commit()
 
-        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'chunks': chunks})}\n\n"
+        yield sse_chat_event("done", stage="generate", trace_id=trace_id, chunks=chunks)
     except LLMError as e:
         sanitized = sanitize_error_message(e)
-        yield f"data: {json.dumps({'type': 'error', 'code': 'LLM_ERROR', 'message': sanitized})}\n\n"
+        yield sse_chat_event("error", code="LLM_ERROR", message=sanitized)
     except Exception as e:
         sanitized = sanitize_error_message(e)
-        yield f"data: {json.dumps({'type': 'error', 'code': 'INTERNAL_ERROR', 'message': sanitized})}\n\n"
+        yield sse_chat_event("error", code="INTERNAL_ERROR", message=sanitized)
 
 
 async def ask_question_stream_with_rag(
@@ -121,15 +121,12 @@ async def ask_question_stream_with_rag(
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
-        yield f"data: {json.dumps({'type': 'error', 'code': 'SESSION_NOT_FOUND', 'message': 'Session not found'})}\n\n"
+        yield sse_chat_event("error", code="SESSION_NOT_FOUND", message="Session not found")
         return
 
     trace_id = str(uuid.uuid4())
 
-    def _rag_event(step: str, status: str, message: str) -> str:
-        return f"data: {json.dumps({'type': 'rag_step', 'step': step, 'status': status, 'message': message})}\n\n"
-
-    yield _rag_event('rewrite', 'running', '正在分析查询意图...')
+    yield sse_chat_event("rag_step", step="rewrite", status="running", message="正在分析查询意图...")
 
     try:
         result = await rag_agent.run(message)
@@ -140,32 +137,32 @@ async def ask_question_stream_with_rag(
         rewritten_query = result.get("rewritten_query", message)
         if rewritten_query != message:
             q_msg = f'查询已优化: {rewritten_query[:50]}...'
-            yield _rag_event('rewrite', 'completed', q_msg)
+            yield sse_chat_event("rag_step", step="rewrite", status="completed", message=q_msg)
         else:
-            yield _rag_event('rewrite', 'completed', '查询分析完成')
+            yield sse_chat_event("rag_step", step="rewrite", status="completed", message="查询分析完成")
 
-        yield _rag_event('retrieve', 'running', '正在检索相关文档...')
+        yield sse_chat_event("rag_step", step="retrieve", status="running", message="正在检索相关文档...")
 
         doc_count = len(result.get("documents", []))
         retrieval_score = result.get("retrieval_score", 0)
 
         r_msg = f'检索完成，找到 {doc_count} 个相关文档'
-        yield _rag_event('retrieve', 'completed', r_msg)
+        yield sse_chat_event("rag_step", step="retrieve", status="completed", message=r_msg)
 
-        yield _rag_event('rerank', 'running', '正在对文档进行重排序...')
-        yield _rag_event('rerank', 'completed', '重排序完成')
+        yield sse_chat_event("rag_step", step="rerank", status="running", message="正在对文档进行重排序...")
+        yield sse_chat_event("rag_step", step="rerank", status="completed", message="重排序完成")
 
-        yield _rag_event('evaluate', 'running', '正在评估检索质量...')
+        yield sse_chat_event("rag_step", step="evaluate", status="running", message="正在评估检索质量...")
 
         transformations = result.get("transformations", [])
         if transformations and retrieval_score < rag_agent.score_threshold:
             t_msg = f'检索评分较低({retrieval_score:.2f})，已尝试查询转换'
-            yield _rag_event('transform', 'completed', t_msg)
+            yield sse_chat_event("rag_step", step="transform", status="completed", message=t_msg)
 
         e_msg = f'检索评分: {retrieval_score:.2f}'
-        yield _rag_event('evaluate', 'completed', e_msg)
+        yield sse_chat_event("rag_step", step="evaluate", status="completed", message=e_msg)
 
-        yield _rag_event('generate', 'running', '正在生成回答...')
+        yield sse_chat_event("rag_step", step="generate", status="running", message="正在生成回答...")
 
         docs = result.get("reranked_documents") or result.get("documents", [])
         context = "\n\n".join(doc.page_content for doc in docs)
@@ -193,7 +190,7 @@ async def ask_question_stream_with_rag(
         chunks: list[str] = []
         async for chunk in llm_provider.generate_stream(messages):
             chunks.append(chunk)
-            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+            yield sse_chat_event("chunk", stage="generate", content=chunk)
 
         answer_content = "".join(chunks)
 
@@ -245,10 +242,10 @@ async def ask_question_stream_with_rag(
                 )
 
         logger.debug(f"Final sources count: {len(sources)}")
-        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
+        yield sse_chat_event("done", stage="generate", trace_id=trace_id, sources=sources)
     except Exception as e:
         sanitized = sanitize_error_message(e)
-        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"
+        yield sse_chat_event("error", code="RAG_ERROR", message=sanitized)
 
 
 async def persist_stream_result(
@@ -274,7 +271,7 @@ async def ask_question_stream_guest(
 ) -> AsyncGenerator[str, None]:
     trace_id = str(uuid.uuid4())
 
-    yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': '正在检索...'})}\n\n"
+    yield sse_chat_event("thinking", stage="retrieve", content="正在检索...")
 
     try:
         result = await rag_agent.run(message)
@@ -283,10 +280,10 @@ async def ask_question_stream_guest(
         retrieval_score = result.get("retrieval_score", 0)
 
         retrieve_msg = f"检索完成，找到 {doc_count} 个相关文档"
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'retrieve', 'content': retrieve_msg})}\n\n"
+        yield sse_chat_event("thinking", stage="retrieve", content=retrieve_msg)
 
         eval_msg = f"检索评分: {retrieval_score:.2f}"
-        yield f"data: {json.dumps({'type': 'thinking', 'stage': 'evaluate', 'content': eval_msg})}\n\n"
+        yield sse_chat_event("thinking", stage="evaluate", content=eval_msg)
 
         docs = result.get("reranked_documents") or result.get("documents", [])
         context = "\n\n".join(doc.page_content for doc in docs)
@@ -314,7 +311,7 @@ async def ask_question_stream_guest(
         chunks: list[str] = []
         async for chunk in llm_provider.generate_stream(messages):
             chunks.append(chunk)
-            yield f"data: {json.dumps({'type': 'chunk', 'stage': 'generate', 'content': chunk})}\n\n"
+            yield sse_chat_event("chunk", stage="generate", content=chunk)
 
         answer = "".join(chunks)
 
@@ -355,7 +352,7 @@ async def ask_question_stream_guest(
                     }
                 )
 
-        yield f"data: {json.dumps({'type': 'done', 'stage': 'generate', 'trace_id': trace_id, 'sources': sources})}\n\n"
+        yield sse_chat_event("done", stage="generate", trace_id=trace_id, sources=sources)
     except Exception as e:
         sanitized = sanitize_error_message(e)
-        yield f"data: {json.dumps({'type': 'error', 'code': 'RAG_ERROR', 'message': sanitized})}\n\n"
+        yield sse_chat_event("error", code="RAG_ERROR", message=sanitized)

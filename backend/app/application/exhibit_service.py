@@ -1,16 +1,16 @@
 # backend/app/application/exhibit_service.py
 from datetime import UTC, datetime
 
+from app.application.ports.repositories import ExhibitRepositoryPort
 from app.domain.entities import Exhibit
 from app.domain.exceptions import EntityNotFoundError
-from app.domain.repositories import ExhibitRepository
 from app.domain.value_objects import ExhibitId, Location
 
 
 class ExhibitService:
     """展品管理服务，提供展品的CRUD操作。"""
 
-    def __init__(self, exhibit_repository: ExhibitRepository):
+    def __init__(self, exhibit_repository: ExhibitRepositoryPort):
         self._repository = exhibit_repository
 
     async def create_exhibit(

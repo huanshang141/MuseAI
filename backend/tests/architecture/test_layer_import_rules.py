@@ -171,6 +171,28 @@ def test_infra_has_repository_adapters():
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
 
 
+def test_application_does_not_import_domain_repositories():
+    """application/ must use application/ports/repositories.py, not domain/repositories.py.
+
+    The dual-Port surface (domain/repositories.py + application/ports/repositories.py)
+    violates ARCH-P1-02. After B2-1, domain/repositories.py is deleted and all
+    application services must import from the canonical ports location.
+    """
+    domain_repos = APP_ROOT / "domain" / "repositories.py"
+    assert not domain_repos.exists(), (
+        "domain/repositories.py should be deleted (ARCH-P1-02). "
+        "All repository ports must live in application/ports/repositories.py."
+    )
+
+    for path in _files_in("application"):
+        rel = str(path.relative_to(APP_ROOT))
+        for imp in _get_module_imports(path):
+            assert imp != "app.domain.repositories" and not imp.startswith("app.domain.repositories."), (
+                f"{rel} imports {imp} from domain/repositories.py. "
+                f"Use application/ports/repositories.py instead (ARCH-P1-02)."
+            )
+
+
 def test_domain_layer_does_not_import_sqlalchemy():
     for path in _files_in("domain"):
         for imp in _get_module_imports(path):

@@ -1,16 +1,16 @@
 # backend/app/application/profile_service.py
 from datetime import UTC, datetime
 
+from app.application.ports.repositories import VisitorProfileRepositoryPort
 from app.domain.entities import VisitorProfile
 from app.domain.exceptions import EntityNotFoundError
-from app.domain.repositories import VisitorProfileRepository
 from app.domain.value_objects import ExhibitId, ProfileId, UserId
 
 
 class ProfileService:
     """访客画像服务，管理用户偏好和参观历史。"""
 
-    def __init__(self, profile_repository: VisitorProfileRepository):
+    def __init__(self, profile_repository: VisitorProfileRepositoryPort):
         self._repository = profile_repository
 
     async def get_or_create_profile(self, user_id: str) -> VisitorProfile:

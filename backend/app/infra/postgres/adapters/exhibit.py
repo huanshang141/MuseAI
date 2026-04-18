@@ -39,28 +39,44 @@ class PostgresExhibitRepository:
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
-    async def list_all(self, include_inactive: bool = False) -> list[Exhibit]:
+    async def list_all(
+        self,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Exhibit]:
         query = select(ExhibitORM)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
+        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def list_by_category(
-        self, category: str, include_inactive: bool = False
+        self,
+        category: str,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.category == category)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
+        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
     async def list_by_hall(
-        self, hall: str, include_inactive: bool = False
+        self,
+        hall: str,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.hall == hall)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
+        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -136,6 +152,8 @@ class PostgresExhibitRepository:
         category: str | None = None,
         hall: str | None = None,
         floor: int | None = None,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.is_active.is_(True))
 
@@ -146,6 +164,7 @@ class PostgresExhibitRepository:
         if floor is not None:
             query = query.where(ExhibitORM.floor == floor)
 
+        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 

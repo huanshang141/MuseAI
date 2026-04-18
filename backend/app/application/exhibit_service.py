@@ -97,22 +97,19 @@ class ExhibitService:
         Returns:
             展品实体列表
         """
-        # 如果有floor筛选，使用支持所有筛选的方法
         if floor is not None:
-            exhibits = await self._repository.list_with_filters(
+            return await self._repository.list_with_filters(
                 category=category,
                 hall=hall,
                 floor=floor,
+                skip=skip,
+                limit=limit,
             )
-        elif category:
-            exhibits = await self._repository.list_by_category(category)
-        elif hall:
-            exhibits = await self._repository.list_by_hall(hall)
-        else:
-            exhibits = await self._repository.list_all()
-
-        # 应用分页
-        return exhibits[skip : skip + limit]
+        if category:
+            return await self._repository.list_by_category(category, skip=skip, limit=limit)
+        if hall:
+            return await self._repository.list_by_hall(hall, skip=skip, limit=limit)
+        return await self._repository.list_all(skip=skip, limit=limit)
 
     async def update_exhibit(
         self,

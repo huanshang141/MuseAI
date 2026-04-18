@@ -99,7 +99,9 @@ async def test_list_exhibits_floor_branch_calls_list_with_filters():
     service = ExhibitService(repo)
     await service.list_exhibits(floor=2, category="bronze", hall="east")
 
-    repo.list_with_filters.assert_awaited_once_with(category="bronze", hall="east", floor=2)
+    repo.list_with_filters.assert_awaited_once_with(
+        category="bronze", hall="east", floor=2, skip=0, limit=100
+    )
     repo.list_by_category.assert_not_awaited()
     repo.list_by_hall.assert_not_awaited()
     repo.list_all.assert_not_awaited()
@@ -111,7 +113,7 @@ async def test_list_exhibits_category_branch_calls_list_by_category():
     service = ExhibitService(repo)
     await service.list_exhibits(category="bronze")
 
-    repo.list_by_category.assert_awaited_once_with("bronze")
+    repo.list_by_category.assert_awaited_once_with("bronze", skip=0, limit=100)
     repo.list_with_filters.assert_not_awaited()
     repo.list_by_hall.assert_not_awaited()
     repo.list_all.assert_not_awaited()
@@ -123,7 +125,7 @@ async def test_list_exhibits_hall_branch_calls_list_by_hall():
     service = ExhibitService(repo)
     await service.list_exhibits(hall="east")
 
-    repo.list_by_hall.assert_awaited_once_with("east")
+    repo.list_by_hall.assert_awaited_once_with("east", skip=0, limit=100)
     repo.list_by_category.assert_not_awaited()
     repo.list_all.assert_not_awaited()
 
@@ -134,20 +136,21 @@ async def test_list_exhibits_no_filter_branch_calls_list_all():
     service = ExhibitService(repo)
     await service.list_exhibits()
 
-    repo.list_all.assert_awaited_once()
+    repo.list_all.assert_awaited_once_with(skip=0, limit=100)
 
 
 @pytest.mark.asyncio
-async def test_list_exhibits_applies_python_side_pagination():
+async def test_list_exhibits_forwards_skip_and_limit_to_repo():
+    """PERFOPS-P1-01: pagination is now applied in SQL, not Python. The
+    service must forward skip/limit to the repository — no local slicing."""
     repo = _mock_repo()
-    repo.list_all.return_value = [_make_exhibit(id_=f"e-{i}") for i in range(10)]
+    repo.list_all.return_value = [_make_exhibit(id_=f"e-{i}") for i in range(2)]
 
     service = ExhibitService(repo)
     page = await service.list_exhibits(skip=3, limit=2)
 
+    repo.list_all.assert_awaited_once_with(skip=3, limit=2)
     assert len(page) == 2
-    assert page[0].id.value == "e-3"
-    assert page[1].id.value == "e-4"
 
 
 @pytest.mark.asyncio

@@ -55,16 +55,29 @@ class DocumentRepositoryPort(Protocol):
 class ExhibitRepositoryPort(Protocol):
     async def get_by_id(self, exhibit_id: ExhibitId) -> Exhibit | None: ...
 
-    async def list_all(self, include_inactive: bool = False) -> list[Exhibit]: ...
+    async def list_all(
+        self,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> list[Exhibit]: ...
 
     async def list_all_active(self) -> list[Exhibit]: ...
 
     async def list_by_category(
-        self, category: str, include_inactive: bool = False
+        self,
+        category: str,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]: ...
 
     async def list_by_hall(
-        self, hall: str, include_inactive: bool = False
+        self,
+        hall: str,
+        include_inactive: bool = False,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]: ...
 
     async def list_with_filters(
@@ -72,6 +85,8 @@ class ExhibitRepositoryPort(Protocol):
         category: str | None = None,
         hall: str | None = None,
         floor: int | None = None,
+        skip: int = 0,
+        limit: int = 100,
     ) -> list[Exhibit]: ...
 
     async def find_by_interests(

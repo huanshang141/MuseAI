@@ -1,14 +1,14 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from app.infra.providers.llm import LLMResponse
-from app.workflows.query_transform import (
+from app.application.workflows.query_transform import (
     QueryTransformer,
     QueryTransformStrategy,
     has_specific_details,
     is_ambiguous,
     select_strategy,
 )
+from app.infra.providers.llm import LLMResponse
 
 
 def test_strategy_enum_values():

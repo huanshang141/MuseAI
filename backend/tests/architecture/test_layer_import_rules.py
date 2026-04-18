@@ -108,7 +108,11 @@ def test_application_does_not_import_api():
 
 def test_infra_does_not_import_application_or_api():
     """infra/ implements ports defined in application/ports/; never calls application services or api directly."""
-    _assert_no_new_violations("infra", ("app.application", "app.api"), allowed_prefixes=("app.application.ports",))
+    _assert_no_new_violations(
+        "infra",
+        ("app.application", "app.api"),
+        allowed_prefixes=("app.application.ports", "app.application.workflows"),
+    )
 
 
 def test_workflows_does_not_import_api():
@@ -170,6 +174,65 @@ def test_infra_has_repository_adapters():
     ]
     for adapter in required_adapters:
         assert (adapters_dir / adapter).exists(), f"Adapter {adapter} should exist"
+
+
+def test_workflows_live_in_application():
+    """workflows/ must be absorbed into application/workflows/ with explicit DI.
+
+    After B2-6, the top-level workflows/ package is deleted and all
+    modules live in application/workflows/. Module-level globals
+    (like _prompt_gateway) are replaced with explicit DI.
+    """
+    old_dir = APP_ROOT / "workflows"
+    assert not old_dir.exists(), (
+        "workflows/ package should be deleted (ARCH-P2-03). "
+        "Move contents to application/workflows/."
+    )
+
+    new_dir = APP_ROOT / "application" / "workflows"
+    assert new_dir.is_dir(), (
+        "application/workflows/ must exist as a package."
+    )
+
+    new_init = new_dir / "__init__.py"
+    assert new_init.exists(), "application/workflows/__init__.py must exist."
+
+
+def test_workflows_no_module_level_globals():
+    """application/workflows/ must not use module-level mutable globals for DI.
+
+    After B2-6, _prompt_gateway module-level global is replaced with
+    explicit constructor injection.
+    """
+    workflows_dir = APP_ROOT / "application" / "workflows"
+    if not workflows_dir.is_dir():
+        return
+
+    for path in workflows_dir.glob("*.py"):
+        content = path.read_text()
+        assert "_prompt_gateway" not in content or "set_prompt_gateway" not in content, (
+            f"{path.name} must not use module-level _prompt_gateway global. "
+            f"Use explicit constructor injection instead."
+        )
+
+
+def test_workflows_no_infra_imports():
+    """application/workflows/ must not import from infra layer.
+
+    After B2-6, multi_turn.py uses a Port instead of
+    app.infra.providers.llm.LLMProvider.
+    """
+    workflows_dir = APP_ROOT / "application" / "workflows"
+    if not workflows_dir.is_dir():
+        return
+
+    for path in workflows_dir.glob("*.py"):
+        rel = str(path.relative_to(APP_ROOT))
+        for imp in _get_module_imports(path):
+            assert not imp.startswith("app.infra."), (
+                f"{rel} imports {imp} from infra layer. "
+                f"Use application/ports/ instead."
+            )
 
 
 def test_document_service_no_e402_imports():

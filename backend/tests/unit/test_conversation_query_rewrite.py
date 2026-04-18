@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.workflows.query_transform import ConversationAwareQueryRewriter
+from app.application.workflows.query_transform import ConversationAwareQueryRewriter
 
 
 class TestConversationAwareQueryRewriter:

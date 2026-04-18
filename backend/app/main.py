@@ -19,6 +19,7 @@ from app.application.context_manager import ConversationContextManager
 from app.application.ingestion_service import IngestionService
 from app.application.prompt_service_adapter import PromptServiceAdapter
 from app.application.unified_indexing_service import UnifiedIndexingService
+from app.application.workflows.reflection_prompts import ReflectionPromptService
 from app.config.settings import get_settings
 from app.infra.cache.prompt_cache import PromptCache
 from app.infra.elasticsearch.client import ElasticsearchClient
@@ -35,7 +36,6 @@ from app.infra.postgres.database import close_database, get_session, init_databa
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware
-from app.workflows.reflection_prompts import set_prompt_gateway
 
 T = TypeVar("T")
 
@@ -81,7 +81,7 @@ async def lifespan(app: FastAPI):
 
         prompt_gateway = PromptServiceAdapter(prompt_cache)
 
-        set_prompt_gateway(prompt_gateway)
+        app.state.reflection_service = ReflectionPromptService(prompt_gateway)
 
         from app.infra.providers.llm import OpenAICompatibleProvider
 

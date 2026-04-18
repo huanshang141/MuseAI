@@ -1,34 +1,20 @@
-"""Reflection prompts module for Digital Curation Agent.
-
-This module provides reflection prompts for different knowledge levels,
-categories, and narrative styles to guide user reflection on museum exhibits.
-
-Prompts are loaded from the PromptGateway (database-backed) with
-fallback to hardcoded values for resilience.
-"""
-
 from enum import Enum
 
 from app.application.ports.prompt_gateway import PromptGateway
 
 
 class KnowledgeLevel(Enum):
-    """Knowledge level of the user."""
-
     BEGINNER = "beginner"
     INTERMEDIATE = "intermediate"
     EXPERT = "expert"
 
 
 class NarrativeStyle(Enum):
-    """Narrative style for the reflection prompts."""
-
     STORYTELLING = "storytelling"
     ACADEMIC = "academic"
     INTERACTIVE = "interactive"
 
 
-# Hardcoded fallback prompts (used when PromptService is unavailable)
 BEGINNER_PROMPTS = [
     "这件文物让您联想到什么日常生活中的物品？",
     "这件文物最吸引您注意的是什么？",
@@ -95,21 +81,18 @@ REFLECTION_TEMPLATES = {
     KnowledgeLevel.EXPERT: EXPERT_PROMPTS,
 }
 
-# Mapping from KnowledgeLevel to prompt key
 LEVEL_KEY_MAP = {
     KnowledgeLevel.BEGINNER: "reflection_beginner",
     KnowledgeLevel.INTERMEDIATE: "reflection_intermediate",
     KnowledgeLevel.EXPERT: "reflection_expert",
 }
 
-# Mapping from category to prompt key
 CATEGORY_KEY_MAP = {
     "青铜器": "reflection_bronze",
     "书画": "reflection_painting",
     "陶瓷": "reflection_ceramic",
 }
 
-# Mapping from NarrativeStyle to prompt key
 STYLE_KEY_MAP = {
     NarrativeStyle.STORYTELLING: "narrative_style_storytelling",
     NarrativeStyle.ACADEMIC: "narrative_style_academic",
@@ -118,14 +101,6 @@ STYLE_KEY_MAP = {
 
 
 def _parse_multiline_prompts(content: str) -> list[str]:
-    """Parse multi-line prompt content into a list of prompts.
-
-    Args:
-        content: Multi-line string with one prompt per line
-
-    Returns:
-        List of non-empty prompt strings
-    """
     prompts = []
     for line in content.strip().split("\n"):
         line = line.strip()
@@ -134,139 +109,69 @@ def _parse_multiline_prompts(content: str) -> list[str]:
     return prompts
 
 
-# Module-level prompt gateway (set during initialization)
-_prompt_gateway: PromptGateway | None = None
+class ReflectionPromptService:
+    def __init__(self, prompt_gateway: PromptGateway | None = None):
+        self._prompt_gateway = prompt_gateway
 
+    async def _get_prompt_content(self, key: str) -> str | None:
+        if self._prompt_gateway:
+            return await self._prompt_gateway.get(key)
+        return None
 
-def set_prompt_gateway(gateway: PromptGateway | None) -> None:
-    """Set the module-level prompt gateway.
+    async def get_reflection_prompts(
+        self,
+        knowledge_level: KnowledgeLevel,
+        reflection_depth: int = 3,
+        category: str | None = None,
+    ) -> list[str]:
+        if reflection_depth < 1:
+            raise ValueError("reflection_depth must be at least 1")
+        if reflection_depth > 5:
+            raise ValueError("reflection_depth cannot exceed 5")
 
-    This should be called during application startup to inject
-    the PromptGateway without importing from app.main.
+        prompts: list[str] = []
 
-    Args:
-        gateway: The PromptGateway instance to use
-    """
-    global _prompt_gateway
-    _prompt_gateway = gateway
+        if category:
+            category_key = CATEGORY_KEY_MAP.get(category)
+            if category_key:
+                content = await self._get_prompt_content(category_key)
+                if content:
+                    prompts.extend(_parse_multiline_prompts(content))
+                else:
+                    prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
+            else:
+                prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
 
-
-async def _get_prompt_content(key: str) -> str | None:
-    """Fetch prompt content from PromptGateway.
-
-    Args:
-        key: Unique prompt key
-
-    Returns:
-        Prompt content if found, None otherwise
-    """
-    if _prompt_gateway:
-        return await _prompt_gateway.get(key)
-    return None
-
-
-async def get_reflection_prompts(
-    knowledge_level: KnowledgeLevel,
-    reflection_depth: int = 3,
-    category: str | None = None,
-) -> list[str]:
-    """Get reflection prompts based on knowledge level, depth, and category.
-
-    Args:
-        knowledge_level: The user's knowledge level (beginner, intermediate, expert)
-        reflection_depth: Number of prompts to return (default 3, max 5)
-        category: Optional category for category-specific prompts (e.g., "青铜器", "书画", "陶瓷")
-
-    Returns:
-        List of reflection prompt strings
-
-    Raises:
-        ValueError: If reflection_depth is less than 1 or greater than 5
-    """
-    if reflection_depth < 1:
-        raise ValueError("reflection_depth must be at least 1")
-    if reflection_depth > 5:
-        raise ValueError("reflection_depth cannot exceed 5")
-
-    prompts: list[str] = []
-
-    # Add category-specific prompts if category is provided
-    if category:
-        # Try to get from PromptService first
-        category_key = CATEGORY_KEY_MAP.get(category)
-        if category_key:
-            content = await _get_prompt_content(category_key)
+        level_key = LEVEL_KEY_MAP.get(knowledge_level)
+        if level_key:
+            content = await self._get_prompt_content(level_key)
             if content:
                 prompts.extend(_parse_multiline_prompts(content))
             else:
-                # Fallback to hardcoded
-                prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
+                prompts.extend(REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS))
         else:
-            # Unknown category, use hardcoded fallback
-            prompts.extend(CATEGORY_REFLECTIONS.get(category, []))
-
-    # Add knowledge level prompts
-    level_key = LEVEL_KEY_MAP.get(knowledge_level)
-    if level_key:
-        content = await _get_prompt_content(level_key)
-        if content:
-            prompts.extend(_parse_multiline_prompts(content))
-        else:
-            # Fallback to hardcoded
             prompts.extend(REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS))
-    else:
-        # Fallback to hardcoded
-        prompts.extend(REFLECTION_TEMPLATES.get(knowledge_level, BEGINNER_PROMPTS))
 
-    # Return the requested number of prompts
-    return prompts[:reflection_depth]
+        return prompts[:reflection_depth]
 
+    async def get_narrative_style_prompt(self, style: NarrativeStyle) -> str:
+        if not isinstance(style, NarrativeStyle):
+            raise ValueError(f"Invalid narrative style: {style}")
 
-async def get_narrative_style_prompt(style: NarrativeStyle) -> str:
-    """Get the narrative style prompt for the given style.
+        style_key = STYLE_KEY_MAP.get(style)
+        if style_key:
+            content = await self._get_prompt_content(style_key)
+            if content:
+                return content
 
-    Args:
-        style: The narrative style (storytelling, academic, interactive)
-
-    Returns:
-        The narrative style prompt string
-
-    Raises:
-        ValueError: If the style is not a valid NarrativeStyle
-    """
-    if not isinstance(style, NarrativeStyle):
-        raise ValueError(f"Invalid narrative style: {style}")
-
-    # Try to get from PromptService first
-    style_key = STYLE_KEY_MAP.get(style)
-    if style_key:
-        content = await _get_prompt_content(style_key)
-        if content:
-            return content
-
-    # Fallback to hardcoded
-    return NARRATIVE_STYLE_PROMPTS.get(style, NARRATIVE_STYLE_PROMPTS[NarrativeStyle.STORYTELLING])
+        return NARRATIVE_STYLE_PROMPTS.get(style, NARRATIVE_STYLE_PROMPTS[NarrativeStyle.STORYTELLING])
 
 
-# Synchronous wrapper for backward compatibility
 def get_reflection_prompts_sync(
     knowledge_level: KnowledgeLevel,
     reflection_depth: int = 3,
     category: str | None = None,
 ) -> list[str]:
-    """Synchronous wrapper for backward compatibility.
-
-    WARNING: This function uses hardcoded prompts only. For versioned prompts,
-    use the async get_reflection_prompts() function instead.
-
-    Args:
-        knowledge_level: The user's knowledge level
-        reflection_depth: Number of prompts to return
-        category: Optional category for category-specific prompts
-
-    Returns:
-        List of reflection prompt strings
-    """
     if reflection_depth < 1:
         raise ValueError("reflection_depth must be at least 1")
     if reflection_depth > 5:

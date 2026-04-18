@@ -8,6 +8,8 @@ from typing import Any
 from langchain_openai import ChatOpenAI
 
 from app.application.ports.prompt_gateway import PromptGateway
+from app.application.workflows.query_transform import ConversationAwareQueryRewriter
+from app.application.workflows.reflection_prompts import ReflectionPromptService
 from app.config.settings import Settings
 from app.infra.langchain.agents import RAGAgent
 from app.infra.langchain.curator_agent import CuratorAgent
@@ -22,7 +24,6 @@ from app.infra.langchain.curator_tools import (
 from app.infra.langchain.embeddings import CustomOllamaEmbeddings
 from app.infra.langchain.retrievers import RRFRetriever, UnifiedRetriever
 from app.infra.providers.rerank import create_rerank_provider as _create_rerank_provider_impl
-from app.workflows.query_transform import ConversationAwareQueryRewriter
 
 
 def create_embeddings(settings: Settings) -> CustomOllamaEmbeddings:
@@ -128,6 +129,7 @@ def create_curator_agent(
     profile_repository: Any,
     session_id: str,
     prompt_gateway: PromptGateway | None = None,
+    reflection_service: ReflectionPromptService | None = None,
     verbose: bool = False,
 ) -> CuratorAgent:
     """创建Curator Agent实例。
@@ -139,6 +141,7 @@ def create_curator_agent(
         profile_repository: 参观者画像仓库
         session_id: 会话ID
         prompt_gateway: Prompt网关（可选）
+        reflection_service: ReflectionPromptService实例（可选）
         verbose: 是否启用详细日志
 
     Returns:
@@ -150,6 +153,7 @@ def create_curator_agent(
         rag_agent=rag_agent,
         llm=llm,
         prompt_gateway=prompt_gateway,
+        reflection_service=reflection_service,
     )
 
     return CuratorAgent(

@@ -1,15 +1,14 @@
 """Tests for reflection prompts module."""
 
 import pytest
-from app.workflows.reflection_prompts import (
+from app.application.workflows.reflection_prompts import (
     BEGINNER_PROMPTS,
     CATEGORY_REFLECTIONS,
     EXPERT_PROMPTS,
     INTERMEDIATE_PROMPTS,
     KnowledgeLevel,
     NarrativeStyle,
-    get_narrative_style_prompt,
-    get_reflection_prompts,
+    ReflectionPromptService,
     get_reflection_prompts_sync,
 )
 
@@ -154,39 +153,39 @@ class TestGetReflectionPrompts:
 
 
 class TestGetNarrativeStylePrompt:
-    """Tests for get_narrative_style_prompt function."""
+    """Tests for get_narrative_style_prompt method."""
 
     @pytest.mark.asyncio
     async def test_storytelling_style(self):
-        """Test storytelling style prompt contains expected keywords."""
-        prompt = await get_narrative_style_prompt(NarrativeStyle.STORYTELLING)
+        service = ReflectionPromptService()
+        prompt = await service.get_narrative_style_prompt(NarrativeStyle.STORYTELLING)
         assert "讲故事" in prompt
         assert "感染力" in prompt
 
     @pytest.mark.asyncio
     async def test_academic_style(self):
-        """Test academic style prompt contains expected keywords."""
-        prompt = await get_narrative_style_prompt(NarrativeStyle.ACADEMIC)
+        service = ReflectionPromptService()
+        prompt = await service.get_narrative_style_prompt(NarrativeStyle.ACADEMIC)
         assert "学术" in prompt
         assert "严谨" in prompt
 
     @pytest.mark.asyncio
     async def test_interactive_style(self):
-        """Test interactive style prompt contains expected keywords."""
-        prompt = await get_narrative_style_prompt(NarrativeStyle.INTERACTIVE)
+        service = ReflectionPromptService()
+        prompt = await service.get_narrative_style_prompt(NarrativeStyle.INTERACTIVE)
         assert "互动" in prompt or "问答" in prompt
 
     @pytest.mark.asyncio
     async def test_invalid_style_raises_error(self):
-        """Test that invalid style raises ValueError."""
+        service = ReflectionPromptService()
         with pytest.raises(ValueError, match="Invalid narrative style"):
-            await get_narrative_style_prompt("invalid_style")  # type: ignore
+            await service.get_narrative_style_prompt("invalid_style")  # type: ignore
 
     @pytest.mark.asyncio
     async def test_invalid_style_type_raises_error(self):
-        """Test that non-enum style raises ValueError."""
+        service = ReflectionPromptService()
         with pytest.raises(ValueError, match="Invalid narrative style"):
-            await get_narrative_style_prompt(123)  # type: ignore
+            await service.get_narrative_style_prompt(123)  # type: ignore
 
 
 class TestPromptContent:
@@ -227,21 +226,20 @@ class TestPromptContent:
 
 
 class TestAsyncGetReflectionPrompts:
-    """Tests for async get_reflection_prompts function."""
+    """Tests for async get_reflection_prompts method."""
 
     @pytest.mark.asyncio
     async def test_async_beginner_level(self):
-        """Test async version with beginner level (uses fallback)."""
-        # Without PromptService initialized, it should fall back to hardcoded
-        prompts = await get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=3)
+        service = ReflectionPromptService()
+        prompts = await service.get_reflection_prompts(KnowledgeLevel.BEGINNER, reflection_depth=3)
         assert len(prompts) == 3
         for prompt in prompts:
             assert prompt in BEGINNER_PROMPTS
 
     @pytest.mark.asyncio
     async def test_async_with_category(self):
-        """Test async version with category (uses fallback)."""
-        prompts = await get_reflection_prompts(
+        service = ReflectionPromptService()
+        prompts = await service.get_reflection_prompts(
             KnowledgeLevel.EXPERT,
             reflection_depth=2,
             category="青铜器",

@@ -205,7 +205,7 @@ async def test_rag_agent_run_with_low_score_retries():
 @pytest.mark.asyncio
 async def test_rag_agent_rewrite_with_history():
     """测试多轮对话查询重写。"""
-    from app.workflows.query_transform import ConversationAwareQueryRewriter
+    from app.application.workflows.query_transform import ConversationAwareQueryRewriter
 
     mock_llm_provider = AsyncMock()
     mock_llm_provider.generate = AsyncMock(

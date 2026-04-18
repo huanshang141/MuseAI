@@ -12,23 +12,15 @@ class QueryTransformStrategy(Enum):
     MULTI_QUERY = "multi_query"
 
 
-class LLMProviderProtocol(Protocol):
-    """LLM提供者协议。"""
-
-    async def generate(self, messages: list[dict[str, Any]]) -> Any:
-        """生成文本响应。"""
-        ...
+class LLMProviderPort(Protocol):
+    async def generate(self, messages: list[dict[str, Any]]) -> Any: ...
 
 
 class LLMResponseProtocol(Protocol):
-    """LLM响应协议。"""
-
     content: str
 
 
 class ConversationAwareQueryRewriter:
-    """基于多轮对话历史的查询重写器。"""
-
     REWRITE_PROMPT = """你是一个博物馆导览助手。用户正在与您进行多轮对话。
 
 对话历史：
@@ -41,14 +33,13 @@ class ConversationAwareQueryRewriter:
 
     def __init__(
         self,
-        llm_provider: LLMProviderProtocol,
+        llm_provider: LLMProviderPort,
         prompt_gateway: PromptGateway | None = None,
     ):
         self.llm_provider = llm_provider
         self.prompt_gateway = prompt_gateway
 
     def _format_conversation_history(self, history: list[dict[str, str]]) -> str:
-        """格式化对话历史为可读文本。"""
         if not history:
             return "（无历史对话）"
 
@@ -65,29 +56,18 @@ class ConversationAwareQueryRewriter:
         query: str,
         conversation_history: list[dict[str, str]],
     ) -> str:
-        """根据对话历史重写查询。
-
-        Args:
-            query: 当前用户查询
-            conversation_history: 对话历史列表，每项包含role和content
-
-        Returns:
-            重写后的独立查询
-        """
         if not conversation_history:
             return query
 
         formatted_history = self._format_conversation_history(conversation_history)
 
         prompt = None
-        # Try to get prompt from PromptGateway if available
         if self.prompt_gateway:
             prompt = await self.prompt_gateway.render(
                 "query_rewrite",
                 {"conversation_history": formatted_history, "query": query},
             )
 
-        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.REWRITE_PROMPT.format(
                 conversation_history=formatted_history,
@@ -130,11 +110,9 @@ class QueryTransformer:
 
     async def transform_step_back(self, query: str) -> str:
         prompt = None
-        # Try to get prompt from PromptGateway if available
         if self.prompt_gateway:
             prompt = await self.prompt_gateway.render("query_step_back", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.STEP_BACK_PROMPT.format(query=query)
 
@@ -143,11 +121,9 @@ class QueryTransformer:
 
     async def transform_hyde(self, query: str) -> str:
         prompt = None
-        # Try to get prompt from PromptGateway if available
         if self.prompt_gateway:
             prompt = await self.prompt_gateway.render("query_hyde", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.HYDE_PROMPT.format(query=query)
 
@@ -156,11 +132,9 @@ class QueryTransformer:
 
     async def transform_multi_query(self, query: str) -> list[str]:
         prompt = None
-        # Try to get prompt from PromptGateway if available
         if self.prompt_gateway:
             prompt = await self.prompt_gateway.render("query_multi", {"query": query})
 
-        # Fall back to hardcoded prompt if PromptGateway is not available or fails
         if prompt is None:
             prompt = self.MULTI_QUERY_PROMPT.format(query=query)
 

@@ -83,6 +83,7 @@ async def get_curator_service(session: SessionDep, request: Request) -> CuratorS
         profile_repository=profile_repository,
         rag_agent=rag_agent,
         llm=llm,
+        reflection_service=getattr(request.app.state, "reflection_service", None),
     )
 
     # Create curator agent

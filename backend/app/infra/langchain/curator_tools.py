@@ -17,11 +17,11 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from app.application.ports.prompt_gateway import PromptGateway
-from app.domain.value_objects import ExhibitId, UserId
-from app.workflows.reflection_prompts import (
+from app.application.workflows.reflection_prompts import (
     KnowledgeLevel,
-    get_reflection_prompts,
+    ReflectionPromptService,
 )
+from app.domain.value_objects import ExhibitId, UserId
 
 if TYPE_CHECKING:
     pass
@@ -434,6 +434,11 @@ class ReflectionPromptTool(BaseTool):
         "reflection_depth (1-5), and optionally category and exhibit_name."
     )
 
+    reflection_service: Any = Field(
+        default=None,
+        description="ReflectionPromptService instance for prompt generation",
+    )
+
     async def _arun(self, query: str) -> str:
         """Execute reflection prompt generation asynchronously."""
         try:
@@ -443,7 +448,6 @@ class ReflectionPromptTool(BaseTool):
             return json.dumps({"error": f"Invalid input: {str(e)}"})
 
         try:
-            # Map string knowledge level to enum
             level_map = {
                 "beginner": KnowledgeLevel.BEGINNER,
                 "intermediate": KnowledgeLevel.INTERMEDIATE,
@@ -453,12 +457,20 @@ class ReflectionPromptTool(BaseTool):
                 input_data.knowledge_level.lower(), KnowledgeLevel.BEGINNER
             )
 
-            # Get reflection prompts (now async, uses PromptService)
-            questions = await get_reflection_prompts(
-                knowledge_level=knowledge_level,
-                reflection_depth=input_data.reflection_depth,
-                category=input_data.category,
-            )
+            if self.reflection_service:
+                questions = await self.reflection_service.get_reflection_prompts(
+                    knowledge_level=knowledge_level,
+                    reflection_depth=input_data.reflection_depth,
+                    category=input_data.category,
+                )
+            else:
+                from app.application.workflows.reflection_prompts import get_reflection_prompts_sync
+
+                questions = get_reflection_prompts_sync(
+                    knowledge_level=knowledge_level,
+                    reflection_depth=input_data.reflection_depth,
+                    category=input_data.category,
+                )
 
             # Add exhibit context if provided
             if input_data.exhibit_name:
@@ -605,6 +617,7 @@ def create_curator_tools(
     rag_agent: Any,
     llm: Any,
     prompt_gateway: PromptGateway | None = None,
+    reflection_service: ReflectionPromptService | None = None,
 ) -> list[BaseTool]:
     """Create curator tool set.
 
@@ -614,6 +627,7 @@ def create_curator_tools(
         rag_agent: RAG Agent instance for knowledge retrieval
         llm: Language model for narrative generation
         prompt_gateway: Prompt gateway for fetching prompts
+        reflection_service: ReflectionPromptService for prompt generation
 
     Returns:
         List of curator tools
@@ -622,6 +636,6 @@ def create_curator_tools(
         PathPlanningTool(exhibit_repository=exhibit_repository),
         KnowledgeRetrievalTool(rag_agent=rag_agent),
         NarrativeGenerationTool(llm=llm, prompt_gateway=prompt_gateway),
-        ReflectionPromptTool(),
+        ReflectionPromptTool(reflection_service=reflection_service),
         PreferenceManagementTool(profile_repository=profile_repository),
     ]

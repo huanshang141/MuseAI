@@ -19,6 +19,7 @@ from starlette.types import ASGIApp
 
 from app.api.client_ip import extract_client_ip
 from app.config.settings import get_settings
+from app.observability.context import request_id_var
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -32,76 +33,79 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         # Generate or extract request ID
         request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-
-        # Start timer
-        start_time = time.perf_counter()
-
-        # Log request
-        request_data = {
-            "request_id": request_id,
-            "method": request.method,
-            "path": request.url.path,
-            "query": str(request.query_params),
-            "client_ip": extract_client_ip(request, self._trusted_proxies),
-            "user_agent": request.headers.get("User-Agent", ""),
-        }
-
-        logger.bind(request_id=request_id).info(
-            f"Request started: {request.method} {request.url.path}",
-            extra={"event": "request_started", **request_data},
-        )
-
-        # Process request
+        token = request_id_var.set(request_id)
         try:
-            response = await call_next(request)
+            # Start timer
+            start_time = time.perf_counter()
 
-            # Calculate response time
-            response_time_ms = (time.perf_counter() - start_time) * 1000
-
-            # Log response
-            response_data = {
-                **request_data,
-                "status_code": response.status_code,
-                "response_time_ms": round(response_time_ms, 2),
+            # Log request
+            request_data = {
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "query": str(request.query_params),
+                "client_ip": extract_client_ip(request, self._trusted_proxies),
+                "user_agent": request.headers.get("User-Agent", ""),
             }
 
-            log_level = "INFO" if response.status_code < 400 else "WARNING"
-            logger.bind(request_id=request_id).log(
-                log_level,
-                (f"Request completed: {request.method} {request.url.path} "
-                 f"- {response.status_code} ({response_time_ms:.2f}ms)"),
-                extra={"event": "request_completed", **response_data},
+            logger.bind(request_id=request_id).info(
+                f"Request started: {request.method} {request.url.path}",
+                extra={"event": "request_started", **request_data},
             )
 
-            # Add request ID to response headers
-            response.headers["X-Request-ID"] = request_id
+            # Process request
+            try:
+                response = await call_next(request)
 
-            # Add security headers
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            response.headers["X-XSS-Protection"] = "1; mode=block"
-            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+                # Calculate response time
+                response_time_ms = (time.perf_counter() - start_time) * 1000
 
-            settings = get_settings()
-            if settings.APP_ENV == "production":
-                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                # Log response
+                response_data = {
+                    **request_data,
+                    "status_code": response.status_code,
+                    "response_time_ms": round(response_time_ms, 2),
+                }
 
-            return response
+                log_level = "INFO" if response.status_code < 400 else "WARNING"
+                logger.bind(request_id=request_id).log(
+                    log_level,
+                    (f"Request completed: {request.method} {request.url.path} "
+                     f"- {response.status_code} ({response_time_ms:.2f}ms)"),
+                    extra={"event": "request_completed", **response_data},
+                )
 
-        except Exception as exc:
-            # Calculate response time for failed request
-            response_time_ms = (time.perf_counter() - start_time) * 1000
+                # Add request ID to response headers
+                response.headers["X-Request-ID"] = request_id
 
-            # Log error
-            error_data = {
-                **request_data,
-                "response_time_ms": round(response_time_ms, 2),
-                "error_type": type(exc).__name__,
-                "error_message": str(exc),
-            }
+                # Add security headers
+                response.headers["X-Content-Type-Options"] = "nosniff"
+                response.headers["X-Frame-Options"] = "DENY"
+                response.headers["X-XSS-Protection"] = "1; mode=block"
+                response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-            logger.bind(request_id=request_id).exception(
-                f"Request failed: {request.method} {request.url.path}",
-                extra={"event": "request_failed", **error_data},
-            )
-            raise
+                settings = get_settings()
+                if settings.APP_ENV == "production":
+                    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+
+                return response
+
+            except Exception as exc:
+                # Calculate response time for failed request
+                response_time_ms = (time.perf_counter() - start_time) * 1000
+
+                # Log error
+                error_data = {
+                    **request_data,
+                    "response_time_ms": round(response_time_ms, 2),
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                }
+
+                logger.bind(request_id=request_id).exception(
+                    f"Request failed: {request.method} {request.url.path}",
+                    extra={"event": "request_failed", **error_data},
+                )
+                raise
+        finally:
+            request_id_var.reset(token)

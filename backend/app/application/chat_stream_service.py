@@ -11,6 +11,7 @@ from app.application.error_handling import sanitize_error_message
 from app.application.ports.repositories import CachePort, LLMProviderPort
 from app.application.sse_events import sse_chat_event
 from app.domain.exceptions import LLMError
+from app.observability.context import request_id_var
 
 
 async def ask_question(
@@ -125,14 +126,15 @@ async def ask_question_stream_with_rag(
         return
 
     trace_id = str(uuid.uuid4())
+    _log = logger.bind(trace_id=trace_id, request_id=request_id_var.get())
 
     yield sse_chat_event("rag_step", step="rewrite", status="running", message="正在分析查询意图...")
 
     try:
         result = await rag_agent.run(message)
-        logger.debug(f"RAG result keys: {result.keys() if hasattr(result, 'keys') else 'N/A'}")
-        logger.debug(f"documents count: {len(result.get('documents', []))}")
-        logger.debug(f"reranked_documents count: {len(result.get('reranked_documents', []))}")
+        _log.debug(f"RAG result keys: {result.keys() if hasattr(result, 'keys') else 'N/A'}")
+        _log.debug(f"documents count: {len(result.get('documents', []))}")
+        _log.debug(f"reranked_documents count: {len(result.get('reranked_documents', []))}")
 
         rewritten_query = result.get("rewritten_query", message)
         if rewritten_query != message:
@@ -204,7 +206,7 @@ async def ask_question_stream_with_rag(
             await session.commit()
 
         docs = result.get("reranked_documents") or result.get("documents", [])
-        logger.debug(f"Using docs count: {len(docs)}")
+        _log.debug(f"Using docs count: {len(docs)}")
 
         has_rerank_scores = any(
             d.metadata.get("rerank_score") is not None for d in docs
@@ -230,7 +232,7 @@ async def ask_question_stream_with_rag(
             source_name = doc.metadata.get("source")
             rrf_score = doc.metadata.get('rrf_score')
             rerank_score = doc.metadata.get('rerank_score')
-            logger.debug(f"Doc {chunk_id}: rerank_score={rerank_score}, rrf_score={rrf_score}, source={source_name}")
+            _log.debug(f"Doc {chunk_id}: rerank_score={rerank_score}, rrf_score={rrf_score}, source={source_name}")
             if score > 0:
                 sources.append(
                     {
@@ -241,7 +243,7 @@ async def ask_question_stream_with_rag(
                     }
                 )
 
-        logger.debug(f"Final sources count: {len(sources)}")
+        _log.debug(f"Final sources count: {len(sources)}")
         yield sse_chat_event("done", stage="generate", trace_id=trace_id, sources=sources)
     except Exception as e:
         sanitized = sanitize_error_message(e)

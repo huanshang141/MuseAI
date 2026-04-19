@@ -98,7 +98,6 @@ backend/app/
 │   ├── tour_event_service.py  # Tour event recording
 │   ├── tour_report_service.py # Tour report generation
 │   ├── chunking.py        # Text chunking algorithms
-│   ├── retrieval.py       # RRF fusion algorithm
 │   ├── context_manager.py # Context window management
 │   ├── error_handling.py  # Centralized error handling
 │   ├── sse_events.py      # SSE event type definitions
@@ -110,10 +109,12 @@ backend/app/
 ├── domain/                 # Domain entities and value objects
 │   ├── entities.py        # User, ChatSession, Document, IngestionJob, Exhibit, TourSession, etc.
 │   ├── value_objects.py   # Typed IDs (UserId, SessionId, ExhibitId, TourSessionId, etc.)
-│   └── exceptions.py      # Domain-specific exceptions
+│   ├── exceptions.py      # Domain-specific exceptions
+│   └── services/          # Domain services
+│       └── retrieval.py   # RRF fusion algorithm
 ├── infra/                  # Infrastructure layer
 │   ├── postgres/          # Database models and session management
-│   │   ├── models.py      # SQLAlchemy ORM models (10+ classes)
+│   │   ├── models.py      # SQLAlchemy ORM models (13 classes)
 │   │   └── database.py    # Engine lifecycle, session factory
 │   ├── elasticsearch/     # ES client for vector/BM25 search
 │   ├── redis/             # Caching and token blacklist
@@ -140,7 +141,7 @@ backend/app/
 
 2. **Global Singletons**: `main.py` manages global instances (ES client, LLM, embeddings, retriever, RAG agent) with lazy initialization.
 
-3. **RRF Fusion Retrieval**: Combines dense (vector) and sparse (BM25) search using Reciprocal Rank Fusion. See `application/retrieval.py` and `infra/langchain/retrievers.py`.
+3. **RRF Fusion Retrieval**: Combines dense (vector) and sparse (BM25) search using Reciprocal Rank Fusion. See `domain/services/retrieval.py` and `infra/langchain/retrievers.py`.
 
 4. **RAG Agent with LangGraph**: State machine that evaluates retrieval quality and can transform queries if scores are low. See `infra/langchain/agents.py`.
 
@@ -184,7 +185,7 @@ Environment variables (see `.env.example` for full reference):
 - `JWT_SECRET`: str, default `""` — **Required in production** (≥32 chars)
 - `JWT_ALGORITHM`: str, default `"HS256"` — JWT signing algorithm
 - `JWT_EXPIRE_MINUTES`: int, default `60` — Token lifetime in minutes
-- `ADMIN_EMAILS`: str, default `""` — Comma-separated admin emails (deprecated; use `scripts/bootstrap_admin.py`)
+- `ADMIN_EMAILS`: str, default `""` — Comma-separated admin emails
 
 ### Database
 - `DATABASE_URL`: str, default `"sqlite+aiosqlite:///:memory:"` — PostgreSQL connection string

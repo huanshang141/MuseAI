@@ -275,3 +275,27 @@ Test configuration in `pyproject.toml`: `asyncio_mode = "auto"`, `testpaths = ["
 2. RAG agent retrieves documents, evaluates score
 3. If score < threshold, query transformation may occur
 4. Response generated with context, streamed via SSE
+
+### Database migrations (Alembic)
+
+The project uses Alembic for schema migrations. Configuration is in `alembic.ini` and `backend/alembic/env.py`.
+
+```bash
+# Generate a migration after model changes
+alembic revision --autogenerate -m "add_new_table"
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback one migration
+alembic downgrade -1
+
+# Show current migration state
+alembic current
+```
+
+Guidelines:
+- Always review auto-generated migrations before applying — Alembic may miss column renames or detect false changes
+- Never edit applied migrations — create a new revision instead
+- Test migrations against a clean database before deploying: `alembic upgrade head` from scratch
+- Include `backfill` logic in the migration for data transformations, not in application code

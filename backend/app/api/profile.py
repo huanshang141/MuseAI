@@ -40,7 +40,7 @@ def get_profile_service(session: SessionDep) -> ProfileService:
     return ProfileService(repository)
 
 
-@router.get("", response_model=ProfileResponse)
+@router.get("", response_model=ProfileResponse, summary="Get visitor profile")
 async def get_profile(
     session: SessionDep,
     current_user: CurrentUser,
@@ -65,7 +65,7 @@ async def get_profile(
     )
 
 
-@router.put("", response_model=ProfileResponse)
+@router.put("", response_model=ProfileResponse, summary="Update visitor profile")
 async def update_profile(
     session: SessionDep,
     request: UpdateProfileRequest,

@@ -134,7 +134,7 @@ class MessageListResponse(BaseModel):
     offset: int
 
 
-@router.post("/sessions", response_model=SessionResponse)
+@router.post("/sessions", response_model=SessionResponse, summary="Create chat session")
 async def create_session_endpoint(
     session: SessionDep, request: CreateSessionRequest, current_user: CurrentUser
 ) -> SessionResponse:
@@ -147,7 +147,7 @@ async def create_session_endpoint(
     )
 
 
-@router.get("/sessions", response_model=SessionListResponse)
+@router.get("/sessions", response_model=SessionListResponse, summary="List chat sessions")
 async def list_sessions(
     session: SessionDep,
     current_user: CurrentUser,
@@ -172,7 +172,7 @@ async def list_sessions(
     )
 
 
-@router.get("/sessions/{session_id}", response_model=SessionResponse)
+@router.get("/sessions/{session_id}", response_model=SessionResponse, summary="Get chat session")
 async def get_session_detail(session: SessionDep, session_id: str, current_user: CurrentUser) -> SessionResponse:
     chat_session = await get_session_by_id(session, session_id, current_user["id"])
     if chat_session is None:
@@ -185,7 +185,7 @@ async def get_session_detail(session: SessionDep, session_id: str, current_user:
     )
 
 
-@router.delete("/sessions/{session_id}", response_model=DeleteResponse)
+@router.delete("/sessions/{session_id}", response_model=DeleteResponse, summary="Delete chat session")
 async def delete_session_endpoint(session: SessionDep, session_id: str, current_user: CurrentUser) -> DeleteResponse:
     success = await delete_session(session, session_id, current_user["id"])
     if not success:
@@ -193,7 +193,7 @@ async def delete_session_endpoint(session: SessionDep, session_id: str, current_
     return DeleteResponse(status="deleted", session_id=session_id)
 
 
-@router.get("/sessions/{session_id}/messages", response_model=MessageListResponse)
+@router.get("/sessions/{session_id}/messages", response_model=MessageListResponse, summary="List chat messages")
 async def get_session_messages(
     session: SessionDep,
     session_id: str,
@@ -224,7 +224,7 @@ async def get_session_messages(
     )
 
 
-@router.post("/ask", response_model=AskResponse)
+@router.post("/ask", response_model=AskResponse, summary="Ask chat question")
 async def ask_endpoint(
     session: SessionDep, request: AskRequest, current_user: CurrentUser, _: RateLimitDep
 ) -> AskResponse:
@@ -234,7 +234,7 @@ async def ask_endpoint(
     return AskResponse(**result)
 
 
-@router.post("/ask/stream")
+@router.post("/ask/stream", summary="Ask chat question (SSE)")
 async def ask_stream_endpoint(
     request: Request,
     session: SessionDep,
@@ -287,7 +287,7 @@ class MessageRequest(BaseModel):
     message: str
 
 
-@router.post("/guest/message")
+@router.post("/guest/message", summary="Send guest message (SSE)")
 async def send_guest_message(
     message_request: MessageRequest,
     http_request: Request,

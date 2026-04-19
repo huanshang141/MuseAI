@@ -109,7 +109,7 @@ def get_user_id(current_user: OptionalUser) -> str:
     return f"guest-{uuid.uuid4()}"
 
 
-@router.post("/plan-tour", response_model=PlanTourResponse)
+@router.post("/plan-tour", response_model=PlanTourResponse, summary="Plan museum tour")
 async def plan_tour(
     session: SessionDep,
     request: PlanTourRequest,
@@ -134,7 +134,7 @@ async def plan_tour(
     return PlanTourResponse(**result)
 
 
-@router.post("/narrative", response_model=NarrativeResponse)
+@router.post("/narrative", response_model=NarrativeResponse, summary="Generate exhibit narrative")
 async def generate_narrative(
     session: SessionDep,
     request: NarrativeRequest,
@@ -163,7 +163,7 @@ async def generate_narrative(
     return NarrativeResponse(**result)
 
 
-@router.post("/reflection", response_model=ReflectionResponse)
+@router.post("/reflection", response_model=ReflectionResponse, summary="Get reflection prompts")
 async def get_reflection_prompts(
     session: SessionDep,
     request: ReflectionRequest,

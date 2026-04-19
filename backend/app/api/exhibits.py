@@ -100,7 +100,7 @@ def get_exhibit_service(session: SessionDep) -> ExhibitService:
 # ============================================================================
 
 
-@router.get("", response_model=ExhibitListResponse)
+@router.get("", response_model=ExhibitListResponse, summary="List exhibits (public)")
 async def list_exhibits(
     session: SessionDep,
     skip: int = Query(0, ge=0, description="Number of items to skip"),
@@ -168,7 +168,7 @@ async def list_exhibits(
     )
 
 
-@router.get("/stats", response_model=ExhibitStatsResponse)
+@router.get("/stats", response_model=ExhibitStatsResponse, summary="Get exhibit statistics")
 async def get_exhibit_stats(
     session: SessionDep,
 ) -> ExhibitStatsResponse:
@@ -205,7 +205,7 @@ async def get_exhibit_stats(
     )
 
 
-@router.get("/categories/list", response_model=list[str])
+@router.get("/categories/list", response_model=list[str], summary="List exhibit categories")
 async def list_categories(
     session: SessionDep,
 ) -> list[str]:
@@ -217,7 +217,7 @@ async def list_categories(
     return await service.get_all_categories()
 
 
-@router.get("/halls/list", response_model=list[str])
+@router.get("/halls/list", response_model=list[str], summary="List exhibit halls")
 async def list_halls(
     session: SessionDep,
 ) -> list[str]:
@@ -229,7 +229,7 @@ async def list_halls(
     return await service.get_all_halls()
 
 
-@router.get("/{exhibit_id}", response_model=ExhibitDetail)
+@router.get("/{exhibit_id}", response_model=ExhibitDetail, summary="Get exhibit detail")
 async def get_exhibit(
     session: SessionDep,
     exhibit_id: str,

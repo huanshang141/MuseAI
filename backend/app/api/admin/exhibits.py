@@ -90,7 +90,7 @@ def get_exhibit_service(session: SessionDep) -> ExhibitService:
     return ExhibitService(repository)
 
 
-@router.post("", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ExhibitResponse, status_code=status.HTTP_201_CREATED, summary="Create exhibit (admin)")
 async def create_exhibit(
     session: SessionDep,
     request: CreateExhibitRequest,
@@ -159,7 +159,7 @@ async def create_exhibit(
     )
 
 
-@router.get("", response_model=ExhibitListResponse)
+@router.get("", response_model=ExhibitListResponse, summary="List exhibits (admin)")
 async def list_exhibits(
     session: SessionDep,
     current_user: CurrentAdminUser,
@@ -209,7 +209,7 @@ async def list_exhibits(
     )
 
 
-@router.put("/{exhibit_id}", response_model=ExhibitResponse)
+@router.put("/{exhibit_id}", response_model=ExhibitResponse, summary="Update exhibit (admin)")
 async def update_exhibit(
     session: SessionDep,
     exhibit_id: str,
@@ -300,7 +300,7 @@ async def update_exhibit(
     )
 
 
-@router.delete("/{exhibit_id}", response_model=DeleteResponse)
+@router.delete("/{exhibit_id}", response_model=DeleteResponse, summary="Delete exhibit (admin)")
 async def delete_exhibit(
     session: SessionDep,
     exhibit_id: str,
@@ -336,7 +336,7 @@ async def delete_exhibit(
     return DeleteResponse(status="deleted", exhibit_id=exhibit_id)
 
 
-@router.post("/reindex", response_model=ReindexResponse)
+@router.post("/reindex", response_model=ReindexResponse, summary="Reindex all exhibits")
 async def reindex_all_exhibits(
     session: SessionDep,
     current_user: CurrentAdminUser,

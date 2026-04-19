@@ -58,7 +58,7 @@ class TokenResponse(BaseModel):
     role: str
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Register new user")
 async def register(
     request: RegisterRequest,
     session: SessionDep,
@@ -90,7 +90,7 @@ async def register(
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, summary="Login user")
 async def login(
     request: LoginRequest,
     response: Response,
@@ -134,7 +134,7 @@ async def login(
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Logout user")
 async def logout(
     request: Request,
     response: Response,

@@ -182,7 +182,7 @@ def _format_report(report) -> dict:
     }
 
 
-@router.post("/sessions")
+@router.post("/sessions", summary="Create tour session")
 async def create_tour_session(
     body: TourSessionCreate,
     session: SessionDep,
@@ -207,7 +207,7 @@ async def create_tour_session(
     return _format_session(tour_session)
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", summary="Get tour session")
 async def get_tour_session(
     session_id: str,
     session: SessionDep,
@@ -224,7 +224,7 @@ async def get_tour_session(
     return _format_session(tour_session)
 
 
-@router.patch("/sessions/{session_id}")
+@router.patch("/sessions/{session_id}", summary="Update tour session")
 async def patch_tour_session(
     session_id: str,
     body: TourSessionUpdate,
@@ -243,7 +243,7 @@ async def patch_tour_session(
     return _format_session(tour_session)
 
 
-@router.post("/sessions/{session_id}/events")
+@router.post("/sessions/{session_id}/events", summary="Record tour events")
 async def post_tour_events(
     session_id: str,
     body: TourEventBatch,
@@ -261,7 +261,7 @@ async def post_tour_events(
     return {"recorded": len(events)}
 
 
-@router.get("/sessions/{session_id}/events")
+@router.get("/sessions/{session_id}/events", summary="List tour events")
 async def list_tour_events(
     session_id: str,
     session: SessionDep,
@@ -295,7 +295,7 @@ async def list_tour_events(
     }
 
 
-@router.post("/sessions/{session_id}/complete-hall")
+@router.post("/sessions/{session_id}/complete-hall", summary="Complete hall visit")
 async def complete_hall(
     session_id: str,
     session: SessionDep,
@@ -327,7 +327,7 @@ async def complete_hall(
     }
 
 
-@router.post("/sessions/{session_id}/report")
+@router.post("/sessions/{session_id}/report", summary="Generate tour report")
 async def create_tour_report(
     session_id: str,
     session: SessionDep,
@@ -355,7 +355,7 @@ async def create_tour_report(
     return _format_report(report)
 
 
-@router.get("/sessions/{session_id}/report")
+@router.get("/sessions/{session_id}/report", summary="Get tour report")
 async def get_tour_report(
     session_id: str,
     session: SessionDep,
@@ -369,7 +369,7 @@ async def get_tour_report(
     return _format_report(report)
 
 
-@router.post("/sessions/{session_id}/chat/stream")
+@router.post("/sessions/{session_id}/chat/stream", summary="Tour chat stream (SSE)")
 async def tour_chat_stream(
     session_id: str,
     body: TourChatRequest,
@@ -400,7 +400,7 @@ async def tour_chat_stream(
     )
 
 
-@router.get("/halls")
+@router.get("/halls", summary="List tour halls")
 async def list_tour_halls(
     session: SessionDep,
 ):

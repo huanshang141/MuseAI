@@ -227,7 +227,7 @@ async def process_document_background(
                 logger.warning(f"Failed to delete temp file {temp_file_path}")
 
 
-@router.post("/upload", response_model=DocumentResponse)
+@router.post("/upload", response_model=DocumentResponse, summary="Upload document")
 async def upload_document(
     session: SessionDep,
     background_tasks: BackgroundTasks,
@@ -270,7 +270,7 @@ async def upload_document(
     )
 
 
-@router.get("", response_model=PublicDocumentListResponse)
+@router.get("", response_model=PublicDocumentListResponse, summary="List documents")
 async def list_documents(
     session: SessionDep,
     _: OptionalUser,
@@ -296,7 +296,7 @@ async def list_documents(
     )
 
 
-@router.get("/{doc_id}", response_model=PublicDocumentResponse)
+@router.get("/{doc_id}", response_model=PublicDocumentResponse, summary="Get document detail")
 async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> PublicDocumentResponse:
     doc_repo = PostgresDocumentRepository(session)
     document = await get_document_by_id_public(doc_repo, doc_id)
@@ -311,7 +311,7 @@ async def get_document(session: SessionDep, doc_id: str, _: OptionalUser) -> Pub
     )
 
 
-@router.get("/{doc_id}/status", response_model=PublicIngestionJobResponse)
+@router.get("/{doc_id}/status", response_model=PublicIngestionJobResponse, summary="Get document ingestion status")
 async def get_document_status(
     session: SessionDep, doc_id: str, _: OptionalUser
 ) -> PublicIngestionJobResponse:
@@ -334,7 +334,7 @@ async def get_document_status(
     )
 
 
-@router.delete("/{doc_id}", response_model=DeleteResponse)
+@router.delete("/{doc_id}", response_model=DeleteResponse, summary="Delete document")
 async def delete_document_endpoint(
     session: SessionDep,
     doc_id: str,

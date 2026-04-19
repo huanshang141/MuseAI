@@ -107,7 +107,7 @@ def get_prompt_repository(session: SessionDep) -> PostgresPromptRepository:
     return PostgresPromptRepository(session)
 
 
-@router.get("", response_model=PromptListResponse)
+@router.get("", response_model=PromptListResponse, summary="List prompts (admin)")
 async def list_prompts(
     session: SessionDep,
     current_user: CurrentAdminUser,
@@ -134,7 +134,7 @@ async def list_prompts(
     )
 
 
-@router.get("/{key}", response_model=PromptResponse)
+@router.get("/{key}", response_model=PromptResponse, summary="Get prompt by key")
 async def get_prompt(
     session: SessionDep,
     key: str,
@@ -165,7 +165,7 @@ async def get_prompt(
     return _prompt_to_response(prompt)
 
 
-@router.put("/{key}", response_model=PromptResponse)
+@router.put("/{key}", response_model=PromptResponse, summary="Update prompt content")
 async def update_prompt(
     session: SessionDep,
     key: str,
@@ -211,7 +211,7 @@ async def update_prompt(
     return _prompt_to_response(prompt)
 
 
-@router.get("/{key}/versions", response_model=VersionListResponse)
+@router.get("/{key}/versions", response_model=VersionListResponse, summary="List prompt versions")
 async def list_versions(
     session: SessionDep,
     key: str,
@@ -241,7 +241,7 @@ async def list_versions(
     )
 
 
-@router.get("/{key}/versions/{version}", response_model=VersionResponse)
+@router.get("/{key}/versions/{version}", response_model=VersionResponse, summary="Get prompt version")
 async def get_version(
     session: SessionDep,
     key: str,
@@ -274,7 +274,7 @@ async def get_version(
     return _version_to_response(prompt_version)
 
 
-@router.post("/{key}/versions/{version}/rollback", response_model=PromptResponse)
+@router.post("/{key}/versions/{version}/rollback", response_model=PromptResponse, summary="Rollback prompt version")
 async def rollback_to_version(
     session: SessionDep,
     key: str,
@@ -320,7 +320,7 @@ async def rollback_to_version(
     return _prompt_to_response(prompt)
 
 
-@router.post("/{key}/reload", response_model=ReloadResponse)
+@router.post("/{key}/reload", response_model=ReloadResponse, summary="Reload prompt into cache")
 async def reload_prompt(
     session: SessionDep,
     key: str,
@@ -358,7 +358,7 @@ async def reload_prompt(
     )
 
 
-@router.post("/reload-all", response_model=ReloadResponse)
+@router.post("/reload-all", response_model=ReloadResponse, summary="Reload all prompts into cache")
 async def reload_all_prompts(
     session: SessionDep,
     current_user: CurrentAdminUser,

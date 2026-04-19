@@ -382,6 +382,10 @@ async def tour_chat_stream(
 ):
     await _verify_ownership(session_id, user, x_session_token, session)
 
+    degraded = set()
+    if hasattr(request.app.state, "degraded"):
+        degraded = set(request.app.state.degraded)
+
     return StreamingResponse(
         ask_stream_tour(
             db_session=session,
@@ -390,6 +394,7 @@ async def tour_chat_stream(
             message=body.message,
             rag_agent=rag_agent,
             exhibit_id=body.exhibit_id,
+            degraded_services=degraded,
         ),
         media_type="text/event-stream",
         headers={

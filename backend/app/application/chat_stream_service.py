@@ -127,6 +127,8 @@ async def ask_question_stream_with_rag(
         return
 
     if degraded_services and "elasticsearch" in degraded_services:
+        await add_message(session, session_id, "user", message)
+        await session.commit()
         yield sse_chat_event("error", code="RAG_UNAVAILABLE", message="检索服务暂时不可用，请稍后再试")
         return
 
@@ -275,8 +277,13 @@ async def ask_question_stream_guest(
     rag_agent: Any,
     llm_provider: LLMProviderPort,
     redis: CachePort,
+    degraded_services: set[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     trace_id = str(uuid.uuid4())
+
+    if degraded_services and "elasticsearch" in degraded_services:
+        yield sse_chat_event("error", code="RAG_UNAVAILABLE", message="检索服务暂时不可用，请稍后再试")
+        return
 
     yield sse_chat_event("thinking", stage="retrieve", content="正在检索...")
 

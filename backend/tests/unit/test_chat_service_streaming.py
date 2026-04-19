@@ -565,7 +565,7 @@ class TestAskQuestionStreamWithRagDegraded:
     @pytest.mark.asyncio
     async def test_returns_rag_unavailable_when_elasticsearch_degraded(self):
         """ask_question_stream_with_rag should yield RAG_UNAVAILABLE error when ES is degraded."""
-        from app.application.chat_stream_service import ask_question_stream_with_rag
+        from app.application.chat_service import ask_question_stream_with_rag
 
         mock_session = AsyncMock()
 
@@ -576,6 +576,7 @@ class TestAskQuestionStreamWithRagDegraded:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_chat_session
         mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
 
         mock_rag_agent = MagicMock()
         mock_llm = MagicMock()
@@ -600,7 +601,7 @@ class TestAskQuestionStreamWithRagDegraded:
     @pytest.mark.asyncio
     async def test_proceeds_normally_when_not_degraded(self):
         """ask_question_stream_with_rag should proceed normally when not degraded."""
-        from app.application.chat_stream_service import ask_question_stream_with_rag
+        from app.application.chat_service import ask_question_stream_with_rag
 
         mock_session = AsyncMock()
 
@@ -645,3 +646,84 @@ class TestAskQuestionStreamWithRagDegraded:
 
         mock_rag_agent.run.assert_called_once()
         assert any('"type": "done"' in e for e in events)
+
+    @pytest.mark.asyncio
+    async def test_proceeds_normally_with_default_degraded_services(self):
+        """ask_question_stream_with_rag should proceed normally when degraded_services is omitted."""
+        from app.application.chat_service import ask_question_stream_with_rag
+
+        mock_session = AsyncMock()
+
+        mock_chat_session = MagicMock()
+        mock_chat_session.id = "session-123"
+        mock_chat_session.user_id = "user-123"
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_chat_session
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_rag_agent = MagicMock()
+        mock_rag_agent.run = AsyncMock(
+            return_value={
+                "answer": "The answer",
+                "documents": [],
+                "retrieval_score": 0.85,
+            }
+        )
+        mock_rag_agent.prompt_gateway = None
+
+        async def mock_stream(messages):
+            yield "The answer"
+
+        mock_llm = MagicMock()
+        mock_llm.generate_stream = mock_stream
+
+        mock_session.add = MagicMock()
+        mock_session.commit = AsyncMock()
+
+        events = []
+        async for event in ask_question_stream_with_rag(
+            session=mock_session,
+            session_id="session-123",
+            message="What is this?",
+            rag_agent=mock_rag_agent,
+            llm_provider=mock_llm,
+            user_id="user-123",
+        ):
+            events.append(event)
+
+        mock_rag_agent.run.assert_called_once()
+        assert any('"type": "done"' in e for e in events)
+
+    @pytest.mark.asyncio
+    async def test_persists_user_message_when_degraded(self):
+        """ask_question_stream_with_rag should persist user message even when ES is degraded."""
+        from app.application.chat_service import ask_question_stream_with_rag
+
+        mock_session = AsyncMock()
+
+        mock_chat_session = MagicMock()
+        mock_chat_session.id = "session-123"
+        mock_chat_session.user_id = "user-123"
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_chat_session
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        mock_rag_agent = MagicMock()
+        mock_llm = MagicMock()
+
+        events = []
+        async for event in ask_question_stream_with_rag(
+            session=mock_session,
+            session_id="session-123",
+            message="What is this?",
+            rag_agent=mock_rag_agent,
+            llm_provider=mock_llm,
+            user_id="user-123",
+            degraded_services={"elasticsearch"},
+        ):
+            events.append(event)
+
+        mock_session.commit.assert_called()

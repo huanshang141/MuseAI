@@ -73,8 +73,16 @@ async def ask_stream_tour(
     rag_agent: Any,
     exhibit_id: str | None = None,
     exhibit_context: str | None = None,
+    degraded_services: set[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     tour_session = await get_session(db_session, tour_session_id)
+
+    if degraded_services and "elasticsearch" in degraded_services:
+        yield sse_tour_event(
+            "error",
+            data={"code": "RAG_UNAVAILABLE", "message": "检索服务暂时不可用，请稍后再试"},
+        )
+        return
 
     visited_ids = tour_session.visited_exhibit_ids or []
     system_prompt = build_system_prompt(

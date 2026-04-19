@@ -259,7 +259,7 @@ async def ask_stream_endpoint(
     async def event_generator() -> AsyncGenerator[str, None]:
         degraded = set()
         if hasattr(request.app.state, "degraded"):
-            degraded = request.app.state.degraded
+            degraded = set(request.app.state.degraded)
         async for event in _with_heartbeat(
             ask_question_stream_with_rag(
                 session,
@@ -303,6 +303,10 @@ async def send_guest_message(
     """Send a message and get streaming response (guest mode, no auth required)."""
     session_id = message_request.session_id or str(uuid.uuid4())
 
+    degraded = set()
+    if hasattr(http_request.app.state, "degraded"):
+        degraded = set(http_request.app.state.degraded)
+
     return StreamingResponse(
         _with_heartbeat(
             ask_question_stream_guest(
@@ -311,6 +315,7 @@ async def send_guest_message(
                 rag_agent=rag_agent,
                 llm_provider=llm_provider,
                 redis=redis,
+                degraded_services=degraded,
             ),
         ),
         media_type="text/event-stream",

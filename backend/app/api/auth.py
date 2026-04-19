@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, status
 from loguru import logger
 from pydantic import BaseModel, EmailStr, field_validator
 from redis.exceptions import RedisError
@@ -93,10 +93,9 @@ async def register(
 @router.post("/login", response_model=TokenResponse, summary="Login user")
 async def login(
     request: LoginRequest,
-    response: Response,
     session: SessionDep,
     jwt_handler: JWTHandlerDep,
-    _: AuthRateLimitDep,  # Add rate limiting
+    _: AuthRateLimitDep,
 ):
     user_repo = PostgresUserRepository(session)
     user = await authenticate_user(
@@ -126,7 +125,6 @@ async def login(
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Logout user")
 async def logout(
     request: Request,
-    response: Response,
     jwt_handler: JWTHandlerDep,
     redis: RedisCacheDep,
     _: AuthRateLimitDep,

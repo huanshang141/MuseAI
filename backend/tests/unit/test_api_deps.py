@@ -332,7 +332,7 @@ class TestGetCurrentUser:
 
     @pytest.mark.asyncio
     async def test_raises_when_no_token_anywhere(self):
-        """get_current_user should raise 401 when no token in header or cookie."""
+        """get_current_user should raise 401 when no Authorization header is provided."""
         from app.api.deps import get_current_user
 
         mock_redis = MagicMock()

@@ -62,7 +62,6 @@ class PromptVersion(Base):
 
     def to_entity(self):
         from app.domain.entities import PromptVersion as PromptVersionEntity
-        from app.domain.value_objects import PromptId
 
         return PromptVersionEntity(
             id=self.id,

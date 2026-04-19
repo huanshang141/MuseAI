@@ -4,8 +4,6 @@ from typing import Any, ClassVar
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from app.application.ports.prompt_gateway import PromptGateway
-
 
 class NarrativeGenerationInput(BaseModel):
     exhibit_name: str = Field(..., description="Name of the exhibit")

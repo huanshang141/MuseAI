@@ -125,8 +125,8 @@ async def test_login_wrong_password(db_session):
 
 
 @pytest.mark.asyncio
-async def test_login_sets_http_only_cookie(db_session):
-    """Test that login sets an HttpOnly cookie for the access token."""
+async def test_login_does_not_set_cookie(db_session):
+    """Test that login does NOT set a cookie (bearer-only auth)."""
     async def override_get_db():
         yield db_session
 
@@ -136,27 +136,24 @@ async def test_login_sets_http_only_cookie(db_session):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Register a user first
             await client.post(
                 "/api/v1/auth/register",
                 json={
-                    "email": "cookie@example.com",
-                    "password": "CookiePass123!",
+                    "email": "nocookie@example.com",
+                    "password": "NoCookiePass123!",
                 },
             )
 
-            # Login and check for HttpOnly cookie
             response = await client.post(
                 "/api/v1/auth/login",
                 json={
-                    "email": "cookie@example.com",
-                    "password": "CookiePass123!",
+                    "email": "nocookie@example.com",
+                    "password": "NoCookiePass123!",
                 },
             )
 
         assert response.status_code == 200
         cookie = response.headers.get("set-cookie", "")
-        assert "access_token=" in cookie
-        assert "HttpOnly" in cookie
+        assert "access_token=" not in cookie
     finally:
         app.dependency_overrides = {}

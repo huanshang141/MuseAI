@@ -114,17 +114,6 @@ async def login(
         )
 
     token = create_access_token(user.id, jwt_handler)
-    settings = get_settings()
-
-    # Set HttpOnly cookie for secure token storage
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        secure=settings.APP_ENV == "production",
-        samesite="lax",
-        max_age=jwt_handler.expire_minutes * 60,
-    )
 
     return TokenResponse(
         access_token=token,
@@ -143,13 +132,10 @@ async def logout(
     _: AuthRateLimitDep,
 ):
     """Logout user by blacklisting their current token."""
-    # Extract token from Authorization header first, then fallback to cookie
     auth_header = request.headers.get("Authorization")
     token = None
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header.replace("Bearer ", "")
-    elif "access_token" in request.cookies:
-        token = request.cookies.get("access_token")
 
     if token:
         jti = jwt_handler.get_jti(token)
@@ -166,6 +152,4 @@ async def logout(
                     detail="Logout temporarily unavailable. Please retry.",
                 ) from e
 
-    # Clear the cookie regardless of whether token was found
-    response.delete_cookie(key="access_token")
     return None

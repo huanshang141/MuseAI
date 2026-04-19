@@ -77,12 +77,9 @@ async def get_current_user(
     redis: RedisCacheDep,
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),  # noqa: B008
 ) -> dict:
-    # Extract token from Authorization header first, then fallback to cookie
     token = None
     if credentials:
         token = credentials.credentials
-    elif "access_token" in request.cookies:
-        token = request.cookies.get("access_token")
 
     if not token:
         raise HTTPException(
@@ -145,12 +142,9 @@ async def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),  # noqa: B008
 ) -> dict | None:
     """Get current user if authenticated, else return None (for guest access)."""
-    # Extract token from Authorization header first, then fallback to cookie
     token = None
     if credentials:
         token = credentials.credentials
-    elif "access_token" in request.cookies:
-        token = request.cookies.get("access_token")
 
     if not token:
         return None

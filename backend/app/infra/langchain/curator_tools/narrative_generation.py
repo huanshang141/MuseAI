@@ -30,9 +30,15 @@ class NarrativeGenerationTool(BaseTool):
     )
 
     LEVEL_PROMPTS_FALLBACK: ClassVar[dict[str, str]] = {
-        "beginner": "Use simple language and avoid technical jargon. Focus on interesting stories and relatable concepts.",
+        "beginner": (
+            "Use simple language and avoid technical jargon. "
+            "Focus on interesting stories and relatable concepts."
+        ),
         "intermediate": "Include some technical details and historical context. Balance accessibility with depth.",
-        "expert": "Use professional terminology and academic language. Include detailed analysis and scholarly context.",
+        "expert": (
+            "Use professional terminology and academic language. "
+            "Include detailed analysis and scholarly context."
+        ),
     }
 
     STYLE_PROMPTS_FALLBACK: ClassVar[dict[str, str]] = {

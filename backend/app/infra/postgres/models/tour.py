@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
@@ -14,6 +17,9 @@ from app.domain.value_objects import (
     UserId,
 )
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.user import User
 
 
 class TourPath(Base):
@@ -48,7 +54,7 @@ class TourPath(Base):
             updated_at=self.updated_at,
         )
 
-    creator: Mapped["User"] = relationship(back_populates="created_tour_paths")
+    creator: Mapped[User] = relationship(back_populates="created_tour_paths")
 
 
 class TourSessionModel(Base):
@@ -97,9 +103,9 @@ class TourSessionModel(Base):
             created_at=self.created_at,
         )
 
-    user: Mapped["User | None"] = relationship(back_populates="tour_sessions")
-    events: Mapped[list["TourEventModel"]] = relationship(back_populates="tour_session", cascade="all, delete-orphan")
-    report: Mapped["TourReportModel | None"] = relationship(
+    user: Mapped[User | None] = relationship(back_populates="tour_sessions")
+    events: Mapped[list[TourEventModel]] = relationship(back_populates="tour_session", cascade="all, delete-orphan")
+    report: Mapped[TourReportModel | None] = relationship(
         back_populates="tour_session", uselist=False, cascade="all, delete-orphan"
     )
 
@@ -134,7 +140,7 @@ class TourEventModel(Base):
             created_at=self.created_at,
         )
 
-    tour_session: Mapped["TourSessionModel"] = relationship(back_populates="events")
+    tour_session: Mapped[TourSessionModel] = relationship(back_populates="events")
 
 
 class TourReportModel(Base):
@@ -179,4 +185,4 @@ class TourReportModel(Base):
             created_at=self.created_at,
         )
 
-    tour_session: Mapped["TourSessionModel"] = relationship(back_populates="report")
+    tour_session: Mapped[TourSessionModel] = relationship(back_populates="report")

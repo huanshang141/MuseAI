@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSON
@@ -6,6 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import ExhibitId, ProfileId, UserId
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.user import User
 
 
 class VisitorProfile(Base):
@@ -40,4 +46,4 @@ class VisitorProfile(Base):
             updated_at=self.updated_at,
         )
 
-    user: Mapped["User"] = relationship(back_populates="profile")
+    user: Mapped[User] = relationship(back_populates="profile")

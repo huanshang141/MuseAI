@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import DocumentId, JobId, UserId
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.exhibit import Exhibit
 
 
 class Document(Base):
@@ -29,8 +35,8 @@ class Document(Base):
             error=self.error,
         )
 
-    ingestion_jobs: Mapped[list["IngestionJob"]] = relationship(back_populates="document", cascade="all, delete-orphan")
-    exhibits: Mapped[list["Exhibit"]] = relationship(back_populates="document")
+    ingestion_jobs: Mapped[list[IngestionJob]] = relationship(back_populates="document", cascade="all, delete-orphan")
+    exhibits: Mapped[list[Exhibit]] = relationship(back_populates="document")
 
 
 class IngestionJob(Base):
@@ -58,4 +64,4 @@ class IngestionJob(Base):
             error=self.error,
         )
 
-    document: Mapped["Document"] = relationship(back_populates="ingestion_jobs")
+    document: Mapped[Document] = relationship(back_populates="ingestion_jobs")

@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import ExhibitId, Location
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.document import Document
 
 
 class Exhibit(Base):
@@ -48,4 +54,4 @@ class Exhibit(Base):
             updated_at=self.updated_at,
         )
 
-    document: Mapped["Document"] = relationship(back_populates="exhibits")
+    document: Mapped[Document] = relationship(back_populates="exhibits")

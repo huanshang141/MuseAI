@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import SessionId, UserId
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.user import User
 
 
 class ChatSession(Base):
@@ -25,8 +31,8 @@ class ChatSession(Base):
             created_at=self.created_at,
         )
 
-    user: Mapped["User"] = relationship(back_populates="sessions")
-    messages: Mapped[list["ChatMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    user: Mapped[User] = relationship(back_populates="sessions")
+    messages: Mapped[list[ChatMessage]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
 class ChatMessage(Base):
@@ -51,4 +57,4 @@ class ChatMessage(Base):
             created_at=self.created_at,
         )
 
-    session: Mapped["ChatSession"] = relationship(back_populates="messages")
+    session: Mapped[ChatSession] = relationship(back_populates="messages")

@@ -1,10 +1,18 @@
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import UserId
 from app.infra.postgres.models.base import Base
+
+if TYPE_CHECKING:
+    from app.infra.postgres.models.chat import ChatSession
+    from app.infra.postgres.models.profile import VisitorProfile
+    from app.infra.postgres.models.tour import TourPath, TourSessionModel
 
 
 class User(Base):
@@ -27,7 +35,7 @@ class User(Base):
             role=self.role,
         )
 
-    sessions: Mapped[list["ChatSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    profile: Mapped["VisitorProfile"] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
-    created_tour_paths: Mapped[list["TourPath"]] = relationship(back_populates="creator")
-    tour_sessions: Mapped[list["TourSessionModel"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list[ChatSession]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    profile: Mapped[VisitorProfile] = relationship(back_populates="user", cascade="all, delete-orphan", uselist=False)
+    created_tour_paths: Mapped[list[TourPath]] = relationship(back_populates="creator")
+    tour_sessions: Mapped[list[TourSessionModel]] = relationship(back_populates="user", cascade="all, delete-orphan")

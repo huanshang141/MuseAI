@@ -9,8 +9,10 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health", summary="Check service health")
-async def health() -> dict:
-    return {"status": "ok"}
+async def health(request: Request) -> dict:
+    degraded = list(request.app.state.degraded) if hasattr(request.app.state, "degraded") else []
+    status = "healthy" if not degraded else "degraded"
+    return {"status": status, "degraded_services": degraded}
 
 
 async def _check_database() -> str:

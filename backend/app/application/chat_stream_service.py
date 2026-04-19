@@ -119,10 +119,15 @@ async def ask_question_stream_with_rag(
     llm_provider: LLMProviderPort,
     user_id: str,
     session_maker: async_sessionmaker[AsyncSession] | None = None,
+    degraded_services: set[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
         yield sse_chat_event("error", code="SESSION_NOT_FOUND", message="Session not found")
+        return
+
+    if degraded_services and "elasticsearch" in degraded_services:
+        yield sse_chat_event("error", code="RAG_UNAVAILABLE", message="检索服务暂时不可用，请稍后再试")
         return
 
     trace_id = str(uuid.uuid4())

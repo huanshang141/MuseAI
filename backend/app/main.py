@@ -55,16 +55,28 @@ async def lifespan(app: FastAPI):
 
     logger.info(f"Starting {settings.APP_NAME} in {settings.APP_ENV} mode")
 
+    app.state.degraded: set[str] = set()
+
     try:
         await init_database(settings.DATABASE_URL)
 
         redis_cache = RedisCache(settings.REDIS_URL)
+        try:
+            await redis_cache.client.ping()
+        except Exception as e:
+            logger.error(f"Redis unavailable at startup: {e}; entering degraded mode")
+            app.state.degraded.add("redis")
 
         es_client = ElasticsearchClient(
             hosts=[settings.ELASTICSEARCH_URL],
             index_name=settings.ELASTICSEARCH_INDEX,
         )
-        await es_client.create_index(settings.ELASTICSEARCH_INDEX, settings.EMBEDDING_DIMS)
+        try:
+            await es_client.health_check()
+            await es_client.create_index(settings.ELASTICSEARCH_INDEX, settings.EMBEDDING_DIMS)
+        except Exception as e:
+            logger.error(f"ES unavailable at startup: {e}; entering degraded mode")
+            app.state.degraded.add("elasticsearch")
 
         embeddings = create_embeddings(settings)
         llm = create_llm(settings)

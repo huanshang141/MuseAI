@@ -257,6 +257,9 @@ async def ask_stream_endpoint(
         raise HTTPException(status_code=404, detail="Session not found")
 
     async def event_generator() -> AsyncGenerator[str, None]:
+        degraded = set()
+        if hasattr(request.app.state, "degraded"):
+            degraded = request.app.state.degraded
         async for event in _with_heartbeat(
             ask_question_stream_with_rag(
                 session,
@@ -266,6 +269,7 @@ async def ask_stream_endpoint(
                 llm_provider,
                 current_user["id"],
                 session_maker=session_maker,
+                degraded_services=degraded,
             ),
             request=request,
         ):

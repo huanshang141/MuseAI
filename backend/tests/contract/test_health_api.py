@@ -8,12 +8,14 @@ from httpx import ASGITransport, AsyncClient
 
 @pytest.mark.asyncio
 async def test_health_endpoint():
+    app.state.degraded = set()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "ok"
+    assert data["status"] == "healthy"
+    assert data["degraded_services"] == []
 
 
 def _healthy_engine() -> MagicMock:
@@ -202,3 +204,30 @@ async def test_ready_returns_503_when_redis_close_raises_after_healthy_ping():
     assert data["database"] == "healthy"
     assert data["elasticsearch"] == "healthy"
     assert data["redis"] == "unhealthy"
+
+
+@pytest.mark.asyncio
+async def test_health_returns_degraded_when_services_degraded():
+    app.state.degraded = {"elasticsearch"}
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/v1/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert "elasticsearch" in data["degraded_services"]
+    finally:
+        app.state.degraded = set()
+
+
+@pytest.mark.asyncio
+async def test_health_returns_healthy_when_no_services_degraded():
+    app.state.degraded = set()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["degraded_services"] == []

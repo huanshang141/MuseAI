@@ -1,4 +1,5 @@
 # B2 Architecture Unification Implementation Plan
+**Status:** completed
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -175,6 +176,7 @@ For each match, change `ExhibitRepository` → `ExhibitRepositoryPort`. Typical 
 Mirror Step 3 for `backend/app/application/profile_service.py`:
 ```python
 # old
+**Status:** completed
 from app.domain.repositories import VisitorProfileRepository
 # new
 from app.application.ports.repositories import VisitorProfileRepositoryPort

@@ -1,4 +1,5 @@
 # Risk-Driven Full-Stack Technical Debt Audit Design
+**Status:** completed
 
 ## Metadata
 

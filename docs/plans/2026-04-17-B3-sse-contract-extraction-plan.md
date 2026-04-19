@@ -1,4 +1,5 @@
 # B3 SSE Contract Extraction & Tour Stream Fix Implementation Plan
+**Status:** completed
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -374,6 +375,7 @@ except Exception as e:
     error_data = json.dumps({...})
     yield f"data: {error_data}\n\n"     # emits "error"
 # <-- falls through here after error OR success
+**Status:** completed
 done_data = {...}
 yield f"data: {json.dumps(done_data)}\n\n"   # ALWAYS emits "done" — even after error
 ```

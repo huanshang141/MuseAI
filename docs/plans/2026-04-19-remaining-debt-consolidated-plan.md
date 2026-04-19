@@ -1,5 +1,7 @@
 # B7+ Remaining Technical Debt — Consolidated Implementation Plan
 
+**Status:** in-progress
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the remaining P1/P2 debt items from the 2026-04-17 midterm audit that were not addressed by batches B0–B6. Each batch below is independent; commit per task; the executor may interleave batches or work them in order.

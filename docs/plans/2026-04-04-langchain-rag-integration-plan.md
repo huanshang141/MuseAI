@@ -1,4 +1,5 @@
 # LangChain RAG Integration Implementation Plan
+**Status:** completed
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -744,6 +745,7 @@ from app.infra.langchain import (
 )
 
 # Add global instances at module level
+**Status:** completed
 es_client: ElasticsearchClient | None = None
 embeddings = None
 llm = None

@@ -1,4 +1,5 @@
 # Midterm 14-Issue Remediation Implementation Plan
+**Status:** completed
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -779,6 +780,7 @@ Expected: PASS.
 
 ```markdown
 # Midterm Remediation Summary (2026-04-08)
+**Status:** completed
 
 - Closed Issues: 14/14
 - Residual Risk: <list>

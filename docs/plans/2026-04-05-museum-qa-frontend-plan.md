@@ -1,4 +1,5 @@
 # 博物馆展品问答助手前端实施计划
+**Status:** completed
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -720,6 +721,7 @@ git commit -m "feat: complete museum QA frontend application"
 
 ```bash
 # 1. 启动后端服务
+**Status:** completed
 cd backend && python -m uvicorn app.main:app --reload
 
 # 2. 启动前端服务

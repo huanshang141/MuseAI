@@ -1,4 +1,5 @@
 # MuseAI Phase 3 设计文档
+**Status:** completed
 
 > 创建日期: 2026-04-05
 > 状态: 已确认
@@ -435,6 +436,7 @@ backend/tests/integration/
 
 ```python
 # backend/tests/integration/conftest.py
+**Status:** completed
 import pytest
 from testcontainers.postgres import PostgresContainer
 from testcontainers.elasticsearch import ElasticSearchContainer

@@ -1,4 +1,5 @@
 # MuseAI V2 设计文档
+**Status:** completed
 
 > 创建日期: 2026-04-04
 > 状态: 已确认
@@ -525,6 +526,7 @@ backend/tests/fixtures/
 
 ```yaml
 # PR触发
+**Status:** completed
 - ruff lint          # 代码风格
 - mypy               # 类型检查
 - pytest unit        # 单元测试

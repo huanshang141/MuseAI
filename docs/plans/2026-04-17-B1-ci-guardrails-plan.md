@@ -1,4 +1,5 @@
 # B1 CI Guardrails Implementation Plan
+**Status:** completed
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -115,6 +116,7 @@ exclude = [
 ]
 
 # Strict only for well-structured layers; the rest is tech debt for later batches.
+**Status:** completed
 [[tool.mypy.overrides]]
 module = ["app.domain.*", "app.application.ports.*"]
 strict = true

@@ -1,4 +1,5 @@
 # Phase 0 E2E Integration Test Implementation Plan
+**Status:** completed
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
@@ -29,6 +30,7 @@ touch backend/tests/e2e/__init__.py
 
 ```python
 # backend/tests/e2e/test_data/museum_sample.txt
+**Status:** completed
 博物馆藏品介绍
 
 青铜器展区

@@ -8,7 +8,7 @@ from app.config.settings import get_settings
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health", summary="Health check")
+@router.get("/health", summary="Check service health")
 async def health() -> dict:
     return {"status": "ok"}
 
@@ -64,7 +64,7 @@ async def _check_redis() -> str:
     return status
 
 
-@router.get("/ready", summary="Readiness check")
+@router.get("/ready", summary="Check service readiness")
 async def ready(request: Request, response: Response) -> dict:
     checks = {
         "database": await _check_database(),

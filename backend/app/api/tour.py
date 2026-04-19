@@ -369,7 +369,7 @@ async def get_tour_report(
     return _format_report(report)
 
 
-@router.post("/sessions/{session_id}/chat/stream", summary="Tour chat stream (SSE)")
+@router.post("/sessions/{session_id}/chat/stream", summary="Stream tour chat (SSE)")
 async def tour_chat_stream(
     session_id: str,
     body: TourChatRequest,

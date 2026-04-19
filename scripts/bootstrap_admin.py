@@ -13,13 +13,13 @@ import asyncio
 import os
 import sys
 
-import bcrypt
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.infra.postgres.models import User
+from app.infra.security.password import hash_password
 
 MIN_PASSWORD_LENGTH = 12
 
@@ -50,7 +50,7 @@ async def bootstrap_admin(
             await engine.dispose()
             return
 
-        password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        password_hash = hash_password(password)
         user_id = os.urandom(16).hex()
         user = User(id=user_id, email=email, password_hash=password_hash, role="admin")
         session.add(user)

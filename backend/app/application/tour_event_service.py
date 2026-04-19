@@ -1,11 +1,16 @@
 import uuid
 from datetime import UTC, datetime
 
+from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities import TourEvent
 from app.infra.postgres.models import TourEventModel
+
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 0.5
 
 
 async def record_events(
@@ -13,6 +18,9 @@ async def record_events(
     tour_session_id: str,
     events: list[dict],
 ) -> list[TourEvent]:
+    if not events:
+        return []
+
     now = datetime.now(UTC)
     models = []
     for event_data in events:
@@ -28,7 +36,19 @@ async def record_events(
         )
         session.add(model)
         models.append(model)
-    await session.commit()
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            await session.commit()
+            break
+        except OperationalError as e:
+            if attempt < MAX_RETRIES:
+                logger.warning(f"record_events commit failed (attempt {attempt}/{MAX_RETRIES}): {e}")
+                import asyncio
+                await asyncio.sleep(RETRY_DELAY_SECONDS * attempt)
+            else:
+                raise
+
     for m in models:
         await session.refresh(m)
     return [m.to_entity() for m in models]

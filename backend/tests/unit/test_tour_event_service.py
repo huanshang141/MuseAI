@@ -114,3 +114,66 @@ async def test_get_events_by_session_empty():
     result = await get_events_by_session(mock_session, "session-1")
 
     assert result == []
+
+
+@pytest.mark.asyncio
+async def test_record_events_retries_on_transient_error():
+    from app.application.tour_event_service import record_events
+
+    mock_session = AsyncMock()
+    call_count = 0
+
+    async def commit_side_effect():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            from sqlalchemy.exc import OperationalError
+            raise OperationalError("stmt", {}, Exception("connection lost"))
+
+    mock_session.commit = AsyncMock(side_effect=commit_side_effect)
+    mock_session.refresh = AsyncMock()
+
+    events_data = [
+        {
+            "event_type": "exhibit_view",
+            "exhibit_id": "exhibit-1",
+            "hall": "relic-hall",
+            "duration_seconds": 120,
+        },
+    ]
+
+    with patch("app.application.tour_event_service.TourEventModel") as MockModel:
+        model = _make_event_model()
+        MockModel.return_value = model
+
+        result = await record_events(mock_session, "session-1", events_data)
+
+    assert len(result) == 1
+    assert call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_record_events_raises_after_max_retries():
+    from app.application.tour_event_service import record_events
+    from sqlalchemy.exc import OperationalError
+
+    mock_session = AsyncMock()
+    mock_session.commit = AsyncMock(
+        side_effect=OperationalError("stmt", {}, Exception("connection lost"))
+    )
+
+    events_data = [
+        {
+            "event_type": "exhibit_view",
+            "exhibit_id": "exhibit-1",
+            "hall": "relic-hall",
+            "duration_seconds": 120,
+        },
+    ]
+
+    with patch("app.application.tour_event_service.TourEventModel") as MockModel:
+        model = _make_event_model()
+        MockModel.return_value = model
+
+        with pytest.raises(OperationalError):
+            await record_events(mock_session, "session-1", events_data)

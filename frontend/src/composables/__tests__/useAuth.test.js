@@ -46,7 +46,7 @@ describe('useAuth', () => {
     expect(user.value).toEqual({ email: 'test@example.com' })
   })
 
-  it('login sets user on success (token is in HttpOnly cookie)', async () => {
+  it('login sets user and token on success', async () => {
     api.auth.login.mockResolvedValueOnce({
       ok: true,
       data: { access_token: 'new-token', token_type: 'bearer', role: 'user' }
@@ -57,9 +57,7 @@ describe('useAuth', () => {
     const result = await login('test@example.com', 'password')
 
     expect(result.ok).toBe(true)
-    // Token should NOT be stored in localStorage (it's in HttpOnly cookie)
-    expect(localStorage.getItem('access_token')).toBeNull()
-    // User info should be stored for UI purposes
+    expect(localStorage.getItem('auth_token')).toBe('new-token')
     expect(isAuthenticated.value).toBe(true)
     expect(user.value).toEqual({ email: 'test@example.com', role: 'user' })
   })
@@ -85,8 +83,9 @@ describe('useAuth', () => {
     expect(user.value).toBeNull()
   })
 
-  it('logout clears user', async () => {
+  it('logout clears user and token', async () => {
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
+    localStorage.setItem('auth_token', 'some-token')
 
     api.auth.logout.mockResolvedValueOnce({ ok: true })
 
@@ -94,8 +93,7 @@ describe('useAuth', () => {
 
     await logout()
 
-    // Token should not be in localStorage (HttpOnly cookie)
-    expect(localStorage.getItem('access_token')).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
     expect(isAuthenticated.value).toBe(false)
     expect(user.value).toBeNull()
   })
@@ -138,32 +136,32 @@ describe('useAuth', () => {
     expect(result.error).toBe('Email already exists')
   })
 
-  it('getToken returns null (token is in HttpOnly cookie)', async () => {
+  it('getToken returns stored auth token', async () => {
+    localStorage.setItem('auth_token', 'my-token')
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
 
     const { useAuth } = await import('../useAuth.js')
     const { getToken } = useAuth()
 
-    // getToken is deprecated - returns null since token is in HttpOnly cookie
-    expect(getToken()).toBeNull()
+    expect(getToken()).toBe('my-token')
   })
 
-  it('setAuth manually sets user', async () => {
+  it('setAuth manually sets user and token', async () => {
     localStorage.clear()
     const { useAuth } = await import('../useAuth.js')
     const { setAuth, user, isAuthenticated } = useAuth()
 
-    setAuth({ email: 'manual@example.com' })
+    setAuth({ email: 'manual@example.com' }, 'user', 'manual-token')
 
     expect(isAuthenticated.value).toBe(true)
     expect(user.value).toEqual({ email: 'manual@example.com' })
-    // Token should not be stored in localStorage
-    expect(localStorage.getItem('access_token')).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBe('manual-token')
   })
 
   it('clearAuth clears user state', async () => {
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
     localStorage.setItem('user_role', 'admin')
+    localStorage.setItem('auth_token', 'some-token')
 
     const { useAuth } = await import('../useAuth.js')
     const { clearAuth, user, isAuthenticated, isAdmin } = useAuth()
@@ -175,5 +173,6 @@ describe('useAuth', () => {
     expect(isAdmin.value).toBe(false)
     expect(localStorage.getItem('user')).toBeNull()
     expect(localStorage.getItem('user_role')).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
   })
 })

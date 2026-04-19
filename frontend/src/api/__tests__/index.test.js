@@ -29,10 +29,10 @@ describe('api request hardening', () => {
 
     await api.ready()
 
-    // Note: access_token is no longer stored in localStorage since auth
-    // now uses HttpOnly cookies. Only user metadata is cleared.
+    // Note: auth_token is cleared from localStorage on 401
     expect(localStorage.getItem('user')).toBeNull()
     expect(localStorage.getItem('user_role')).toBeNull()
+    expect(localStorage.getItem('auth_token')).toBeNull()
   })
 
   it('retries idempotent health request once after transient failure', async () => {

@@ -5,6 +5,11 @@ const BASE_URL = '/api/v1'
 function clearAuthState() {
   localStorage.removeItem('user')
   localStorage.removeItem('user_role')
+  localStorage.removeItem('auth_token')
+}
+
+function getAuthToken() {
+  return localStorage.getItem('auth_token')
 }
 
 function normalizeNetworkError(error) {
@@ -18,12 +23,16 @@ async function request(path, options = {}) {
     ...options.headers,
   }
 
+  const authToken = getAuthToken()
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`
+  }
+
   log(`[API] ${options.method || 'GET'} ${path}`, options.body || '')
 
   let response
   try {
     response = await fetch(`${BASE_URL}${path}`, {
-      credentials: 'include',  // Include cookies for HttpOnly cookie auth
       headers,
       ...options,
     })
@@ -94,9 +103,15 @@ export const api = {
       const formData = new FormData()
       formData.append('file', file)
 
+      const authToken = getAuthToken()
+      const headers = {}
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(`${BASE_URL}/documents/upload`, {
         method: 'POST',
-        credentials: 'include',  // Include cookies for HttpOnly cookie auth
+        headers,
         body: formData,
       })
       const data = await response.json().catch(() => ({}))
@@ -119,10 +134,13 @@ export const api = {
     }),
     askStream: async function* (sessionId, message) {
       const headers = { 'Content-Type': 'application/json' }
+      const authToken = getAuthToken()
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
 
       const response = await fetch(`${BASE_URL}/chat/ask/stream`, {
         method: 'POST',
-        credentials: 'include',  // Include cookies for HttpOnly cookie auth
         headers,
         body: JSON.stringify({ session_id: sessionId, message }),
       })
@@ -161,7 +179,6 @@ export const api = {
 
       const response = await fetch(`${BASE_URL}/chat/guest/message`, {
         method: 'POST',
-        credentials: 'include',  // Include cookies for session tracking
         headers,
         body: JSON.stringify(body),
       })
@@ -329,7 +346,6 @@ export const api = {
 
       const response = await fetch(`${BASE_URL}/tour/sessions/${id}/chat/stream`, {
         method: 'POST',
-        credentials: 'include',
         headers,
         body: JSON.stringify(body),
       })

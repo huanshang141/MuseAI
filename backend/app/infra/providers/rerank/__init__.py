@@ -1,7 +1,3 @@
-from abc import ABC, abstractmethod
-
-from pydantic import BaseModel
-
 from app.infra.providers.rerank.base import BaseRerankProvider, RerankRequest, RerankResult, RerankResponse
 from app.infra.providers.rerank.mock import MockRerankProvider
 from app.infra.providers.rerank.openai import OpenAICompatibleRerankProvider

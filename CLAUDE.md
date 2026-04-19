@@ -67,36 +67,68 @@ backend/app/
 │   ├── deps.py            # Dependency injection (DB session, auth, rate limiting)
 │   ├── auth.py            # Authentication endpoints
 │   ├── chat.py            # Chat session and message endpoints
+│   ├── client_ip.py       # Client IP extraction from proxy headers
+│   ├── curator.py         # Curator AI agent endpoints
 │   ├── documents.py       # Document upload API
-│   └── health.py          # Health check endpoints
+│   ├── exhibits.py        # Public exhibit browsing endpoints
+│   ├── health.py          # Health check endpoints
+│   ├── profile.py         # Visitor profile endpoints
+│   ├── tour.py            # Tour session and guided-visit endpoints
+│   └── admin/             # Admin-only router namespace
+│       ├── exhibits.py    # Admin exhibit management
+│       └── prompts.py     # Admin prompt template management
 ├── application/            # Business logic and services
 │   ├── auth_service.py    # User registration/login
 │   ├── chat_service.py    # Chat message handling, SSE streaming
+│   ├── chat_message_service.py  # Chat message CRUD
+│   ├── chat_session_service.py  # Chat session CRUD
+│   ├── chat_stream_service.py   # RAG streaming orchestration
 │   ├── document_service.py # Document CRUD
 │   ├── ingestion_service.py # Document chunking and embedding
+│   ├── unified_indexing_service.py # Unified ES indexing pipeline
+│   ├── exhibit_service.py  # Exhibit CRUD
+│   ├── exhibit_indexing_service.py # Exhibit ES indexing
+│   ├── content_source.py   # Content source abstraction
+│   ├── curator_service.py  # Curator AI agent orchestration
+│   ├── profile_service.py  # Visitor profile CRUD
+│   ├── prompt_service.py   # Prompt template CRUD
+│   ├── prompt_service_adapter.py # Prompt service adapter
+│   ├── tour_chat_service.py # Tour chat streaming
+│   ├── tour_session_service.py # Tour session CRUD
+│   ├── tour_event_service.py  # Tour event recording
+│   ├── tour_report_service.py # Tour report generation
 │   ├── chunking.py        # Text chunking algorithms
-│   └── retrieval.py       # RRF fusion algorithm
+│   ├── retrieval.py       # RRF fusion algorithm
+│   ├── context_manager.py # Context window management
+│   ├── error_handling.py  # Centralized error handling
+│   ├── sse_events.py      # SSE event type definitions
+│   ├── ports/             # Port interfaces (dependency inversion)
+│   └── workflows/         # Multi-turn conversation workflows
+│       ├── multi_turn.py  # State machine for retrieval evaluation
+│       ├── query_transform.py # Query transformation (HyDE, step-back)
+│       └── reflection_prompts.py # Reflection prompt templates
 ├── domain/                 # Domain entities and value objects
-│   ├── entities.py        # User, ChatSession, Document, IngestionJob
-│   ├── value_objects.py   # Typed IDs (UserId, SessionId, etc.)
+│   ├── entities.py        # User, ChatSession, Document, IngestionJob, Exhibit, TourSession, etc.
+│   ├── value_objects.py   # Typed IDs (UserId, SessionId, ExhibitId, TourSessionId, etc.)
 │   └── exceptions.py      # Domain-specific exceptions
 ├── infra/                  # Infrastructure layer
 │   ├── postgres/          # Database models and session management
-│   │   ├── models.py      # SQLAlchemy ORM models
+│   │   ├── models.py      # SQLAlchemy ORM models (10+ classes)
 │   │   └── database.py    # Engine lifecycle, session factory
 │   ├── elasticsearch/     # ES client for vector/BM25 search
 │   ├── redis/             # Caching and token blacklist
 │   ├── langchain/         # LangChain integrations
 │   │   ├── embeddings.py  # Custom Ollama embeddings
 │   │   ├── retrievers.py  # RRF retriever implementation
-│   │   └── agents.py      # RAG agent with LangGraph state machine
+│   │   ├── agents.py      # RAG agent with LangGraph state machine
+│   │   ├── curator_agent.py # Curator agent with LangGraph
+│   │   ├── curator_tools.py # Curator tool definitions (path planning, narrative, etc.)
+│   │   └── tools.py       # Shared tool utilities
 │   ├── providers/         # External service providers
 │   │   ├── llm.py         # OpenAI-compatible LLM provider
-│   │   └── embedding.py   # Embedding provider abstraction
+│   │   ├── embedding.py   # Embedding provider abstraction
+│   │   └── rerank.py      # Rerank provider (Dashscope, Local, Noop)
 │   └── security/          # JWT handling, password hashing
-├── workflows/              # Multi-turn conversation workflows
-│   ├── multi_turn.py      # State machine for retrieval evaluation
-│   └── query_transform.py # Query transformation strategies (HyDE, step-back)
 ├── config/                 # Configuration management
 │   └── settings.py        # Pydantic settings with validation
 └── main.py                 # FastAPI app and global singletons
@@ -117,11 +149,19 @@ backend/app/
 ### Database Schema
 
 PostgreSQL tables:
-- `users`: id, email, password_hash, created_at
+- `users`: id, email, password_hash, role, created_at
 - `documents`: id, user_id, filename, status, error, created_at
 - `ingestion_jobs`: id, document_id, status, chunk_count, error, created_at, updated_at
 - `chat_sessions`: id, user_id, title, created_at
 - `chat_messages`: id, session_id, role, content, trace_id, created_at
+- `exhibits`: id, name, description, location_x/y, floor, hall, category, era, importance, estimated_visit_time, document_id, is_active, display_order, created_at, updated_at
+- `visitor_profiles`: id, user_id, interests, knowledge_level, narrative_preference, reflection_depth, visited_exhibit_ids, feedback_history, created_at, updated_at
+- `tour_paths`: id, name, description, theme, estimated_duration, exhibit_ids, is_active, created_by, created_at, updated_at
+- `tour_sessions`: id, user_id, guest_id, session_token, interest_type, persona, assumption, current_hall, current_exhibit_id, visited_halls, visited_exhibit_ids, status, last_active_at, started_at, completed_at, created_at
+- `tour_events`: id, tour_session_id, event_type, exhibit_id, hall, duration_seconds, metadata, created_at
+- `tour_reports`: id, tour_session_id, total_duration_minutes, most_viewed_exhibit_id, most_viewed_exhibit_duration, longest_hall, longest_hall_duration, total_questions, total_exhibits_viewed, ceramic_questions, identity_tags, radar_scores, one_liner, report_theme, created_at
+- `prompts`: id, key, name, description, category, content, variables, is_active, created_at, updated_at
+- `prompt_versions`: id, prompt_id, version, content, changed_by, change_reason, created_at
 
 ### Elasticsearch Index
 
@@ -133,16 +173,65 @@ Index `museai_chunks_v1` with:
 
 ## Configuration
 
-Environment variables (see `.env.example`):
-- `APP_ENV`: development/production (affects secret validation)
-- `DATABASE_URL`: PostgreSQL connection string
-- `ELASTICSEARCH_URL`: ES endpoint
-- `REDIS_URL`: Redis endpoint
-- `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`: LLM configuration
-- `EMBEDDING_PROVIDER`, `EMBEDDING_OLLAMA_BASE_URL`, `EMBEDDING_OLLAMA_MODEL`: Embedding configuration
-- `JWT_SECRET`, `JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`: Auth settings
+Environment variables (see `.env.example` for full reference):
 
-Production requires `JWT_SECRET` (≥32 chars) and `LLM_API_KEY`.
+### Core
+- `APP_NAME`: str, default `"MuseAI"` — Application display name
+- `APP_ENV`: str, default `"development"` — One of: development, test, local, production
+- `DEBUG`: bool, default `False` — Enable debug mode
+
+### Auth
+- `JWT_SECRET`: str, default `""` — **Required in production** (≥32 chars)
+- `JWT_ALGORITHM`: str, default `"HS256"` — JWT signing algorithm
+- `JWT_EXPIRE_MINUTES`: int, default `60` — Token lifetime in minutes
+- `ADMIN_EMAILS`: str, default `""` — Comma-separated admin emails (deprecated; use `scripts/bootstrap_admin.py`)
+
+### Database
+- `DATABASE_URL`: str, default `"sqlite+aiosqlite:///:memory:"` — PostgreSQL connection string
+
+### Elasticsearch
+- `ELASTICSEARCH_URL`: str, default `"http://localhost:9200"` — ES endpoint
+- `ELASTICSEARCH_INDEX`: str, default `"museai_chunks_v1"` — ES index name
+- `EMBEDDING_DIMS`: int, default `768` — Vector dimensionality (1–4096)
+
+### Redis
+- `REDIS_URL`: str, default `"redis://localhost:6379"` — Redis endpoint
+
+### LLM
+- `LLM_PROVIDER`: str, default `"openai"` — LLM provider name
+- `LLM_BASE_URL`: str, default `"https://api.openai.com/v1"` — LLM API base URL
+- `LLM_API_KEY`: str, default `""` — **Required in production**
+- `LLM_MODEL`: str, default `"gpt-4o-mini"` — Model identifier
+
+### Embedding
+- `EMBEDDING_PROVIDER`: str, default `"ollama"` — Embedding provider
+- `EMBEDDING_OLLAMA_BASE_URL`: str, default `"http://localhost:11434"` — Ollama endpoint
+- `EMBEDDING_OLLAMA_MODEL`: str, default `"nomic-embed-text"` — Ollama model name
+
+### Rerank
+- `RERANK_PROVIDER`: str, default `"openai"` — Rerank provider (openai, cohere, custom)
+- `RERANK_BASE_URL`: str, default `""` — Rerank API base URL
+- `RERANK_API_KEY`: str, default `""` — **Required in production when RERANK_PROVIDER is set**
+- `RERANK_MODEL`: str, default `"rerank-v1"` — Rerank model identifier
+- `RERANK_TOP_N`: int, default `5` — Number of results to return
+
+### Logging
+- `LOG_LEVEL`: str, default `"INFO"` — One of: DEBUG, INFO, WARNING, ERROR, CRITICAL
+- `LOG_DIR`: str, default `"logs"` — Log file directory
+- `LOG_FORMAT`: str, default `"json"` — Log format ("json" or "text")
+
+### Rate Limiting
+- `RATE_LIMIT_ENABLED`: bool, default `True` — Enable/disable rate limiting
+
+### Security
+- `ALLOW_INSECURE_DEV_DEFAULTS`: bool, default `False` — Allow dev secrets in non-production environments
+- `TRUSTED_PROXIES`: str, default `""` — Comma-separated trusted proxy IPs for X-Forwarded-For
+
+### CORS
+- `CORS_ORIGINS`: str, default `"http://localhost:3000"` — Comma-separated origins or `"*"` (wildcard forbidden in production)
+- `CORS_ALLOW_CREDENTIALS`: bool, default `True` — Allow credentials in CORS
+
+Production requires `JWT_SECRET` (≥32 chars), `LLM_API_KEY`, and `RERANK_API_KEY` (when rerank is configured).
 
 ## Testing Structure
 

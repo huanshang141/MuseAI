@@ -103,7 +103,10 @@ async def find_active_session_by_user(session: AsyncSession, user_id: str) -> To
     model = result.scalar_one_or_none()
     if model is None:
         return None
-    _check_expiry(model)
+    try:
+        _check_expiry(model)
+    except TourSessionExpired:
+        return None
     return model.to_entity()
 
 
@@ -118,7 +121,10 @@ async def find_active_session_by_guest(session: AsyncSession, guest_id: str) -> 
     model = result.scalar_one_or_none()
     if model is None:
         return None
-    _check_expiry(model)
+    try:
+        _check_expiry(model)
+    except TourSessionExpired:
+        return None
     return model.to_entity()
 
 

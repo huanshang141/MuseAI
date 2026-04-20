@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -14,7 +15,7 @@ from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
 )
 from app.infra.postgres.database import get_session, get_session_maker
-from app.infra.postgres.models import Base, User
+from app.infra.postgres.models import Base, TourSessionModel, User
 from app.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -152,6 +153,39 @@ async def test_create_tour_session_returns_existing(override_dependencies, auth_
 
     assert data1["id"] == data2["id"]
     assert data2["interest_type"] == "A"
+
+
+@pytest.mark.asyncio
+async def test_create_tour_session_authenticated_with_expired_existing_creates_new(
+    override_dependencies,
+    auth_token,
+    db_session,
+):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response1 = await client.post(
+            "/api/v1/tour/sessions",
+            json={"interest_type": "A", "persona": "A", "assumption": "A"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        data1 = response1.json()
+
+        model = await db_session.get(TourSessionModel, data1["id"])
+        assert model is not None
+        model.last_active_at = datetime.now(UTC) - timedelta(hours=25)
+        await db_session.commit()
+
+        response2 = await client.post(
+            "/api/v1/tour/sessions",
+            json={"interest_type": "C", "persona": "C", "assumption": "C"},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        data2 = response2.json()
+
+    assert response1.status_code == 200
+    assert response2.status_code == 200
+    assert data2["id"] != data1["id"]
+    assert data2["interest_type"] == "C"
 
 
 @pytest.mark.asyncio

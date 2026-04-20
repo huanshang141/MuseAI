@@ -13,7 +13,7 @@ const {
 
 const subStep = ref('hall-intro')
 const exhibits = ref([])
-const loadingExhibits = ref(false)
+const loadingExhibits = ref(true)
 
 const hallNames = { 'relic-hall': '出土文物展厅', 'site-hall': '遗址保护大厅' }
 const currentHallName = computed(() => hallNames[currentHall.value] || currentHall.value)

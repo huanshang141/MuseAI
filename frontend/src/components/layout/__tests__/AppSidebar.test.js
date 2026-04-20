@@ -54,6 +54,10 @@ const elementPlusStubs = {
   'el-divider': {
     template: '<hr class="el-divider" />'
   },
+  'el-alert': {
+    template: '<div class="el-alert"><slot /></div>',
+    props: ['title', 'type', 'closable']
+  },
   'el-menu': {
     template: '<ul class="el-menu"><slot /></ul>',
     props: ['default-active', 'router']
@@ -80,6 +84,8 @@ describe('AppSidebar', () => {
         { path: '/exhibits', component: { template: '<div>Exhibits</div>' } },
         { path: '/admin', component: { template: '<div>Admin</div>' } },
         { path: '/admin/exhibits', component: { template: '<div>Admin Exhibits</div>' } },
+        { path: '/admin/halls', component: { template: '<div>Admin Halls</div>' } },
+        { path: '/admin/documents', component: { template: '<div>Admin Documents</div>' } },
         { path: '/admin/tour-paths', component: { template: '<div>Admin Tour Paths</div>' } },
         { path: '/admin/prompts', component: { template: '<div>Admin Prompts</div>' } }
       ]
@@ -142,7 +148,7 @@ describe('AppSidebar', () => {
     expect(showAuthModal).toHaveBeenCalledWith(true)
   })
 
-  it('shows knowledge base management when authenticated', async () => {
+  it('does not show knowledge base components on home route after migration', async () => {
     // Mock authenticated state
     mockUser.value = { email: 'test@example.com' }
 
@@ -160,8 +166,31 @@ describe('AppSidebar', () => {
     await router.isReady()
     await wrapper.vm.$nextTick()
 
-    // Should show document components when authenticated
-    expect(wrapper.find('.mock-document-upload').exists()).toBe(true)
-    expect(wrapper.find('.mock-document-list').exists()).toBe(true)
+    // Knowledge base management has moved to /admin/documents
+    expect(wrapper.find('.mock-document-upload').exists()).toBe(false)
+    expect(wrapper.find('.mock-document-list').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain('知识库管理已迁移至管理后台。')
+  })
+
+  it('shows hall and knowledge menu entries in admin sidebar', async () => {
+    mockUser.value = { email: 'admin@example.com' }
+
+    const wrapper = mount(AppSidebar, {
+      global: {
+        plugins: [router],
+        stubs: elementPlusStubs,
+        provide: {
+          showAuthModal: vi.fn()
+        }
+      }
+    })
+
+    await router.push('/admin')
+    await router.isReady()
+    await wrapper.vm.$nextTick()
+
+    const html = wrapper.html()
+    expect(html).toContain('知识库管理')
+    expect(html).toContain('展厅设置')
   })
 })

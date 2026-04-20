@@ -575,3 +575,55 @@ async def test_delete_requires_admin(db_session, auth_token):
         assert response.status_code == 403
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_documents_list_endpoint(db_session, admin_token):
+    """Test /api/v1/admin/documents compatibility endpoint for admin UI migration."""
+    from app.application.document_service import create_document
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        doc_repo = PostgresDocumentRepository(db_session)
+        doc = await create_document(doc_repo, "admin-doc-list-test.txt", TEST_ADMIN_ID)
+        await db_session.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/v1/admin/documents",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "documents" in data
+        assert any(item["id"] == doc.id for item in data["documents"])
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_documents_list_requires_admin(db_session, auth_token):
+    """Test /api/v1/admin/documents rejects regular users."""
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/v1/admin/documents",
+                headers={"Authorization": f"Bearer {auth_token}"},
+            )
+
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides = {}

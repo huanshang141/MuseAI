@@ -91,6 +91,49 @@ export function useAdmin() {
     }
   }
 
+  // Hall settings management
+  async function createHall(data) {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await api.admin.createHall(data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '创建展厅失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function updateHall(slug, data) {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await api.admin.updateHall(slug, data)
+      if (!result.ok) {
+        error.value = result.data?.detail || '更新展厅失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function deleteHall(slug) {
+    loading.value = true
+    error.value = null
+    try {
+      const result = await api.admin.deleteHall(slug)
+      if (!result.ok) {
+        error.value = result.data?.detail || '删除展厅失败'
+      }
+      return result
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     error,
@@ -99,6 +142,9 @@ export function useAdmin() {
     deleteExhibit,
     createTourPath,
     updateTourPath,
-    deleteTourPath
+    deleteTourPath,
+    createHall,
+    updateHall,
+    deleteHall,
   }
 }

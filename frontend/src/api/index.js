@@ -241,6 +241,44 @@ export const api = {
     }),
     deleteExhibit: (id) => request(`/admin/exhibits/${id}`, { method: 'DELETE' }),
 
+    // Halls
+    listHalls: (params = {}) => request(`/admin/halls?${new URLSearchParams(params)}`),
+    createHall: (data) => request('/admin/halls', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+    updateHall: (slug, data) => request(`/admin/halls/${slug}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    }),
+    deleteHall: (slug) => request(`/admin/halls/${slug}`, { method: 'DELETE' }),
+
+    // Documents (knowledge base management)
+    documents: {
+      list: (params = {}) => request(`/admin/documents?${new URLSearchParams(params)}`),
+      get: (id) => request(`/admin/documents/${id}`),
+      status: (id) => request(`/admin/documents/${id}/status`),
+      delete: (id) => request(`/admin/documents/${id}`, { method: 'DELETE' }),
+      upload: async (file) => {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const authToken = getAuthToken()
+        const headers = {}
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`
+        }
+
+        const response = await fetch(`${BASE_URL}/admin/documents/upload`, {
+          method: 'POST',
+          headers,
+          body: formData,
+        })
+        const data = await response.json().catch(() => ({}))
+        return { ok: response.ok, status: response.status, data }
+      },
+    },
+
     // Tour Paths
     listTourPaths: () => request('/admin/tour-paths'),
     createTourPath: (data) => request('/admin/tour-paths', {

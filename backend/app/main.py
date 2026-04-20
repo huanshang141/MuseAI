@@ -5,7 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from app.api.admin import documents_router as admin_documents_router
 from app.api.admin import exhibits_router as admin_exhibits_router
+from app.api.admin import halls_router as admin_halls_router
 from app.api.admin import prompts_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -221,6 +223,8 @@ app.include_router(documents_router, prefix="/api/v1", tags=["documents"])
 app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(admin_exhibits_router, prefix="/api/v1")
+app.include_router(admin_documents_router, prefix="/api/v1")
+app.include_router(admin_halls_router, prefix="/api/v1")
 app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(curator_router, prefix="/api/v1")
 app.include_router(profile_router, prefix="/api/v1")

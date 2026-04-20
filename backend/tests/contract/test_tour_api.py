@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 TEST_USER_ID = "test-tour-user-001"
+TEST_ADMIN_ID = "test-tour-admin-001"
 
 
 @pytest.fixture
@@ -46,6 +47,16 @@ async def db_session(session_maker):
                 role="user",
             )
             session.add(test_user)
+
+        existing_admin = await session.execute(select(User).where(User.id == TEST_ADMIN_ID))
+        if not existing_admin.scalar_one_or_none():
+            test_admin = User(
+                id=TEST_ADMIN_ID,
+                email="tour-admin@example.com",
+                password_hash="test_hash",
+                role="admin",
+            )
+            session.add(test_admin)
             await session.commit()
 
         yield session
@@ -63,6 +74,20 @@ async def auth_token(db_session):
         expire_minutes=settings.JWT_EXPIRE_MINUTES,
     )
     return jwt_handler.create_token(TEST_USER_ID)
+
+
+@pytest.fixture
+async def admin_token(db_session):
+    from app.config.settings import get_settings
+    from app.infra.security.jwt_handler import JWTHandler
+
+    settings = get_settings()
+    jwt_handler = JWTHandler(
+        secret=settings.JWT_SECRET,
+        algorithm=settings.JWT_ALGORITHM,
+        expire_minutes=settings.JWT_EXPIRE_MINUTES,
+    )
+    return jwt_handler.create_token(TEST_ADMIN_ID)
 
 
 @pytest.fixture
@@ -551,17 +576,29 @@ async def test_get_tour_report_not_found(override_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_list_tour_halls(override_dependencies):
+async def test_list_tour_halls(override_dependencies, admin_token):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_hall_resp = await client.post(
+            "/api/v1/admin/halls",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "slug": "tour-dynamic-hall",
+                "name": "导览动态展厅",
+                "description": "导览展厅数据应来自统一展厅配置",
+                "estimated_duration_minutes": 40,
+                "is_active": True,
+            },
+        )
+        assert create_hall_resp.status_code == 201
+
         response = await client.get("/api/v1/tour/halls")
 
     assert response.status_code == 200
     data = response.json()
     assert "halls" in data
-    assert len(data["halls"]) == 2
-    assert data["halls"][0]["slug"] == "relic-hall"
-    assert data["halls"][1]["slug"] == "site-hall"
+    slugs = [item["slug"] for item in data["halls"]]
+    assert "tour-dynamic-hall" in slugs
 
 
 @pytest.mark.asyncio

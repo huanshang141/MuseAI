@@ -8,6 +8,7 @@ import PlusIcon from '../icons/PlusIcon.vue'
 const { loading, createExhibit, updateExhibit, deleteExhibit } = useAdmin()
 
 const exhibits = ref([])
+const halls = ref([])
 const dialogVisible = ref(false)
 const isEditing = ref(false)
 const formRef = ref(null)
@@ -27,17 +28,35 @@ const form = ref({
 
 const rules = {
   name: [{ required: true, message: '请输入展品名称', trigger: 'blur' }],
-  hall: [{ required: true, message: '请输入展厅', trigger: 'blur' }],
+  hall: [{ required: true, message: '请选择展厅', trigger: 'change' }],
   category: [{ required: true, message: '请输入类别', trigger: 'blur' }]
 }
 
-onMounted(fetchExhibits)
+onMounted(async () => {
+  await Promise.all([fetchExhibits(), fetchHalls()])
+})
 
 async function fetchExhibits() {
   const result = await api.admin.listExhibits()
   if (result.ok) {
     exhibits.value = result.data.exhibits || []
   }
+}
+
+async function fetchHalls() {
+  const result = await api.admin.listHalls({ include_inactive: 'false' })
+  if (result.ok) {
+    halls.value = result.data.halls || []
+  }
+}
+
+function getHallLabel(slug) {
+  const matched = halls.value.find(h => h.slug === slug)
+  return matched?.name || slug
+}
+
+function hasCurrentHallOption() {
+  return halls.value.some(h => h.slug === form.value.hall)
 }
 
 function handleAdd() {
@@ -110,7 +129,11 @@ async function handleSubmit() {
     <el-table :data="exhibits" v-loading="loading" border>
       <el-table-column prop="name" label="名称" min-width="150" />
       <el-table-column prop="category" label="类别" width="100" />
-      <el-table-column prop="hall" label="展厅" width="120" />
+      <el-table-column prop="hall" label="展厅" min-width="140">
+        <template #default="{ row }">
+          {{ getHallLabel(row.hall) }}
+        </template>
+      </el-table-column>
       <el-table-column prop="floor" label="楼层" width="80" />
       <el-table-column prop="importance" label="重要性" width="90">
         <template #default="{ row }">
@@ -159,7 +182,24 @@ async function handleSubmit() {
           </el-col>
           <el-col :span="12">
             <el-form-item label="展厅" prop="hall">
-              <el-input v-model="form.hall" />
+              <el-select v-model="form.hall" placeholder="请选择展厅" filterable style="width: 100%;">
+                <el-option
+                  v-for="hall in halls"
+                  :key="hall.slug"
+                  :label="hall.name"
+                  :value="hall.slug"
+                >
+                  <div style="display: flex; justify-content: space-between; gap: 8px;">
+                    <span>{{ hall.name }}</span>
+                    <span style="color: #909399; font-size: 12px;">{{ hall.slug }}</span>
+                  </div>
+                </el-option>
+                <el-option
+                  v-if="form.hall && !hasCurrentHallOption()"
+                  :label="form.hall"
+                  :value="form.hall"
+                />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>

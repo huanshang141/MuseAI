@@ -27,7 +27,7 @@ from app.domain.exceptions import (
     TourSessionNotFound,
     TourSessionTokenMismatch,
 )
-from app.infra.postgres.models import Exhibit
+from app.infra.postgres.models import Exhibit, Hall
 
 router = APIRouter(prefix="/tour", tags=["tour"])
 
@@ -77,7 +77,7 @@ class TourHallListResponse(BaseModel):
     halls: list[TourHallItem]
 
 
-HALLS_DATA = [
+LEGACY_HALLS_DATA = [
     TourHallItem(
         slug="relic-hall",
         name="出土文物展厅",
@@ -99,6 +99,31 @@ HALLS_DATA = [
         estimated_duration_minutes=25,
     ),
 ]
+
+
+async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
+    """Load halls from unified hall settings, falling back to legacy defaults."""
+    stmt = (
+        select(Hall)
+        .where(Hall.is_active.is_(True))
+        .order_by(Hall.display_order.asc(), Hall.created_at.asc())
+    )
+    result = await session.execute(stmt)
+    hall_rows = list(result.scalars().all())
+
+    if not hall_rows:
+        return LEGACY_HALLS_DATA
+
+    return [
+        TourHallItem(
+            slug=hall.slug,
+            name=hall.name,
+            description=hall.description or "",
+            exhibit_count=0,
+            estimated_duration_minutes=hall.estimated_duration_minutes,
+        )
+        for hall in hall_rows
+    ]
 
 
 async def _verify_ownership(
@@ -312,7 +337,8 @@ async def complete_hall(
     if tour_session.current_hall and tour_session.current_hall not in visited_halls:
         visited_halls.append(tour_session.current_hall)
 
-    all_halls = [h.slug for h in HALLS_DATA]
+    hall_configs = await _load_tour_halls(session)
+    all_halls = [h.slug for h in hall_configs]
     all_visited = all(h in visited_halls for h in all_halls)
 
     new_status = "completed" if all_visited else "touring"
@@ -409,7 +435,8 @@ async def tour_chat_stream(
 async def list_tour_halls(
     session: SessionDep,
 ):
-    hall_slugs = [h.slug for h in HALLS_DATA]
+    hall_configs = await _load_tour_halls(session)
+    hall_slugs = [h.slug for h in hall_configs]
     stmt = (
         select(Exhibit.hall, func.count(Exhibit.id))
         .where(Exhibit.hall.in_(hall_slugs), Exhibit.is_active.is_(True))
@@ -419,7 +446,7 @@ async def list_tour_halls(
     counts = dict(result.all())
 
     halls = []
-    for h in HALLS_DATA:
+    for h in hall_configs:
         halls.append(
             TourHallItem(
                 slug=h.slug,

@@ -31,7 +31,7 @@ function handleExceed() {
       :limit="1"
       :on-exceed="handleExceed"
       :http-request="handleUpload"
-      accept=".txt,.md,.pdf"
+      accept=".txt,.md,.markdown"
       drag
     >
       <el-icon style="font-size: 48px; color: #909399;"><UploadFilled /></el-icon>
@@ -40,7 +40,7 @@ function handleExceed() {
       </div>
       <template #tip>
         <div style="color: #909399; font-size: 12px; margin-top: 8px;">
-          支持 .txt, .md, .pdf 文件，最大 50MB
+          支持 .txt, .md, .markdown 文件，最大 50MB
         </div>
       </template>
     </el-upload>

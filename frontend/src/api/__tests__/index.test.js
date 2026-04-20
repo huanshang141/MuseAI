@@ -74,4 +74,34 @@ describe('api request hardening', () => {
 
     vi.doUnmock('../../utils/logger.js')
   })
+
+  it('calls /admin/documents for admin knowledge list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ documents: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await api.admin.documents.list()
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalled()
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/admin/documents')
+  })
+
+  it('calls /admin/halls for hall settings list', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ halls: [] }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await api.admin.listHalls()
+
+    expect(result.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalled()
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/admin/halls')
+  })
 })

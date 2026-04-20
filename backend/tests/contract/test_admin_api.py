@@ -599,3 +599,130 @@ async def test_admin_endpoints_require_auth(db_session):
             assert response.status_code == 401
     finally:
         app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_halls_crud_endpoint(db_session, admin_token):
+    """Test CRUD flow for /api/v1/admin/halls."""
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {admin_token}"},
+                json={
+                    "slug": "test-hall-admin-api",
+                    "name": "后台测试展厅",
+                    "description": "用于校验展厅配置统一管理",
+                    "floor": 1,
+                    "estimated_duration_minutes": 28,
+                    "display_order": 50,
+                    "is_active": True,
+                },
+            )
+
+            assert create_response.status_code == 201
+            create_data = create_response.json()
+            assert create_data["slug"] == "test-hall-admin-api"
+            assert create_data["name"] == "后台测试展厅"
+
+            list_response = await client.get(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+            assert list_response.status_code == 200
+            list_data = list_response.json()
+            assert "halls" in list_data
+            assert any(h["slug"] == "test-hall-admin-api" for h in list_data["halls"])
+
+            update_response = await client.put(
+                "/api/v1/admin/halls/test-hall-admin-api",
+                headers={"Authorization": f"Bearer {admin_token}"},
+                json={
+                    "name": "后台测试展厅（更新）",
+                    "estimated_duration_minutes": 35,
+                },
+            )
+            assert update_response.status_code == 200
+            update_data = update_response.json()
+            assert update_data["name"] == "后台测试展厅（更新）"
+            assert update_data["estimated_duration_minutes"] == 35
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_halls_endpoint_requires_admin(db_session, user_token):
+    """Test /api/v1/admin/halls rejects non-admin users."""
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {user_token}"},
+            )
+
+        assert response.status_code == 403
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_halls_list_backfills_from_exhibits_when_empty(db_session, admin_token):
+    """When halls table is empty, /admin/halls should auto-backfill from exhibit hall values."""
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                "/api/v1/admin/exhibits",
+                headers={"Authorization": f"Bearer {admin_token}"},
+                json={
+                    "name": "来自展品的展厅示例",
+                    "description": "验证 halls 为空时可由 exhibits 兜底回填",
+                    "location_x": 12.0,
+                    "location_y": 8.0,
+                    "floor": 1,
+                    "hall": "特展馆",
+                    "category": "textile",
+                    "era": "modern",
+                    "importance": 5,
+                    "estimated_visit_time": 15,
+                    "document_id": "doc-backfill-hall-001",
+                },
+            )
+            assert create_response.status_code == 201
+
+            list_response = await client.get(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+            assert list_response.status_code == 200
+
+            data = list_response.json()
+            hall_names = [item["name"] for item in data.get("halls", [])]
+
+            assert data.get("total", 0) >= 1
+            assert "特展馆" in hall_names
+    finally:
+        app.dependency_overrides = {}

@@ -1,15 +1,13 @@
 <script setup>
-import DocumentUpload from '../knowledge/DocumentUpload.vue'
-import DocumentList from '../knowledge/DocumentList.vue'
 import { useAuth } from '../../composables/useAuth.js'
 import { useRoute } from 'vue-router'
 import { computed, inject } from 'vue'
-import { MapLocation, Collection, Setting, Document, Compass } from '@element-plus/icons-vue'
+import { MapLocation, Collection, Setting, Document, Compass, OfficeBuilding } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
-const { isAuthenticated } = useAuth()
+const { isAuthenticated, isAdmin } = useAuth()
 
 // Inject showAuthModal from App.vue's provide
 const showAuthModal = inject('showAuthModal', () => {})
@@ -41,22 +39,28 @@ function handleLogin() {
       </div>
 
       <div style="padding: 16px; border-bottom: 1px solid #e4e7ed;">
-        <h3 style="margin: 0; font-size: 16px;">知识库管理</h3>
+        <h3 style="margin: 0; font-size: 16px;">MuseAI 导览中心</h3>
       </div>
 
-      <!-- Show documents when authenticated -->
-      <template v-if="isAuthenticated">
-        <DocumentUpload />
-        <DocumentList />
-      </template>
-
-      <!-- Show login prompt when not authenticated -->
-      <template v-else>
+      <template v-if="!isAuthenticated">
         <div style="padding: 20px; text-align: center; color: #909399;">
           <el-empty description="请先登录" :image-size="80" />
           <el-button type="primary" size="small" @click="handleLogin" style="margin-top: 12px;">
             登录
           </el-button>
+        </div>
+      </template>
+      <template v-else>
+        <div style="padding: 20px; color: #606266; font-size: 14px; line-height: 1.8;">
+          <el-button
+            v-if="isAdmin"
+            type="primary"
+            size="small"
+            @click="router.push('/admin/documents')"
+          >
+            前往知识库管理
+          </el-button>
+          <p v-else>欢迎继续浏览展品与智能导览内容。</p>
         </div>
       </template>
     </template>
@@ -113,6 +117,14 @@ function handleLogin() {
         router
         style="border-right: none;"
       >
+        <el-menu-item index="/admin/documents">
+          <el-icon><Document /></el-icon>
+          <span>知识库管理</span>
+        </el-menu-item>
+        <el-menu-item index="/admin/halls">
+          <el-icon><OfficeBuilding /></el-icon>
+          <span>展厅设置</span>
+        </el-menu-item>
         <el-menu-item index="/admin/exhibits">
           <el-icon><Collection /></el-icon>
           <span>展品管理</span>

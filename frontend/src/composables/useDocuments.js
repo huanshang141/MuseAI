@@ -21,10 +21,19 @@ export function useDocuments() {
   }
 
   async function fetchDocuments() {
-    // Public access - no authentication required
+    if (!isAuthenticated.value) {
+      error.value = '请先登录'
+      return { ok: false, status: 401, data: { detail: '未认证' } }
+    }
+
+    if (!isAdmin.value) {
+      error.value = '需要管理员权限'
+      return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
+    }
+
     loading.value = true
     error.value = null
-    const result = await api.documents.list()
+    const result = await api.admin.documents.list()
     loading.value = false
 
     if (!result.ok) {
@@ -46,7 +55,7 @@ export function useDocuments() {
       return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
     }
 
-    const result = await api.documents.upload(file)
+    const result = await api.admin.documents.upload(file)
     if (!result.ok) {
       return handleError(result)
     }
@@ -66,7 +75,7 @@ export function useDocuments() {
       return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
     }
 
-    const result = await api.documents.delete(docId)
+    const result = await api.admin.documents.delete(docId)
     if (!result.ok) {
       return handleError(result)
     }
@@ -76,8 +85,17 @@ export function useDocuments() {
   }
 
   async function getDocumentStatus(docId) {
-    // Public access - no authentication required
-    const result = await api.documents.status(docId)
+    if (!isAuthenticated.value) {
+      error.value = '请先登录'
+      return { ok: false, status: 401, data: { detail: '未认证' } }
+    }
+
+    if (!isAdmin.value) {
+      error.value = '需要管理员权限'
+      return { ok: false, status: 403, data: { detail: '需要管理员权限' } }
+    }
+
+    const result = await api.admin.documents.status(docId)
     if (!result.ok) {
       return handleError(result)
     }

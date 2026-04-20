@@ -43,6 +43,18 @@ const routes = [
         redirect: '/admin/exhibits'
       },
       {
+        path: 'documents',
+        name: 'admin-documents',
+        component: () => import('../components/admin/DocumentManager.vue'),
+        meta: { title: '知识库管理' }
+      },
+      {
+        path: 'halls',
+        name: 'admin-halls',
+        component: () => import('../components/admin/HallManager.vue'),
+        meta: { title: '展厅设置' }
+      },
+      {
         path: 'exhibits',
         name: 'admin-exhibits',
         component: () => import('../components/admin/ExhibitManager.vue'),

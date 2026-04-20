@@ -140,6 +140,20 @@ def test_settings_admin_emails_from_env(monkeypatch):
     assert settings.get_admin_emails() == ["admin1@example.com", "admin2@example.com"]
 
 
+def test_settings_warns_admin_emails_deprecated_in_production(monkeypatch):
+    """ADMIN_EMAILS should emit a deprecation warning in production."""
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("JWT_SECRET", "a" * 32)
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("RERANK_PROVIDER", "")
+    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
+
+    from app.config.settings import Settings
+
+    with pytest.warns(DeprecationWarning, match="ADMIN_EMAILS is deprecated"):
+        Settings(_env_file=None)
+
+
 def test_settings_rejects_wildcard_cors_in_production(monkeypatch):
     """CORS_ORIGINS should not allow wildcard in production."""
     monkeypatch.setenv("APP_ENV", "production")

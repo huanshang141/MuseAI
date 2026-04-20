@@ -10,7 +10,6 @@ from app.application.auth_service import (
     get_user_by_email,
     register_user,
 )
-from app.config.settings import get_settings
 from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
 from app.infra.security import hash_password, verify_password
 
@@ -72,13 +71,11 @@ async def register(
             detail="Email already registered",
         )
 
-    settings = get_settings()
     user = await register_user(
         user_repo=user_repo,
         email=request.email,
         password=request.password,
         hash_password_func=hash_password,
-        admin_emails=settings.get_admin_emails(),
     )
     await session.commit()
 

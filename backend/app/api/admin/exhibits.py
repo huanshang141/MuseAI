@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from loguru import logger
 from pydantic import BaseModel
 
+from app.api._shared_responses import ExhibitDeleteResponse as DeleteResponse
 from app.api.deps import CurrentAdminUser, SessionDep
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.exhibit_service import ExhibitService
@@ -70,11 +71,6 @@ class UpdateExhibitRequest(BaseModel):
     estimated_visit_time: int | None = None
     document_id: str | None = None
     is_active: bool | None = None
-
-
-class DeleteResponse(BaseModel):
-    status: str
-    exhibit_id: str
 
 
 class ReindexResponse(BaseModel):

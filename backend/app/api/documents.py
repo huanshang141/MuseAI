@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Query, Uplo
 from loguru import logger
 from pydantic import BaseModel
 
+from app.api._shared_responses import DocumentDeleteResponse as DeleteResponse
 from app.api.deps import CurrentAdmin, OptionalUser, RateLimitDep, SessionDep, UnifiedIndexingServiceDep
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.document_service import (
@@ -70,11 +71,6 @@ class DocumentListResponse(BaseModel):
     total: int
     limit: int
     offset: int
-
-
-class DeleteResponse(BaseModel):
-    status: str
-    document_id: str
 
 
 class IngestionJobResponse(BaseModel):

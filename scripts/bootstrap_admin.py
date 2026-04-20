@@ -13,7 +13,7 @@ import asyncio
 import os
 import sys
 
-from sqlalchemy import text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -42,11 +42,16 @@ async def bootstrap_admin(
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_maker() as session:
-        result = await session.execute(
-            text("SELECT 1 FROM users WHERE email = :email"), {"email": email}
-        )
-        if result.scalar() is not None:
-            print(f"Admin user '{email}' already exists. Skipping.")
+        result = await session.execute(select(User).where(User.email == email))
+        existing_user = result.scalar_one_or_none()
+
+        if existing_user is not None:
+            if existing_user.role == "admin":
+                print(f"User '{email}' is already an admin. Nothing to do.")
+            else:
+                existing_user.role = "admin"
+                await session.commit()
+                print(f"Promoted existing user '{email}' to admin.")
             await engine.dispose()
             return
 

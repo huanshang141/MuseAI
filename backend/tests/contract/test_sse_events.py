@@ -206,6 +206,13 @@ async def test_stream_ask_llm_error(db_session, session_maker, auth_token):
     mock_llm.generate_stream = error_generator
 
     mock_rag = AsyncMock()
+    mock_rag.run.return_value = {
+        "documents": [],
+        "retrieval_score": 0.8,
+        "answer": "开始",
+    }
+    mock_rag.score_threshold = 0.5
+    mock_rag.prompt_gateway = None
 
     def override_llm_provider():
         return mock_llm
@@ -324,6 +331,13 @@ async def test_stream_ask_event_format(db_session, session_maker, auth_token):
     mock_llm.generate_stream = mock_stream
 
     mock_rag = AsyncMock()
+    mock_rag.run.return_value = {
+        "documents": [],
+        "retrieval_score": 0.9,
+        "answer": "内容",
+    }
+    mock_rag.score_threshold = 0.5
+    mock_rag.prompt_gateway = None
 
     def override_llm_provider():
         return mock_llm

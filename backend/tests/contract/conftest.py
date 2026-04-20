@@ -1,25 +1,21 @@
 """Shared fixtures for contract tests with proper database isolation."""
 
-import asyncio
-
 import app.infra.postgres.database as db_module
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def reset_database_globals():
+async def reset_database_globals():
     """Reset global database state before and after each test."""
+    if db_module._engine is not None:
+        await db_module._engine.dispose()
     db_module._engine = None
     db_module._session_maker = None
 
     yield
 
     if db_module._engine is not None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(db_module._engine.dispose())
-        except RuntimeError:
-            asyncio.run(db_module._engine.dispose())
+        await db_module._engine.dispose()
 
     db_module._engine = None
     db_module._session_maker = None

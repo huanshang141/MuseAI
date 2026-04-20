@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.api._shared_responses import SessionDeleteResponse as DeleteResponse
 from app.api.deps import (
     CurrentUser,
     GuestRateLimitDep,
@@ -113,11 +114,6 @@ class AskResponse(BaseModel):
     answer: str
     trace_id: str
     sources: list[Any]
-
-
-class DeleteResponse(BaseModel):
-    status: str
-    session_id: str
 
 
 class SessionListResponse(BaseModel):

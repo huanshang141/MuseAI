@@ -2,6 +2,7 @@
 request_id (from HTTP middleware) and trace_id (from chat_stream_service).
 This test captures loguru output and asserts both IDs appear bound to a
 log record emitted from within the chat stream handler."""
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -48,8 +49,28 @@ def patch_chat_stream():
         async def commit(self):
             return None
 
+    class _FakePersistSession:
+        def add(self, *a, **k):
+            return None
+
+        async def flush(self):
+            return None
+
+        async def refresh(self, *a, **k):
+            return None
+
+        async def commit(self):
+            return None
+
+    @asynccontextmanager
+    async def _fake_session_scope():
+        yield _FakePersistSession()
+
+    def _fake_session_maker():
+        return _fake_session_scope()
+
     app.dependency_overrides[get_db_session] = lambda: _FakeSession()
-    app.dependency_overrides[get_db_session_maker] = lambda: MagicMock()
+    app.dependency_overrides[get_db_session_maker] = lambda: _fake_session_maker
 
     mock_llm = MagicMock()
 

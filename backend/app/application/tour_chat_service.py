@@ -9,6 +9,7 @@ from app.application.sse_events import sse_tour_event
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import detect_ceramic_question
 from app.application.tour_session_service import get_session
+from app.observability.context import request_id_var
 
 PERSONA_PROMPTS = {
     "A": (
@@ -94,13 +95,19 @@ async def ask_stream_tour(
     )
 
     trace_id = str(uuid.uuid4())
+    log = logger.bind(
+        trace_id=trace_id,
+        request_id=request_id_var.get(),
+        tour_session_id=tour_session_id,
+        exhibit_id=exhibit_id,
+    )
     is_ceramic = detect_ceramic_question(message)
 
     try:
         async for event in _stream_rag(rag_agent, message, system_prompt):
             yield event
     except Exception as e:
-        logger.error(f"Tour chat RAG error: {e}")
+        log.error("Tour chat RAG error: {}", e)
         yield sse_tour_event(
             "error",
             data={"code": "llm_error", "message": "AI导览暂时不可用，请稍后再试"},
@@ -124,7 +131,7 @@ async def ask_stream_tour(
                 }
             ])
     except Exception as e:
-        logger.warning(f"Failed to record tour event: {e}")
+            log.error("Failed to record tour event after retries: {}", e)
 
 
 async def _stream_rag(rag_agent: Any, message: str, system_prompt: str) -> AsyncGenerator[str, None]:

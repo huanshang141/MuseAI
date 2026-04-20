@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 from pydantic import field_validator, model_validator
@@ -122,6 +123,12 @@ class Settings(BaseSettings):
                 raise ValueError("RERANK_API_KEY must be set when RERANK_PROVIDER is configured in production")
             if self.CORS_ORIGINS.strip() == "*":
                 raise ValueError("CORS_ORIGINS cannot be wildcard in production")
+            if self.ADMIN_EMAILS.strip():
+                warnings.warn(
+                    "ADMIN_EMAILS is deprecated in production; use scripts/bootstrap_admin.py.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
         # Development defaults (only if explicitly allowed)
         if not self.JWT_SECRET:

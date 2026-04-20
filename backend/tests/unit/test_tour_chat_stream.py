@@ -106,3 +106,44 @@ async def test_stream_emits_error_and_NOT_done_when_rag_fails(
     assert "done" not in types, (
         f"PERFOPS-P1-02 regression: 'done' must not follow 'error', got {types}"
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_logs_error_when_event_persistence_fails(
+    monkeypatch, fake_tour_session, fake_session_maker
+):
+    async def fake_get_session(db, sid):
+        return fake_tour_session
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.get_session", fake_get_session
+    )
+
+    async def failing_record_events(*args, **kwargs):
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.record_events", failing_record_events
+    )
+
+    mock_bound_logger = MagicMock()
+    mock_logger = MagicMock()
+    mock_logger.bind.return_value = mock_bound_logger
+    monkeypatch.setattr("app.application.tour_chat_service.logger", mock_logger)
+
+    rag_agent = MagicMock()
+    rag_agent.run = AsyncMock(return_value={"answer": "hello"})
+
+    events = []
+    async for event in ask_stream_tour(
+        db_session=MagicMock(),
+        session_maker=fake_session_maker,
+        tour_session_id="tour-1",
+        message="q?",
+        rag_agent=rag_agent,
+    ):
+        events.append(event)
+
+    types = _collect_event_types(events)
+    assert types == ["chunk", "done"]
+    mock_bound_logger.error.assert_called_once()

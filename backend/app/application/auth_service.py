@@ -11,21 +11,16 @@ async def register_user(
     email: str,
     password: str,
     hash_password_func: Callable[[str], str],
-    admin_emails: list[str] | None = None,
 ) -> UserEntity:
     user_id = str(uuid.uuid4())
     password_hash = hash_password_func(password)
-
-    role = "user"
-    if admin_emails and email in admin_emails:
-        role = "admin"
 
     now = datetime.now(UTC)
     user = UserEntity(
         id=user_id,
         email=email,
         password_hash=password_hash,
-        role=role,
+        role="user",
         created_at=now,
     )
     await user_repo.add(user)

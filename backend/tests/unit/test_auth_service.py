@@ -243,10 +243,27 @@ def test_password_validation_error_messages_clear():
 
 # Role assignment tests
 @pytest.mark.asyncio
-async def test_register_user_assigns_admin_role():
-    """Test that user gets admin role when email is in admin_emails list."""
+async def test_register_user_always_assigns_user_role():
+    """New registrations should always start as regular users."""
     mock_repo = create_mock_user_repo()
+    mock_hash_func = MagicMock(return_value="hashed_password_123")
 
+    user = await register_user(
+        user_repo=mock_repo,
+        email="regular@example.com",
+        password="password123",
+        hash_password_func=mock_hash_func,
+    )
+
+    assert user is not None
+    assert user.email == "regular@example.com"
+    assert user.role == "user"
+
+
+@pytest.mark.asyncio
+async def test_register_user_does_not_auto_promote_admin_like_email():
+    """Email strings must not auto-grant admin role during registration."""
+    mock_repo = create_mock_user_repo()
     mock_hash_func = MagicMock(return_value="hashed_password_123")
 
     user = await register_user(
@@ -254,91 +271,8 @@ async def test_register_user_assigns_admin_role():
         email="admin@example.com",
         password="password123",
         hash_password_func=mock_hash_func,
-        admin_emails=["admin@example.com", "superadmin@example.com"],
     )
 
     assert user is not None
     assert user.email == "admin@example.com"
-    assert user.role == "admin"
-    mock_hash_func.assert_called_once_with("password123")
-
-
-@pytest.mark.asyncio
-async def test_register_user_assigns_user_role_when_not_in_admin_list():
-    """Test that user gets user role when email is not in admin_emails list."""
-    mock_repo = create_mock_user_repo()
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="regular@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-        admin_emails=["admin@example.com", "superadmin@example.com"],
-    )
-
-    assert user is not None
-    assert user.email == "regular@example.com"
-    assert user.role == "user"
-
-
-@pytest.mark.asyncio
-async def test_register_user_assigns_user_role_when_admin_emails_none():
-    """Test that user gets user role when admin_emails is None."""
-    mock_repo = create_mock_user_repo()
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="regular@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-        admin_emails=None,
-    )
-
-    assert user is not None
-    assert user.email == "regular@example.com"
-    assert user.role == "user"
-
-
-@pytest.mark.asyncio
-async def test_register_user_assigns_user_role_when_admin_emails_empty():
-    """Test that user gets user role when admin_emails is empty list."""
-    mock_repo = create_mock_user_repo()
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="regular@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-        admin_emails=[],
-    )
-
-    assert user is not None
-    assert user.email == "regular@example.com"
-    assert user.role == "user"
-
-
-@pytest.mark.asyncio
-async def test_register_user_role_case_sensitive_email():
-    """Test that admin email matching is case-sensitive."""
-    mock_repo = create_mock_user_repo()
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    # Email with different case should not match
-    user = await register_user(
-        user_repo=mock_repo,
-        email="Admin@Example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-        admin_emails=["admin@example.com"],
-    )
-
-    assert user is not None
-    assert user.email == "Admin@Example.com"
     assert user.role == "user"

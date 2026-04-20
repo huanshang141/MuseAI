@@ -668,6 +668,34 @@ class TestGetCurrentAdmin:
         assert result["role"] == "admin"
 
 
+class TestGetCurrentAdminUser:
+    """Tests for get_current_admin_user alias dependency."""
+
+    @pytest.mark.asyncio
+    async def test_raises_for_non_admin_even_if_email_looks_privileged(self):
+        """CurrentAdminUser must rely on role only, not email whitelist."""
+        from app.api.deps import get_current_admin_user
+
+        current_user = {"id": "user-123", "email": "admin@example.com", "role": "user"}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_current_admin_user(current_user)
+
+        assert exc_info.value.status_code == 403
+        assert "admin" in exc_info.value.detail.lower()
+
+    @pytest.mark.asyncio
+    async def test_returns_user_for_admin_role(self):
+        """CurrentAdminUser should pass when role is admin."""
+        from app.api.deps import get_current_admin_user
+
+        current_user = {"id": "admin-123", "email": "admin@example.com", "role": "admin"}
+
+        result = await get_current_admin_user(current_user)
+
+        assert result == current_user
+
+
 class TestDependencySignatureStyle:
     """Tests for dependency injection signature consistency."""
 

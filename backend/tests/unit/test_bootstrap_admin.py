@@ -1,13 +1,13 @@
 import importlib
 import os
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
 from app.infra.postgres.models import User
+
 
 SCRIPT_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "bootstrap_admin.py")

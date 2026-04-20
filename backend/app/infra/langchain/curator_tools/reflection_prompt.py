@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.application.workflows.reflection_prompts import (
     KnowledgeLevel,
+    ReflectionPromptService,
 )
 
 

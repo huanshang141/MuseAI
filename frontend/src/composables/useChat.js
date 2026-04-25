@@ -39,9 +39,9 @@ export function useChat() {
 
   async function fetchSessions() {
     if (!isAuthenticated.value) {
-      // Guest mode: no session persistence
-      sessions.value = []
-      return { ok: true, status: 200, data: { sessions: [], total: 0 } }
+      // Guest mode: keep local in-memory session visible in sidebar
+      sessions.value = currentSession.value ? [currentSession.value] : []
+      return { ok: true, status: 200, data: { sessions: sessions.value, total: sessions.value.length } }
     }
 
     loading.value.sessions = true
@@ -67,6 +67,7 @@ export function useChat() {
       }
       guestSessionId = tempSession.id
       currentSession.value = tempSession
+      sessions.value = [tempSession]
       messages.value = []
       return { ok: true, status: 200, data: tempSession }
     }
@@ -94,6 +95,7 @@ export function useChat() {
       await fetchMessages(session.id)
     } else {
       // Guest mode: no message history
+      sessions.value = [session]
       messages.value = []
     }
   }
@@ -121,6 +123,7 @@ export function useChat() {
   async function deleteSession(sessionId) {
     if (!isAuthenticated.value) {
       // Guest mode: just clear current session
+      sessions.value = sessions.value.filter(s => s.id !== sessionId)
       if (currentSession.value?.id === sessionId) {
         currentSession.value = null
         messages.value = []
@@ -161,6 +164,7 @@ export function useChat() {
               title: '新对话',
               created_at: new Date().toISOString(),
             }
+            sessions.value = [currentSession.value]
           }
         }
 

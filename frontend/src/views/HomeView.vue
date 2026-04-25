@@ -1,7 +1,7 @@
 <script setup>
-import ChatPanel from '../components/ChatPanel.vue'
-import { Compass } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { MuseumPage } from '../design-system/components/index.js'
+import ChatMainArea from '../components/chat/ChatMainArea.vue'
 
 const router = useRouter()
 
@@ -11,68 +11,46 @@ function startTour() {
 </script>
 
 <template>
-  <div class="home-view">
-    <div class="tour-banner" @click="startTour">
-      <div class="banner-content">
-        <el-icon class="banner-icon"><Compass /></el-icon>
-        <div class="banner-text">
-          <h3>半坡博物馆 AI 智能导览</h3>
-          <p>选择你的导览身份，开启沉浸式博物馆之旅</p>
-        </div>
+  <MuseumPage class="home-view">
+    <template #hero>
+      <div class="home-hero">
+        <h1>与半坡对话</h1>
+        <p>六千年的陶土之下，每一个疑问都值得追问。</p>
+        <el-button type="warning" @click="startTour">开始导览</el-button>
       </div>
-      <el-button type="warning" round>
-        开始导览
-      </el-button>
-    </div>
-    <ChatPanel />
-  </div>
+    </template>
+
+    <ChatMainArea />
+  </MuseumPage>
 </template>
 
 <style scoped>
 .home-view {
   height: 100%;
+}
+
+.home-hero {
   display: flex;
   flex-direction: column;
+  gap: 10px;
 }
 
-.tour-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px;
-  margin-bottom: 16px;
-  background: linear-gradient(135deg, #2c1810 0%, #5a3a28 100%);
-  border-radius: 12px;
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.tour-banner:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(44, 24, 16, 0.3);
-}
-
-.banner-content {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.banner-icon {
-  font-size: 36px;
-  color: #d4a574;
-}
-
-.banner-text h3 {
+.home-hero h1 {
   margin: 0;
-  font-size: 16px;
-  color: #f0e6d3;
-  font-weight: 600;
+  font-size: clamp(24px, 3vw, 32px);
+  font-family: var(--font-family-display);
 }
 
-.banner-text p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: rgba(240, 230, 211, 0.7);
+.home-hero p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  max-width: 560px;
+  line-height: 1.6;
+}
+
+@media (max-width: 767px) {
+  .home-hero {
+    gap: 8px;
+  }
 }
 </style>

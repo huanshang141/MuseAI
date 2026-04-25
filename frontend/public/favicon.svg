@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="MuseAI Fish Face">
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#a94c2c" stroke-width="6"/>
+  <path d="M20 50 C35 30, 65 30, 80 50 C65 70, 35 70, 20 50 Z" fill="none" stroke="#a94c2c" stroke-width="6"/>
+  <circle cx="40" cy="47" r="4" fill="#a94c2c"/>
+  <circle cx="60" cy="47" r="4" fill="#a94c2c"/>
+  <path d="M40 62 Q50 70 60 62" fill="none" stroke="#a94c2c" stroke-width="5"/>
+</svg>

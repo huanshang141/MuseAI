@@ -5,6 +5,7 @@ import { useAuth } from '../../composables/useAuth.js'
 import AuthModal from '../auth/AuthModal.vue'
 import { api } from '../../api/index.js'
 import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting, Compass } from '@element-plus/icons-vue'
+import { FishFaceSymbol } from '../../design-system/motifs/index.js'
 
 const route = useRoute()
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
@@ -45,8 +46,8 @@ onMounted(checkHealth)
 <template>
   <div class="app-header">
     <div class="logo">
-      <el-icon class="logo-icon"><Collection /></el-icon>
-      <span>MuseAI - 博物馆展品问答助手</span>
+      <FishFaceSymbol :size="28" class="logo-mark" aria-label="MuseAI Logo" />
+      <span class="logo-title">MuseAI · 半坡博物馆</span>
     </div>
 
     <!-- Navigation Menu -->
@@ -116,6 +117,14 @@ onMounted(checkHealth)
   flex: 1;
   border-bottom: none;
   background: transparent;
+}
+
+.logo-mark {
+  color: var(--color-accent);
+}
+
+.logo-title {
+  font-family: var(--font-family-display);
 }
 
 .nav-menu .el-menu-item {

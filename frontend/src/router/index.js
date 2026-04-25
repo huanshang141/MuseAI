@@ -33,6 +33,12 @@ const routes = [
     meta: { requiresAuth: false }
   },
   {
+    path: '/design-system',
+    name: 'design-system',
+    component: () => import('../views/DesignSystemView.vue'),
+    meta: { title: 'Design System', requiresAuth: false, sidebar: null }
+  },
+  {
     path: '/admin',
     name: 'admin',
     component: () => import('../views/AdminView.vue'),

@@ -1,60 +1,65 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { MuseumPage } from '../design-system/components/index.js'
 import { useExhibits } from '../composables/useExhibits.js'
 import ExhibitList from '../components/exhibits/ExhibitList.vue'
-import ExhibitFilter from '../components/exhibits/ExhibitFilter.vue'
 import FloorMap from '../components/layout/FloorMap.vue'
 
 const { exhibits, loading, fetchExhibits } = useExhibits()
 
 const selectedExhibit = ref(null)
-const viewMode = ref('list') // 'list' | 'map'
+const viewMode = ref('list')
 
 onMounted(() => fetchExhibits())
-
-function handleFilter(filters) {
-  // Build params object with all filters
-  const params = {}
-  if (filters.category) params.category = filters.category
-  if (filters.floor) params.floor = filters.floor
-  if (filters.keyword) params.search = filters.keyword
-
-  fetchExhibits(params)
-}
 </script>
 
 <template>
-  <div class="exhibits-view">
-    <el-row :gutter="20">
-      <el-col :span="6">
-        <ExhibitFilter @filter="handleFilter" />
-      </el-col>
+  <MuseumPage class="exhibits-view">
+    <template #hero>
+      <h1>展品浏览</h1>
+      <p>在地理坐标和图文资料之间切换，定位你想深入了解的展品。</p>
+    </template>
 
-      <el-col :span="18">
-        <el-tabs v-model="viewMode">
-          <el-tab-pane label="列表视图" name="list">
-            <ExhibitList
-              :exhibits="exhibits"
-              :loading="loading"
-              @select="selectedExhibit = $event"
-            />
-          </el-tab-pane>
+    <div class="exhibits-main">
+      <el-tabs v-model="viewMode" class="exhibits-tabs">
+        <el-tab-pane label="列表视图" name="list">
+          <ExhibitList :exhibits="exhibits" :loading="loading" @select="selectedExhibit = $event" />
+        </el-tab-pane>
 
-          <el-tab-pane label="地图视图" name="map">
-            <FloorMap
-              :exhibits="exhibits"
-              :selected-exhibit="selectedExhibit"
-              @select-exhibit="selectedExhibit = $event"
-            />
-          </el-tab-pane>
-        </el-tabs>
-      </el-col>
-    </el-row>
-  </div>
+        <el-tab-pane label="地图视图" name="map">
+          <FloorMap
+            :exhibits="exhibits"
+            :selected-exhibit="selectedExhibit"
+            @select-exhibit="selectedExhibit = $event"
+          />
+        </el-tab-pane>
+      </el-tabs>
+    </div>
+  </MuseumPage>
 </template>
 
 <style scoped>
 .exhibits-view {
   height: 100%;
+}
+
+.exhibits-main {
+  min-height: 520px;
+}
+
+.exhibits-tabs :deep(.el-tabs__content) {
+  margin-top: 8px;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(22px, 2.8vw, 30px);
+  font-family: var(--font-family-display);
+}
+
+p {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
 }
 </style>

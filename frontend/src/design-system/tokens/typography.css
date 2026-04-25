@@ -1,0 +1,33 @@
+:root {
+  --font-family-serif: 'Source Han Serif CN', 'Noto Serif CJK SC', 'SimSun', serif;
+  --font-family-sans: 'Source Han Sans CN', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-family-display: var(--font-family-serif);
+  --font-family-body: var(--font-family-serif);
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --font-size-display: 48px;
+  --font-size-h1: 32px;
+  --font-size-h2: 24px;
+  --font-size-h3: 20px;
+  --font-size-h4: 18px;
+  --font-size-body: 15px;
+  --font-size-body-sm: 13px;
+  --font-size-caption: 12px;
+  --font-size-label: 11px;
+
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.6;
+  --line-height-relaxed: 2;
+
+  --font-weight-regular: 400;
+  --font-weight-semibold: 600;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --font-size-display: 36px;
+    --font-size-h1: 26px;
+    --font-size-h2: 20px;
+    --font-size-body: 14px;
+  }
+}

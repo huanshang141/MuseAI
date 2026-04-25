@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import { useAuth } from '../../composables/useAuth.js'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { Lock, User } from '@element-plus/icons-vue'
+import { MuseumButton, MuseumInput } from '../../design-system/components/index.js'
+import { useAuth } from '../../composables/useAuth.js'
 
 const emit = defineEmits(['success', 'switch-to-login'])
 
@@ -17,14 +18,14 @@ const form = ref({
 const loading = ref(false)
 
 const passwordRules = [
-  { text: '至少8个字符', test: (p) => p.length >= 8 },
-  { text: '包含大写字母', test: (p) => /[A-Z]/.test(p) },
-  { text: '包含小写字母', test: (p) => /[a-z]/.test(p) },
-  { text: '包含数字', test: (p) => /\d/.test(p) },
+  { text: '至少8个字符', test: (password) => password.length >= 8 },
+  { text: '包含大写字母', test: (password) => /[A-Z]/.test(password) },
+  { text: '包含小写字母', test: (password) => /[a-z]/.test(password) },
+  { text: '包含数字', test: (password) => /\d/.test(password) },
 ]
 
 function getPasswordStrength(password) {
-  return passwordRules.filter(rule => rule.test(password)).length
+  return passwordRules.filter((rule) => rule.test(password)).length
 }
 
 async function handleRegister() {
@@ -57,18 +58,13 @@ async function handleRegister() {
 </script>
 
 <template>
-  <el-form :model="form" label-position="top" @submit.prevent="handleRegister">
+  <el-form :model="form" label-position="top" class="auth-form" @submit.prevent="handleRegister">
     <el-form-item label="邮箱">
-      <el-input
-        v-model="form.email"
-        type="email"
-        placeholder="请输入邮箱"
-        :prefix-icon="User"
-      />
+      <MuseumInput v-model="form.email" type="email" placeholder="请输入邮箱" :prefix-icon="User" />
     </el-form-item>
 
     <el-form-item label="密码">
-      <el-input
+      <MuseumInput
         v-model="form.password"
         type="password"
         placeholder="请输入密码"
@@ -78,7 +74,7 @@ async function handleRegister() {
     </el-form-item>
 
     <el-form-item label="确认密码">
-      <el-input
+      <MuseumInput
         v-model="form.confirmPassword"
         type="password"
         placeholder="请再次输入密码"
@@ -87,10 +83,9 @@ async function handleRegister() {
       />
     </el-form-item>
 
-    <!-- Password strength indicator -->
-    <div v-if="form.password" style="margin-bottom: 16px;">
-      <div style="font-size: 12px; color: #606266; margin-bottom: 8px;">密码要求:</div>
-      <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+    <div v-if="form.password" class="password-rules">
+      <div class="rules-title">密码要求:</div>
+      <div class="rule-tags">
         <el-tag
           v-for="rule in passwordRules"
           :key="rule.text"
@@ -102,15 +97,37 @@ async function handleRegister() {
       </div>
     </div>
 
-    <el-form-item>
-      <el-button
-        type="primary"
-        :loading="loading"
-        style="width: 100%"
-        native-type="submit"
-      >
-        注册
-      </el-button>
-    </el-form-item>
+    <MuseumButton
+      variant="primary"
+      full-width
+      native-type="submit"
+      :loading="loading"
+      :disabled="loading"
+    >
+      注册
+    </MuseumButton>
   </el-form>
 </template>
+
+<style scoped>
+.auth-form {
+  display: grid;
+  gap: 8px;
+}
+
+.password-rules {
+  margin-bottom: 4px;
+}
+
+.rules-title {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.rule-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+</style>

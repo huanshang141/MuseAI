@@ -6,25 +6,25 @@ const routes = [
     path: '/',
     name: 'home',
     component: () => import('../views/HomeView.vue'),
-    meta: { title: '智能问答', icon: 'ChatDotRound' }
+    meta: { title: '智能问答', icon: 'ChatDotRound', sidebar: 'chat-sessions' }
   },
   {
     path: '/curator',
     name: 'curator',
     component: () => import('../views/CuratorView.vue'),
-    meta: { title: '导览助手', icon: 'MapLocation', requiresAuth: true }
+    meta: { title: '导览助手', icon: 'MapLocation', requiresAuth: true, sidebar: 'tour-plan' }
   },
   {
     path: '/exhibits',
     name: 'exhibits',
     component: () => import('../views/ExhibitsView.vue'),
-    meta: { title: '展品浏览', icon: 'Collection', requiresAuth: true }
+    meta: { title: '展品浏览', icon: 'Collection', requiresAuth: true, sidebar: 'exhibit-filters' }
   },
   {
     path: '/profile',
     name: 'profile',
     component: () => import('../components/profile/ProfileSettings.vue'),
-    meta: { title: '个人设置', icon: 'User', requiresAuth: true }
+    meta: { title: '个人设置', icon: 'User', requiresAuth: true, sidebar: null }
   },
   {
     path: '/tour',
@@ -42,7 +42,7 @@ const routes = [
     path: '/admin',
     name: 'admin',
     component: () => import('../views/AdminView.vue'),
-    meta: { title: '管理后台', icon: 'Setting', requiresAuth: true, requiresAdmin: true },
+    meta: { title: '管理后台', icon: 'Setting', requiresAuth: true, requiresAdmin: true, sidebar: 'admin-nav' },
     children: [
       {
         path: '',
@@ -79,6 +79,12 @@ const routes = [
         meta: { title: '提示词管理' }
       }
     ]
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('../views/NotFoundView.vue'),
+    meta: { title: '页面未找到', requiresAuth: false, sidebar: null }
   }
 ]
 

@@ -1,8 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import { useAuth } from '../../composables/useAuth.js'
 import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { Lock, User } from '@element-plus/icons-vue'
+import { MuseumButton, MuseumInput } from '../../design-system/components/index.js'
+import { useAuth } from '../../composables/useAuth.js'
 
 const emit = defineEmits(['success'])
 
@@ -35,18 +36,13 @@ async function handleLogin() {
 </script>
 
 <template>
-  <el-form :model="form" label-position="top" @submit.prevent="handleLogin">
+  <el-form :model="form" label-position="top" class="auth-form" @submit.prevent="handleLogin">
     <el-form-item label="邮箱">
-      <el-input
-        v-model="form.email"
-        type="email"
-        placeholder="请输入邮箱"
-        :prefix-icon="User"
-      />
+      <MuseumInput v-model="form.email" type="email" placeholder="请输入邮箱" :prefix-icon="User" />
     </el-form-item>
 
     <el-form-item label="密码">
-      <el-input
+      <MuseumInput
         v-model="form.password"
         type="password"
         placeholder="请输入密码"
@@ -55,15 +51,21 @@ async function handleLogin() {
       />
     </el-form-item>
 
-    <el-form-item>
-      <el-button
-        type="primary"
-        :loading="loading"
-        style="width: 100%"
-        native-type="submit"
-      >
-        登录
-      </el-button>
-    </el-form-item>
+    <MuseumButton
+      variant="primary"
+      full-width
+      native-type="submit"
+      :loading="loading"
+      :disabled="loading"
+    >
+      登录
+    </MuseumButton>
   </el-form>
 </template>
+
+<style scoped>
+.auth-form {
+  display: grid;
+  gap: 8px;
+}
+</style>

@@ -4,6 +4,7 @@ import { useAdmin } from '../../composables/useAdmin.js'
 import { api } from '../../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PlusIcon from '../icons/PlusIcon.vue'
+import { EmptyState } from '../../design-system/components/index.js'
 
 const { loading, createTourPath, updateTourPath, deleteTourPath } = useAdmin()
 
@@ -93,9 +94,9 @@ async function handleSubmit() {
       </el-button>
     </div>
 
-    <el-empty v-if="!tourPaths.length" description="暂无路线数据">
+    <EmptyState v-if="!tourPaths.length" icon="jar" title="暂无路线数据" description="先创建一条导览路线。">
       <el-button type="primary" @click="handleAdd">添加第一条路线</el-button>
-    </el-empty>
+    </EmptyState>
 
     <el-table v-else :data="tourPaths" v-loading="loading" border>
       <el-table-column prop="name" label="路线名称" min-width="150" />

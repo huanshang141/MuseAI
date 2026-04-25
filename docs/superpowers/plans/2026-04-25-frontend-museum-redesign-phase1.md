@@ -358,17 +358,17 @@ git commit -m "feat(frontend): add design-system preview route and museum metada
 **Files:**
 - Verify only (no new code)
 
-- [ ] **Step 1: 运行阶段回归测试集**
+- [x] **Step 1: 运行阶段回归测试集**
 
 Run: `cd frontend && npm run test -- --run src/design-system/tokens/__tests__/breakpoints.test.js src/design-system/components/__tests__/EmptyState.test.js src/router/__tests__/design-system-route.test.js`
 Expected: all PASS
 
-- [ ] **Step 2: 运行 lint 与构建**
+- [x] **Step 2: 运行 lint 与构建**
 
 Run: `cd frontend && npm run lint && npm run build`
 Expected: no lint errors, build success
 
-- [ ] **Step 3: 手动验收**
+- [x] **Step 3: 手动验收**
 
 Run: `cd frontend && npm run dev`
 Expected:

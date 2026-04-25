@@ -231,7 +231,8 @@ onMounted(async () => {
 
 <style scoped>
 .chat-main-area {
-  min-height: 560px;
+  min-height: 0;
+  height: 100%;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-bg-elevated);
@@ -369,6 +370,12 @@ onMounted(async () => {
   51%,
   100% {
     opacity: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .chat-main-area {
+    min-height: min(760px, calc(100vh - 250px));
   }
 }
 

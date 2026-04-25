@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { useAdmin } from '../../composables/useAdmin.js'
 import { api } from '../../api/index.js'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -9,6 +9,9 @@ import { EmptyState } from '../../design-system/components/index.js'
 const { loading, createTourPath, updateTourPath, deleteTourPath } = useAdmin()
 
 const tourPaths = ref([])
+const tableRef = ref(null)
+const selectedRows = ref([])
+const batchDeleting = ref(false)
 const dialogVisible = ref(false)
 const isEditing = ref(false)
 const formRef = ref(null)
@@ -30,6 +33,9 @@ async function fetchTourPaths() {
   const result = await api.admin.listTourPaths()
   if (result.ok) {
     tourPaths.value = result.data.tour_paths || result.data || []
+    selectedRows.value = []
+    await nextTick()
+    tableRef.value?.clearSelection()
   }
 }
 
@@ -67,6 +73,45 @@ async function handleDelete(row) {
   }
 }
 
+function handleSelectionChange(selection) {
+  selectedRows.value = selection
+}
+
+async function handleBatchDelete() {
+  if (!selectedRows.value.length) return
+
+  try {
+    await ElMessageBox.confirm(`确定删除已选中的 ${selectedRows.value.length} 条路线吗？`, '批量删除确认', {
+      type: 'warning',
+    })
+
+    batchDeleting.value = true
+    let successCount = 0
+    let failedCount = 0
+
+    for (const row of selectedRows.value) {
+      const result = await deleteTourPath(row.id)
+      if (result.ok) {
+        successCount += 1
+      } else {
+        failedCount += 1
+      }
+    }
+
+    await fetchTourPaths()
+
+    if (failedCount === 0) {
+      ElMessage.success(`批量删除成功，共删除 ${successCount} 条路线`)
+    } else {
+      ElMessage.warning(`已删除 ${successCount} 条路线，${failedCount} 条删除失败`)
+    }
+  } catch {
+    // Cancelled
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -92,13 +137,30 @@ async function handleSubmit() {
         <el-icon><PlusIcon /></el-icon>
         添加路线
       </el-button>
+      <el-button
+        type="danger"
+        plain
+        :loading="batchDeleting"
+        :disabled="batchDeleting || !selectedRows.length"
+        @click="handleBatchDelete"
+      >
+        批量删除 ({{ selectedRows.length }})
+      </el-button>
     </div>
 
     <EmptyState v-if="!tourPaths.length" icon="jar" title="暂无路线数据" description="先创建一条导览路线。">
       <el-button type="primary" @click="handleAdd">添加第一条路线</el-button>
     </EmptyState>
 
-    <el-table v-else :data="tourPaths" v-loading="loading" border>
+    <el-table
+      v-else
+      ref="tableRef"
+      :data="tourPaths"
+      v-loading="loading"
+      border
+      @selection-change="handleSelectionChange"
+    >
+      <el-table-column type="selection" width="50" reserve-selection />
       <el-table-column prop="name" label="路线名称" min-width="150" />
       <el-table-column prop="description" label="描述" min-width="200" />
       <el-table-column prop="estimated_duration" label="预计时长(分钟)" width="120" />
@@ -143,5 +205,8 @@ async function handleSubmit() {
 
 .toolbar {
   margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 </style>

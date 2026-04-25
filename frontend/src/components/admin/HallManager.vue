@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../../api/index.js'
 import { useAdmin } from '../../composables/useAdmin.js'
@@ -8,6 +8,9 @@ import PlusIcon from '../icons/PlusIcon.vue'
 const { loading, createHall, updateHall, deleteHall } = useAdmin()
 
 const halls = ref([])
+const tableRef = ref(null)
+const selectedRows = ref([])
+const batchDeleting = ref(false)
 const dialogVisible = ref(false)
 const isEditing = ref(false)
 const formRef = ref(null)
@@ -33,6 +36,9 @@ async function fetchHalls() {
   const result = await api.admin.listHalls({ include_inactive: 'true' })
   if (result.ok) {
     halls.value = result.data.halls || []
+    selectedRows.value = []
+    await nextTick()
+    tableRef.value?.clearSelection()
   }
 }
 
@@ -82,6 +88,45 @@ async function handleDelete(row) {
   }
 }
 
+function handleSelectionChange(selection) {
+  selectedRows.value = selection
+}
+
+async function handleBatchDelete() {
+  if (!selectedRows.value.length) return
+
+  try {
+    await ElMessageBox.confirm(`确定删除已选中的 ${selectedRows.value.length} 个展厅吗？`, '批量删除确认', {
+      type: 'warning',
+    })
+
+    batchDeleting.value = true
+    let successCount = 0
+    let failedCount = 0
+
+    for (const row of selectedRows.value) {
+      const result = await deleteHall(row.slug)
+      if (result.ok) {
+        successCount += 1
+      } else {
+        failedCount += 1
+      }
+    }
+
+    await fetchHalls()
+
+    if (failedCount === 0) {
+      ElMessage.success(`批量删除成功，共删除 ${successCount} 个展厅`)
+    } else {
+      ElMessage.warning(`已删除 ${successCount} 个展厅，${failedCount} 个删除失败`)
+    }
+  } catch {
+    // canceled
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 async function handleSubmit() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
@@ -124,9 +169,25 @@ async function handleSubmit() {
         <el-icon><PlusIcon /></el-icon>
         添加展厅
       </el-button>
+      <el-button
+        type="danger"
+        plain
+        :loading="batchDeleting"
+        :disabled="batchDeleting || !selectedRows.length"
+        @click="handleBatchDelete"
+      >
+        批量删除 ({{ selectedRows.length }})
+      </el-button>
     </div>
 
-    <el-table :data="halls" v-loading="loading" border>
+    <el-table
+      ref="tableRef"
+      :data="halls"
+      v-loading="loading"
+      border
+      @selection-change="handleSelectionChange"
+    >
+      <el-table-column type="selection" width="50" reserve-selection />
       <el-table-column prop="name" label="展厅名称" min-width="160" />
       <el-table-column prop="slug" label="标识" min-width="150" />
       <el-table-column prop="floor" label="楼层" width="90" />
@@ -202,5 +263,8 @@ async function handleSubmit() {
 
 .toolbar {
   margin-bottom: 20px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 </style>

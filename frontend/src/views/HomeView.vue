@@ -26,7 +26,18 @@ function startTour() {
 
 <style scoped>
 .home-view {
-  height: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-view :deep(.museum-page-content) {
+  flex: 1;
+  min-height: 0;
+}
+
+.home-view :deep(.museum-page-main) {
+  min-height: 0;
 }
 
 .home-hero {
@@ -46,6 +57,12 @@ function startTour() {
   color: var(--color-text-secondary);
   max-width: 560px;
   line-height: 1.6;
+}
+
+@media (min-width: 768px) {
+  .home-view :deep(.museum-page-main) {
+    min-height: calc(100vh - 250px);
+  }
 }
 
 @media (max-width: 767px) {

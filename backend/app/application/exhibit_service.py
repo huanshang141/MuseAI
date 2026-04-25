@@ -25,7 +25,7 @@ class ExhibitService:
         era: str,
         importance: int,
         estimated_visit_time: int,
-        document_id: str,
+        document_id: str | None = None,
     ) -> Exhibit:
         """创建新展品。
 
@@ -40,7 +40,7 @@ class ExhibitService:
             era: 年代/时期
             importance: 重要性等级
             estimated_visit_time: 预计参观时间（分钟）
-            document_id: 关联文档ID
+            document_id: 关联文档ID（可选）
 
         Returns:
             创建的展品实体

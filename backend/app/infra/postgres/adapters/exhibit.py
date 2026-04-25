@@ -110,7 +110,7 @@ class PostgresExhibitRepository:
                 era=exhibit.era,
                 importance=exhibit.importance,
                 estimated_visit_time=exhibit.estimated_visit_time,
-                document_id=exhibit.document_id,
+                document_id=exhibit.document_id or None,
                 is_active=exhibit.is_active,
                 created_at=exhibit.created_at,
                 updated_at=exhibit.updated_at,
@@ -127,7 +127,7 @@ class PostgresExhibitRepository:
             orm.era = exhibit.era
             orm.importance = exhibit.importance
             orm.estimated_visit_time = exhibit.estimated_visit_time
-            orm.document_id = exhibit.document_id
+            orm.document_id = exhibit.document_id or None
             orm.is_active = exhibit.is_active
             orm.updated_at = exhibit.updated_at
 

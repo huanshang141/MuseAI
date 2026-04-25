@@ -136,7 +136,7 @@ class Exhibit:
     era: str
     importance: int
     estimated_visit_time: int
-    document_id: str
+    document_id: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime

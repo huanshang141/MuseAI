@@ -28,7 +28,7 @@ class CreateExhibitRequest(BaseModel):
     era: str
     importance: int
     estimated_visit_time: int
-    document_id: str
+    document_id: str | None = None
 
 
 class ExhibitResponse(BaseModel):
@@ -43,7 +43,7 @@ class ExhibitResponse(BaseModel):
     era: str
     importance: int
     estimated_visit_time: int
-    document_id: str
+    document_id: str | None
     is_active: bool
     created_at: str
     updated_at: str

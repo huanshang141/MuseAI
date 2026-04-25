@@ -1,29 +1,35 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, inject, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuth } from '../../composables/useAuth.js'
-import AuthModal from '../auth/AuthModal.vue'
 import { api } from '../../api/index.js'
-import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting, Compass } from '@element-plus/icons-vue'
+import { User, SwitchButton, ChatDotRound, MapLocation, Collection, Setting, Compass, Menu } from '@element-plus/icons-vue'
 import { FishFaceSymbol } from '../../design-system/motifs/index.js'
 
+const props = defineProps({
+  showSidebarToggle: {
+    type: Boolean,
+    default: false,
+  },
+})
+
+const emit = defineEmits(['toggle-sidebar'])
+
+const showAuthModal = inject('showAuthModal', () => {})
 const route = useRoute()
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
-// Navigation items
 const navItems = [
   { path: '/', title: '智能问答', icon: ChatDotRound, requiresAuth: false },
   { path: '/tour', title: 'AI导览', icon: Compass, requiresAuth: false },
   { path: '/curator', title: '导览助手', icon: MapLocation, requiresAuth: true },
   { path: '/exhibits', title: '展品浏览', icon: Collection, requiresAuth: true },
-  { path: '/admin', title: '管理后台', icon: Setting, requiresAuth: true, requiresAdmin: true }
+  { path: '/admin', title: '管理后台', icon: Setting, requiresAuth: true, requiresAdmin: true },
 ]
 
-// Compute active menu index
 const activeMenu = computed(() => route.path)
 
 const healthStatus = ref('checking')
-const showAuthModal = ref(false)
 
 async function checkHealth() {
   healthStatus.value = 'checking'
@@ -40,17 +46,32 @@ async function handleLogout() {
   checkHealth()
 }
 
+function handleLoginClick() {
+  showAuthModal(true)
+}
+
 onMounted(checkHealth)
 </script>
 
 <template>
   <div class="app-header">
-    <div class="logo">
-      <FishFaceSymbol :size="28" class="logo-mark" aria-label="MuseAI Logo" />
-      <span class="logo-title">MuseAI · 半坡博物馆</span>
+    <div class="header-left">
+      <el-button
+        v-if="showSidebarToggle"
+        text
+        class="sidebar-toggle"
+        data-testid="sidebar-toggle"
+        @click="emit('toggle-sidebar')"
+      >
+        <el-icon><Menu /></el-icon>
+      </el-button>
+
+      <div class="logo">
+        <FishFaceSymbol :size="28" class="logo-mark" aria-label="MuseAI Logo" />
+        <span class="logo-title">MuseAI · 半坡博物馆</span>
+      </div>
     </div>
 
-    <!-- Navigation Menu -->
     <el-menu
       :default-active="activeMenu"
       mode="horizontal"
@@ -70,7 +91,7 @@ onMounted(checkHealth)
       </el-menu-item>
     </el-menu>
 
-    <div style="display: flex; align-items: center; gap: 12px;">
+    <div class="header-actions">
       <el-tag
         :type="healthStatus === 'healthy' ? 'success' : healthStatus === 'checking' ? 'info' : 'danger'"
         size="small"
@@ -78,12 +99,11 @@ onMounted(checkHealth)
         {{ healthStatus === 'healthy' ? '服务正常' : healthStatus === 'checking' ? '检测中...' : '服务异常' }}
       </el-tag>
 
-      <!-- User info when authenticated -->
       <template v-if="isAuthenticated">
         <el-dropdown>
-          <div style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <div class="user-trigger">
             <el-icon><User /></el-icon>
-            <span style="font-size: 14px;">{{ user?.email || '用户' }}</span>
+            <span class="user-text">{{ user?.email || '用户' }}</span>
           </div>
           <template #dropdown>
             <el-dropdown-menu>
@@ -96,25 +116,31 @@ onMounted(checkHealth)
         </el-dropdown>
       </template>
 
-      <!-- Login button when not authenticated -->
       <template v-else>
-        <el-button type="primary" size="small" @click="showAuthModal = true">
+        <el-button type="primary" size="small" @click="handleLoginClick">
           登录 / 注册
         </el-button>
       </template>
     </div>
-
-    <!-- Auth Modal -->
-    <AuthModal
-      v-model:visible="showAuthModal"
-      @success="checkHealth"
-    />
   </div>
 </template>
 
 <style scoped>
+.app-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .nav-menu {
-  flex: 1;
+  min-width: 0;
   border-bottom: none;
   background: transparent;
 }
@@ -133,5 +159,48 @@ onMounted(checkHealth)
 
 .nav-menu .el-menu-item.is-disabled {
   opacity: 0.5;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.user-text {
+  font-size: 14px;
+}
+
+.sidebar-toggle {
+  color: var(--color-text-primary);
+}
+
+@media (max-width: 767px) {
+  .app-header {
+    gap: 8px;
+  }
+
+  .nav-menu {
+    display: none;
+  }
+
+  .logo-title {
+    font-size: 14px;
+  }
+
+  .header-actions .el-tag {
+    display: none;
+  }
+
+  .user-text {
+    display: none;
+  }
 }
 </style>

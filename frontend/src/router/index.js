@@ -46,6 +46,7 @@ const routes = [
     children: [
       {
         path: '',
+        name: 'admin-home',
         redirect: '/admin/exhibits'
       },
       {

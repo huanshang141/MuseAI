@@ -156,6 +156,7 @@ async function handleSubmit() {
       v-else
       ref="tableRef"
       :data="tourPaths"
+      row-key="id"
       v-loading="loading"
       border
       @selection-change="handleSelectionChange"

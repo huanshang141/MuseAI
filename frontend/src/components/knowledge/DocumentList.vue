@@ -105,6 +105,7 @@ onMounted(fetchDocuments)
       v-if="documents.length"
       ref="tableRef"
       :data="documents"
+      row-key="id"
       v-loading="loading"
       border
       @selection-change="handleSelectionChange"

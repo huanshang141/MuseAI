@@ -183,6 +183,7 @@ async function handleSubmit() {
     <el-table
       ref="tableRef"
       :data="halls"
+      row-key="slug"
       v-loading="loading"
       border
       @selection-change="handleSelectionChange"

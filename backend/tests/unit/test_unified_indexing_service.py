@@ -155,3 +155,82 @@ async def test_unified_indexing_service_empty_content():
     count = await service.index_source(source)
     assert count == 0
     mock_es.index_chunk.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unified_indexing_service_hierarchical_parent_ids():
+    mock_es = AsyncMock()
+    mock_es.index_chunk = AsyncMock(return_value={"result": "created"})
+
+    mock_embeddings = AsyncMock()
+    mock_embeddings.aembed_documents = AsyncMock(
+        side_effect=lambda texts: [[0.1] * 768 for _ in texts]
+    )
+
+    service = UnifiedIndexingService(
+        es_client=mock_es,
+        embeddings=mock_embeddings,
+        chunk_configs=[
+            ChunkConfig(level=1, window_size=100, overlap=10),
+            ChunkConfig(level=2, window_size=50, overlap=5),
+        ],
+    )
+
+    source = ContentSource(
+        source_id="test-doc-hier",
+        source_type="document",
+        content="A" * 200,
+        metadata=ContentMetadata(filename="test.txt"),
+    )
+
+    count = await service.index_source(source)
+    assert count > 0
+
+    indexed_docs = [call[0][0] for call in mock_es.index_chunk.call_args_list]
+    level2_docs = [d for d in indexed_docs if d["chunk_level"] == 2]
+    level1_docs = [d for d in indexed_docs if d["chunk_level"] == 1]
+
+    assert len(level1_docs) > 0
+    assert len(level2_docs) > 0
+    assert all(d["parent_chunk_id"] is not None for d in level2_docs)
+
+    level1_ids = {d["chunk_id"] for d in level1_docs}
+    level2_parent_ids = {d["parent_chunk_id"] for d in level2_docs}
+    assert level2_parent_ids.issubset(level1_ids)
+
+
+@pytest.mark.asyncio
+async def test_unified_indexing_service_hierarchical_offset_calculation():
+    mock_es = AsyncMock()
+    mock_es.index_chunk = AsyncMock(return_value={"result": "created"})
+    mock_embeddings = AsyncMock()
+    mock_embeddings.aembed_documents = AsyncMock(
+        side_effect=lambda texts: [[0.1] * 768 for _ in texts]
+    )
+
+    service = UnifiedIndexingService(
+        es_client=mock_es,
+        embeddings=mock_embeddings,
+        chunk_configs=[
+            ChunkConfig(level=1, window_size=50, overlap=0),
+            ChunkConfig(level=2, window_size=20, overlap=0),
+        ],
+    )
+
+    content = "A" * 50 + "B" * 50
+    source = ContentSource(
+        source_id="offset-test",
+        source_type="document",
+        content=content,
+        metadata=ContentMetadata(filename="test.txt"),
+    )
+
+    await service.index_source(source)
+
+    indexed_docs = [call[0][0] for call in mock_es.index_chunk.call_args_list]
+    level2_docs = [d for d in indexed_docs if d["chunk_level"] == 2]
+
+    for doc in level2_docs:
+        assert doc["start_char"] >= 0
+        assert doc["end_char"] <= len(content)
+        assert content[doc["start_char"]:doc["end_char"]] == doc["content"]

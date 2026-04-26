@@ -29,6 +29,7 @@ class UnifiedIndexingService:
         self.chunk_configs = chunk_configs or [
             ChunkConfig(level=1, window_size=2000, overlap=200),
             ChunkConfig(level=2, window_size=500, overlap=50),
+            ChunkConfig(level=3, window_size=100, overlap=10),
         ]
 
     async def index_source(
@@ -46,27 +47,41 @@ class UnifiedIndexingService:
             Total number of chunks indexed.
         """
         total_chunks = 0
+        prev_level_chunks: list = []
 
         for config in self.chunk_configs:
             chunker = TextChunker(config)
-            chunks = chunker.chunk(
-                text=source.content,
-                document_id=source.source_id,
-                source=source.source_type,
-            )
+            current_level_chunks: list = []
 
-            if not chunks:
+            if not prev_level_chunks:
+                chunks = chunker.chunk(
+                    text=source.content,
+                    document_id=source.source_id,
+                    source=source.source_type,
+                )
+                current_level_chunks.extend(chunks)
+            else:
+                for parent in prev_level_chunks:
+                    children = chunker.chunk(
+                        text=parent.content,
+                        document_id=source.source_id,
+                        source=source.source_type,
+                        parent_chunk_id=parent.id,
+                    )
+                    for child in children:
+                        child.start_char += parent.start_char
+                        child.end_char += parent.start_char
+                    current_level_chunks.extend(children)
+
+            if not current_level_chunks:
                 continue
 
-            # Batch embed
-            chunk_texts = [c.content for c in chunks]
+            chunk_texts = [c.content for c in current_level_chunks]
             embeddings_list = await self.embeddings.aembed_documents(chunk_texts)
 
-            # Prepare documents with unified schema
             docs = []
-            for chunk, embedding in zip(chunks, embeddings_list, strict=True):
+            for chunk, embedding in zip(current_level_chunks, embeddings_list, strict=True):
                 doc = {
-                    # Unified fields
                     "chunk_id": chunk.id,
                     "source_id": source.source_id,
                     "source_type": source.source_type,
@@ -76,13 +91,11 @@ class UnifiedIndexingService:
                     "parent_chunk_id": chunk.parent_chunk_id,
                     "start_char": chunk.start_char,
                     "end_char": chunk.end_char,
-                    # Metadata as nested object
                     "metadata": source.metadata.to_dict(),
                 }
                 docs.append(doc)
                 total_chunks += 1
 
-            # Concurrent indexing with semaphore
             semaphore = asyncio.Semaphore(max_concurrency)
 
             async def index_with_semaphore(
@@ -93,6 +106,8 @@ class UnifiedIndexingService:
                     await self.es_client.index_chunk(doc)
 
             await asyncio.gather(*[index_with_semaphore(doc) for doc in docs])
+
+            prev_level_chunks = current_level_chunks
 
         logger.info(f"Indexed {total_chunks} chunks for source {source.source_id}")
         return total_chunks

@@ -46,24 +46,40 @@ class IngestionService:
             Total number of chunks indexed
         """
         total_chunks = 0
+        prev_level_chunks: list = []
 
         for config in self.chunk_configs:
             chunker = TextChunker(config)
-            chunks = chunker.chunk(
-                text=content,
-                document_id=document_id,
-                source=source,
-            )
+            current_level_chunks: list = []
 
-            if not chunks:
+            if not prev_level_chunks:
+                chunks = chunker.chunk(
+                    text=content,
+                    document_id=document_id,
+                    source=source,
+                )
+                current_level_chunks.extend(chunks)
+            else:
+                for parent in prev_level_chunks:
+                    children = chunker.chunk(
+                        text=parent.content,
+                        document_id=document_id,
+                        source=source,
+                        parent_chunk_id=parent.id,
+                    )
+                    for child in children:
+                        child.start_char += parent.start_char
+                        child.end_char += parent.start_char
+                    current_level_chunks.extend(children)
+
+            if not current_level_chunks:
                 continue
 
-            chunk_texts = [c.content for c in chunks]
+            chunk_texts = [c.content for c in current_level_chunks]
             embeddings_list = await self.embeddings.aembed_documents(chunk_texts)
 
-            # Prepare all documents with embeddings
             docs = []
-            for chunk, embedding in zip(chunks, embeddings_list, strict=False):
+            for chunk, embedding in zip(current_level_chunks, embeddings_list, strict=True):
                 doc = {
                     "chunk_id": chunk.id,
                     "document_id": chunk.document_id,
@@ -78,7 +94,6 @@ class IngestionService:
                 docs.append(doc)
                 total_chunks += 1
 
-            # Index to Elasticsearch concurrently with semaphore
             semaphore = asyncio.Semaphore(max_concurrency)
 
             async def index_with_semaphore(doc: dict, _sem=semaphore) -> None:
@@ -86,6 +101,8 @@ class IngestionService:
                     await self.es_client.index_chunk(doc)
 
             await asyncio.gather(*[index_with_semaphore(doc) for doc in docs])
+
+            prev_level_chunks = current_level_chunks
 
         return total_chunks
 

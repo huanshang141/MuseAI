@@ -201,6 +201,28 @@ class ElasticsearchClient:
         except (ApiError, TransportError) as e:
             logger.error(f"Failed to close ES client: {type(e).__name__}")
 
+    async def get_chunk_by_id(self, chunk_id: str) -> dict[str, Any] | None:
+        """Get a chunk document by its chunk_id.
+
+        Args:
+            chunk_id: The chunk ID to look up.
+
+        Returns:
+            The chunk document dict, or None if not found.
+
+        Raises:
+            RetrievalError: If the ES request fails for a non-404 reason.
+        """
+        try:
+            result = await self.client.get(index=self.index_name, id=chunk_id)
+            return cast(dict[str, Any], result["_source"])
+        except ApiError as e:
+            if e.meta and e.meta.status == 404:
+                return None
+            raise RetrievalError(f"Failed to get chunk {chunk_id}") from e
+        except TransportError as e:
+            raise RetrievalError(f"Failed to get chunk {chunk_id}") from e
+
     async def index_exhibit(self, exhibit_doc: dict[str, Any]) -> dict[str, Any]:
         """Index an exhibit document."""
         try:

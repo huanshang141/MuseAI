@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.domain.exceptions import RetrievalError
@@ -362,3 +362,46 @@ async def test_search_bm25_with_source_types_filter() -> None:
     assert "bool" in query["query"]
     assert query["query"]["bool"]["must"][0] == {"match": {"content": "test query"}}
     assert query["query"]["bool"]["must"][1] == {"terms": {"source_type": ["exhibit"]}}
+
+
+@pytest.mark.asyncio
+async def test_get_chunk_by_id_found():
+    mock_es = AsyncMock()
+    mock_es.get = AsyncMock(return_value={"_source": {"chunk_id": "c1", "content": "test"}})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    result = await client.get_chunk_by_id("c1")
+    assert result is not None
+    assert result["chunk_id"] == "c1"
+    mock_es.get.assert_called_once_with(index="test_index", id="c1")
+
+
+@pytest.mark.asyncio
+async def test_get_chunk_by_id_not_found():
+    mock_es = AsyncMock()
+    api_error = ApiError("Not found", meta=MagicMock(status=404), body=None)
+    mock_es.get = AsyncMock(side_effect=api_error)
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    result = await client.get_chunk_by_id("nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_chunk_by_id_raises_on_error():
+    mock_es = AsyncMock()
+    api_error = ApiError("Internal error", meta=MagicMock(status=500), body=None)
+    mock_es.get = AsyncMock(side_effect=api_error)
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    with pytest.raises(RetrievalError, match="Failed to get chunk"):
+        await client.get_chunk_by_id("c1")

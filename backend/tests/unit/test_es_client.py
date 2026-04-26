@@ -150,7 +150,7 @@ async def test_search_bm25(mock_es_client: Any) -> None:
 
     call_args = mock_es_client.search.call_args
     query = call_args.kwargs["body"]
-    assert query["query"]["match"]["content"] == "test query"
+    assert query["query"]["bool"]["must"][0] == {"match": {"content": "test query"}}
 
 
 @pytest.mark.asyncio
@@ -361,7 +361,7 @@ async def test_search_bm25_with_source_types_filter() -> None:
     # Verify bool query with must clause is present
     assert "bool" in query["query"]
     assert query["query"]["bool"]["must"][0] == {"match": {"content": "test query"}}
-    assert query["query"]["bool"]["must"][1] == {"terms": {"source_type": ["exhibit"]}}
+    assert query["query"]["bool"]["filter"][0] == {"terms": {"source_type": ["exhibit"]}}
 
 
 @pytest.mark.asyncio
@@ -405,3 +405,37 @@ async def test_get_chunk_by_id_raises_on_error():
 
     with pytest.raises(RetrievalError, match="Failed to get chunk"):
         await client.get_chunk_by_id("c1")
+
+
+@pytest.mark.asyncio
+async def test_search_dense_with_chunk_levels():
+    mock_es = AsyncMock()
+    mock_es.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    await client.search_dense([0.1] * 768, top_k=5, chunk_levels=[2, 3])
+
+    call_args = mock_es.search.call_args
+    query = call_args[1]["body"] if "body" in call_args[1] else call_args[0][0]
+    knn_filter = query["knn"]["filter"]["bool"]["filter"]
+    assert {"terms": {"chunk_level": [2, 3]}} in knn_filter
+
+
+@pytest.mark.asyncio
+async def test_search_bm25_with_chunk_levels():
+    mock_es = AsyncMock()
+    mock_es.search = AsyncMock(return_value={"hits": {"hits": []}})
+
+    client = ElasticsearchClient.__new__(ElasticsearchClient)
+    client.client = mock_es
+    client.index_name = "test_index"
+
+    await client.search_bm25("test query", top_k=5, chunk_levels=[1])
+
+    call_args = mock_es.search.call_args
+    query = call_args[1]["body"] if "body" in call_args[1] else call_args[0][0]
+    bool_filter = query["query"]["bool"]["filter"]
+    assert {"terms": {"chunk_level": [1]}} in bool_filter

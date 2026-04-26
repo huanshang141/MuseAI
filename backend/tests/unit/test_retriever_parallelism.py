@@ -199,3 +199,30 @@ async def test_unified_retriever_source_field_from_metadata_filename():
     docs = await retriever._aget_relevant_documents("query")
     assert len(docs) == 1
     assert docs[0].metadata.get("source") == "test.pdf"
+
+
+@pytest.mark.asyncio
+async def test_unified_retriever_passes_chunk_levels():
+    mock_es_client = MagicMock()
+
+    async def mock_dense_search(*args, **kwargs):
+        return [{"chunk_id": "c1", "source_id": "doc-a", "content": "A1", "chunk_level": 2}]
+
+    async def mock_bm25_search(*args, **kwargs):
+        return []
+
+    mock_es_client.search_dense = mock_dense_search
+    mock_es_client.search_bm25 = mock_bm25_search
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.aembed_query = AsyncMock(return_value=[0.1] * 768)
+
+    retriever = UnifiedRetriever(
+        es_client=mock_es_client,
+        embeddings=mock_embeddings,
+        top_k=5,
+        chunk_levels=[2, 3],
+    )
+
+    docs = await retriever._aget_relevant_documents("query")
+    assert len(docs) == 1

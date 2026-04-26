@@ -110,9 +110,16 @@ class ElasticsearchClient:
         query_vector: list[float],
         top_k: int = 5,
         source_types: list[str] | None = None,
+        chunk_levels: list[int] | None = None,
     ) -> list[dict[str, Any]]:
-        """Dense vector search with optional source type filter."""
+        """Dense vector search with optional source type and chunk level filter."""
         try:
+            filters: list[dict[str, Any]] = []
+            if source_types:
+                filters.append({"terms": {"source_type": source_types}})
+            if chunk_levels:
+                filters.append({"terms": {"chunk_level": chunk_levels}})
+
             query: dict[str, Any] = {
                 "knn": {
                     "field": "content_vector",
@@ -123,8 +130,8 @@ class ElasticsearchClient:
                 "size": top_k,
             }
 
-            if source_types:
-                query["knn"]["filter"] = {"bool": {"filter": [{"terms": {"source_type": source_types}}]}}
+            if filters:
+                query["knn"]["filter"] = {"bool": {"filter": filters}}
 
             response = await self.client.search(index=self.index_name, body=query)
 
@@ -138,23 +145,25 @@ class ElasticsearchClient:
         query_text: str,
         top_k: int = 5,
         source_types: list[str] | None = None,
+        chunk_levels: list[int] | None = None,
     ) -> list[dict[str, Any]]:
-        """BM25 text search with optional source type filter."""
+        """BM25 text search with optional source type and chunk level filter."""
         try:
+            must: list[dict[str, Any]] = [{"match": {"content": query_text}}]
+            filters: list[dict[str, Any]] = []
             if source_types:
-                query: dict[str, Any] = {
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"match": {"content": query_text}},
-                                {"terms": {"source_type": source_types}},
-                            ]
-                        }
-                    },
-                    "size": top_k,
-                }
-            else:
-                query = {"query": {"match": {"content": query_text}}, "size": top_k}
+                filters.append({"terms": {"source_type": source_types}})
+            if chunk_levels:
+                filters.append({"terms": {"chunk_level": chunk_levels}})
+
+            bool_query: dict[str, Any] = {"must": must}
+            if filters:
+                bool_query["filter"] = filters
+
+            query: dict[str, Any] = {
+                "query": {"bool": bool_query},
+                "size": top_k,
+            }
 
             response = await self.client.search(index=self.index_name, body=query)
 

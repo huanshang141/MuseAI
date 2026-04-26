@@ -70,6 +70,7 @@ class UnifiedRetriever(BaseRetriever):
     top_k: int = 5
     rrf_k: int = 60
     source_types: list[str] | None = None
+    chunk_levels: list[int] | None = None
 
     def _get_relevant_documents(self, query: str) -> list[Document]:
         raise NotImplementedError(
@@ -90,10 +91,10 @@ class UnifiedRetriever(BaseRetriever):
         # 并行执行 dense 和 BM25 检索以提升性能
         dense_results, bm25_results = await asyncio.gather(
             self.es_client.search_dense(
-                query_vector, self.top_k * 2, source_types=self.source_types
+                query_vector, self.top_k * 2, source_types=self.source_types, chunk_levels=self.chunk_levels
             ),
             self.es_client.search_bm25(
-                query, self.top_k * 2, source_types=self.source_types
+                query, self.top_k * 2, source_types=self.source_types, chunk_levels=self.chunk_levels
             ),
         )
         fused_results = rrf_fusion(

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "rerank-v1"
     RERANK_TOP_N: int = 5  # 返回top N结果
 
+    CHUNK_MERGE_ENABLED: bool = True
+    CHUNK_MERGE_MAX_LEVEL: int = 1
+    CHUNK_MERGE_MAX_PARENTS: int = 3
+
     # CORS settings
     CORS_ORIGINS: str = "http://localhost:3000"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True

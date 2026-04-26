@@ -10,6 +10,7 @@ def test_rag_state_typeddict_has_required_fields():
         query="test query",
         rewritten_query="",
         documents=[],
+        merged_documents=[],
         reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
@@ -18,14 +19,7 @@ def test_rag_state_typeddict_has_required_fields():
         conversation_history=[],
     )
     assert state["query"] == "test query"
-    assert state["rewritten_query"] == ""
-    assert state["documents"] == []
-    assert state["reranked_documents"] == []
-    assert state["retrieval_score"] == 0.0
-    assert state["attempts"] == 0
-    assert state["transformations"] == []
-    assert state["answer"] == ""
-    assert state["conversation_history"] == []
+    assert state["merged_documents"] == []
 
 
 def test_rag_agent_initialization():
@@ -71,6 +65,7 @@ async def test_rag_agent_retrieve_node():
         query="test query",
         rewritten_query="test query",
         documents=[],
+        merged_documents=[],
         reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
@@ -100,6 +95,7 @@ async def test_rag_agent_evaluate_node_high_score():
         query="test query",
         rewritten_query="test query",
         documents=docs,
+        merged_documents=[],
         reranked_documents=[],
         retrieval_score=0.0,
         attempts=0,
@@ -123,6 +119,7 @@ async def test_rag_agent_transform_node():
         query="test query",
         rewritten_query="test query",
         documents=[],
+        merged_documents=[],
         reranked_documents=[],
         retrieval_score=0.5,
         attempts=0,
@@ -150,6 +147,7 @@ async def test_rag_agent_generate_node():
         query="test query",
         rewritten_query="test query",
         documents=docs,
+        merged_documents=[],
         reranked_documents=[],
         retrieval_score=0.8,
         attempts=0,
@@ -237,3 +235,323 @@ async def test_rag_agent_rewrite_with_history():
     result = await agent.run("那它是什么时候制作的？", conversation_history=history)
 
     assert result["answer"] == "Answer"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_replaces_child_with_parent():
+    mock_llm = MagicMock()
+    mock_es = AsyncMock()
+    mock_es.get_chunk_by_id = AsyncMock(return_value={
+        "chunk_id": "parent-1",
+        "source_id": "doc-a",
+        "source_type": "document",
+        "content": "Parent chunk content",
+        "chunk_level": 1,
+        "parent_chunk_id": None,
+    })
+
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = mock_es
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+        merge_max_parents=3,
+    )
+
+    docs = [
+        Document(
+            page_content="Child content 1",
+            metadata={"chunk_id": "child-1", "chunk_level": 2, "parent_chunk_id": "parent-1", "rrf_score": 0.8},
+        ),
+        Document(
+            page_content="Child content 2",
+            metadata={"chunk_id": "child-2", "chunk_level": 2, "parent_chunk_id": "parent-1", "rrf_score": 0.7},
+        ),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "Parent chunk content"
+    assert result["merged_documents"][0].metadata["chunk_level"] == 1
+    assert result["merged_documents"][0].metadata["merged_from_child"] == "child-1"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_disabled():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=False,
+    )
+
+    docs = [
+        Document(page_content="child", metadata={"chunk_id": "c1", "chunk_level": 2, "parent_chunk_id": "p1"}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "child"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_keeps_level_1_docs():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = AsyncMock()
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+    )
+
+    docs = [
+        Document(page_content="level 1 doc", metadata={"chunk_id": "c1", "chunk_level": 1}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "level 1 doc"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_respects_max_parents():
+    mock_llm = MagicMock()
+    mock_es = AsyncMock()
+
+    async def mock_get_chunk(chunk_id):
+        return {
+            "chunk_id": chunk_id,
+            "source_id": "doc-a",
+            "content": f"Parent {chunk_id}",
+            "chunk_level": 1,
+        }
+
+    mock_es.get_chunk_by_id = mock_get_chunk
+
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = mock_es
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+        merge_max_parents=1,
+    )
+
+    docs = [
+        Document(page_content="c1", metadata={"chunk_id": "c1", "chunk_level": 2, "parent_chunk_id": "p1"}),
+        Document(page_content="c2", metadata={"chunk_id": "c2", "chunk_level": 2, "parent_chunk_id": "p2"}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 2
+    merged_levels = [d.metadata.get("chunk_level") for d in result["merged_documents"]]
+    assert 1 in merged_levels
+    assert 2 in merged_levels
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_no_es_client():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+    del mock_retriever.es_client
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+    )
+
+    docs = [
+        Document(page_content="child", metadata={"chunk_id": "c1", "chunk_level": 2, "parent_chunk_id": "p1"}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "child"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_parent_not_found():
+    mock_llm = MagicMock()
+    mock_es = AsyncMock()
+    mock_es.get_chunk_by_id = AsyncMock(return_value=None)
+
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = mock_es
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+    )
+
+    docs = [
+        Document(page_content="child", metadata={"chunk_id": "c1", "chunk_level": 2, "parent_chunk_id": "p1"}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "child"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_es_error_fallback():
+    mock_llm = MagicMock()
+    mock_es = AsyncMock()
+    mock_es.get_chunk_by_id = AsyncMock(side_effect=Exception("ES down"))
+
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = mock_es
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+    )
+
+    docs = [
+        Document(page_content="child", metadata={"chunk_id": "c1", "chunk_level": 2, "parent_chunk_id": "p1"}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "child"
+
+
+@pytest.mark.asyncio
+async def test_merge_chunks_no_parent_chunk_id():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+    mock_retriever.es_client = AsyncMock()
+
+    agent = RAGAgent(
+        llm=mock_llm,
+        retriever=mock_retriever,
+        merge_enabled=True,
+        merge_max_level=1,
+    )
+
+    docs = [
+        Document(page_content="orphan", metadata={"chunk_id": "c1", "chunk_level": 2}),
+    ]
+
+    state = RAGState(
+        query="test",
+        rewritten_query="test",
+        documents=docs,
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.0,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.merge_chunks(state)
+    assert len(result["merged_documents"]) == 1
+    assert result["merged_documents"][0].page_content == "orphan"

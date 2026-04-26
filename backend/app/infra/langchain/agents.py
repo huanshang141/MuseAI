@@ -26,6 +26,7 @@ class RAGState(TypedDict):
     query: str
     rewritten_query: str
     documents: list[Document]
+    merged_documents: list[Document]
     reranked_documents: list[Document]
     retrieval_score: float
     attempts: int
@@ -58,6 +59,9 @@ class RAGAgent:
         score_threshold: float = SCORE_THRESHOLD,
         max_attempts: int = MAX_ATTEMPTS,
         rerank_top_n: int = 5,
+        merge_enabled: bool = True,
+        merge_max_level: int = 1,
+        merge_max_parents: int = 3,
     ):
         """初始化RAG Agent。
 
@@ -70,6 +74,9 @@ class RAGAgent:
             score_threshold: 检索评分阈值
             max_attempts: 最大重试次数
             rerank_top_n: Rerank返回的文档数量
+            merge_enabled: 是否启用层级合并
+            merge_max_level: 合并时允许的最大chunk_level
+            merge_max_parents: 最多替换多少个父文档
         """
         self.llm = llm
         self.retriever = retriever
@@ -79,6 +86,9 @@ class RAGAgent:
         self.score_threshold = score_threshold
         self.max_attempts = max_attempts
         self.rerank_top_n = rerank_top_n
+        self.merge_enabled = merge_enabled
+        self.merge_max_level = merge_max_level
+        self.merge_max_parents = merge_max_parents
         self._graph = self._build_graph()
 
     def _build_graph(self) -> Any:
@@ -88,17 +98,17 @@ class RAGAgent:
         # 添加节点
         workflow.add_node("rewrite", self.rewrite_query)
         workflow.add_node("retrieve", self.retrieve)
+        workflow.add_node("merge", self.merge_chunks)
         workflow.add_node("rerank", self.rerank)
         workflow.add_node("evaluate", self.evaluate)
         workflow.add_node("transform", self.transform)
         workflow.add_node("generate", self.generate)
 
-        # 设置入口点
         workflow.set_entry_point("rewrite")
 
-        # 定义边
         workflow.add_edge("rewrite", "retrieve")
-        workflow.add_edge("retrieve", "rerank")
+        workflow.add_edge("retrieve", "merge")
+        workflow.add_edge("merge", "rerank")
         workflow.add_edge("rerank", "evaluate")
 
         # 条件边：评估后决定是转换还是生成
@@ -157,15 +167,84 @@ class RAGAgent:
 
     async def retrieve(self, state: RAGState) -> dict[str, Any]:
         """检索相关文档。"""
-        # 使用重写后的查询进行检索
         query = state.get("rewritten_query") or state["query"]
         documents = await self.retriever.ainvoke(query)
         logger.debug(f"Retrieved {len(documents)} documents for query: {query[:50]}...")
         return {"documents": documents}
 
+    async def merge_chunks(self, state: RAGState) -> dict[str, Any]:
+        """层级合并：将细粒度 chunk 替换为其父级粗粒度 chunk。
+
+        对于 chunk_level > merge_max_level 的文档，查找其 parent_chunk_id
+        对应的父文档并替换，去重后返回合并结果。
+        """
+        documents = state["documents"]
+
+        if not self.merge_enabled or not documents:
+            return {"merged_documents": documents}
+
+        es_client = getattr(self.retriever, "es_client", None)
+        if es_client is None:
+            logger.warning("merge_chunks: retriever has no es_client, skipping merge")
+            return {"merged_documents": documents}
+
+        merged: list[Document] = []
+        parent_ids_seen: set[str] = set()
+        parents_replaced = 0
+
+        for doc in documents:
+            chunk_level = doc.metadata.get("chunk_level")
+
+            if chunk_level is not None and chunk_level > self.merge_max_level:
+                parent_id = doc.metadata.get("parent_chunk_id")
+                if parent_id is None:
+                    merged.append(doc)
+                    continue
+
+                if parent_id in parent_ids_seen:
+                    continue
+
+                if parents_replaced >= self.merge_max_parents:
+                    merged.append(doc)
+                    continue
+
+                try:
+                    parent_data = await es_client.get_chunk_by_id(parent_id)
+                    if parent_data is None:
+                        merged.append(doc)
+                        continue
+
+                    parent_doc = Document(
+                        page_content=parent_data.get("content", ""),
+                        metadata={
+                            "chunk_id": parent_data.get("chunk_id"),
+                            "source_id": parent_data.get("source_id"),
+                            "source_type": parent_data.get("source_type"),
+                            "chunk_level": parent_data.get("chunk_level"),
+                            "parent_chunk_id": parent_data.get("parent_chunk_id"),
+                            "source": parent_data.get("source") or parent_data.get("source_id"),
+                            "rrf_score": doc.metadata.get("rrf_score"),
+                            "merged_from_child": doc.metadata.get("chunk_id"),
+                        },
+                    )
+                    merged.append(parent_doc)
+                    parents_replaced += 1
+                    parent_ids_seen.add(parent_id)
+                except Exception as e:
+                    logger.warning(f"merge_chunks: failed to get parent {parent_id}: {e}")
+                    merged.append(doc)
+            else:
+                merged.append(doc)
+
+        logger.info(
+            f"merge_chunks: {len(documents)} docs -> {len(merged)} docs "
+            f"({parents_replaced} parents replaced)"
+        )
+        return {"merged_documents": merged}
+
     async def rerank(self, state: RAGState) -> dict[str, Any]:
         """对检索结果进行重排序。"""
-        documents = state["documents"]
+        documents = state.get("merged_documents") or state["documents"]
         query = state.get("rewritten_query") or state["query"]
 
         logger.debug(f"Rerank node called: documents_count={len(documents)}, rerank_provider={self.rerank_provider is not None}")
@@ -209,8 +288,7 @@ class RAGAgent:
 
     def evaluate(self, state: RAGState) -> dict[str, Any]:
         """评估检索质量。"""
-        # 优先使用rerank后的文档
-        docs = state.get("reranked_documents") or state["documents"]
+        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
 
         if not docs:
             return {"retrieval_score": 0.0}
@@ -235,7 +313,7 @@ class RAGAgent:
 
     async def generate(self, state: RAGState) -> dict[str, Any]:
         """生成答案。"""
-        docs = state.get("reranked_documents") or state["documents"]
+        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
         context = "\n\n".join(doc.page_content for doc in docs)
 
         custom_system_prompt = state.get("system_prompt", "")
@@ -278,6 +356,7 @@ class RAGAgent:
             "query": query,
             "rewritten_query": "",
             "documents": [],
+            "merged_documents": [],
             "reranked_documents": [],
             "retrieval_score": 0.0,
             "attempts": 0,

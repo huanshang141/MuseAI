@@ -97,3 +97,105 @@ class TestUnifiedRetrieverParallelism:
         assert len(documents) > 0
         assert all(hasattr(doc, "page_content") for doc in documents)
         assert all(hasattr(doc, "metadata") for doc in documents)
+
+
+@pytest.mark.asyncio
+async def test_unified_retriever_deduplicates_by_source_id():
+    mock_es_client = MagicMock()
+
+    async def mock_dense_search(*args, **kwargs):
+        return [
+            {"chunk_id": "c1", "source_id": "doc-a", "content": "A1", "chunk_level": 2},
+            {"chunk_id": "c2", "source_id": "doc-a", "content": "A2", "chunk_level": 2},
+            {"chunk_id": "c3", "source_id": "doc-b", "content": "B1", "chunk_level": 2},
+        ]
+
+    async def mock_bm25_search(*args, **kwargs):
+        return [
+            {"chunk_id": "c1", "source_id": "doc-a", "content": "A1", "chunk_level": 2},
+            {"chunk_id": "c3", "source_id": "doc-b", "content": "B1", "chunk_level": 2},
+            {"chunk_id": "c4", "source_id": "doc-c", "content": "C1", "chunk_level": 2},
+        ]
+
+    mock_es_client.search_dense = mock_dense_search
+    mock_es_client.search_bm25 = mock_bm25_search
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.aembed_query = AsyncMock(return_value=[0.1] * 768)
+
+    retriever = UnifiedRetriever(
+        es_client=mock_es_client,
+        embeddings=mock_embeddings,
+        top_k=3,
+        rrf_k=60,
+    )
+
+    docs = await retriever._aget_relevant_documents("query")
+    source_ids = [d.metadata["source_id"] for d in docs]
+    assert len(source_ids) == len(set(source_ids))
+    assert len(docs) == 3
+    assert all(d.metadata.get("source") is not None for d in docs)
+
+
+@pytest.mark.asyncio
+async def test_unified_retriever_includes_parent_chunk_id():
+    mock_es_client = MagicMock()
+
+    async def mock_dense_search(*args, **kwargs):
+        return [
+            {"chunk_id": "c1", "source_id": "doc-a", "content": "A1", "chunk_level": 3, "parent_chunk_id": "p1"},
+        ]
+
+    async def mock_bm25_search(*args, **kwargs):
+        return []
+
+    mock_es_client.search_dense = mock_dense_search
+    mock_es_client.search_bm25 = mock_bm25_search
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.aembed_query = AsyncMock(return_value=[0.1] * 768)
+
+    retriever = UnifiedRetriever(
+        es_client=mock_es_client,
+        embeddings=mock_embeddings,
+        top_k=5,
+    )
+
+    docs = await retriever._aget_relevant_documents("query")
+    assert len(docs) == 1
+    assert docs[0].metadata.get("parent_chunk_id") == "p1"
+
+
+@pytest.mark.asyncio
+async def test_unified_retriever_source_field_from_metadata_filename():
+    mock_es_client = MagicMock()
+
+    async def mock_dense_search(*args, **kwargs):
+        return [
+            {
+                "chunk_id": "c1",
+                "source_id": "doc-a",
+                "content": "A1",
+                "chunk_level": 2,
+                "metadata": {"filename": "test.pdf"},
+            },
+        ]
+
+    async def mock_bm25_search(*args, **kwargs):
+        return []
+
+    mock_es_client.search_dense = mock_dense_search
+    mock_es_client.search_bm25 = mock_bm25_search
+
+    mock_embeddings = MagicMock()
+    mock_embeddings.aembed_query = AsyncMock(return_value=[0.1] * 768)
+
+    retriever = UnifiedRetriever(
+        es_client=mock_es_client,
+        embeddings=mock_embeddings,
+        top_k=5,
+    )
+
+    docs = await retriever._aget_relevant_documents("query")
+    assert len(docs) == 1
+    assert docs[0].metadata.get("source") == "test.pdf"

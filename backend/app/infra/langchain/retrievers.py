@@ -90,10 +90,16 @@ class UnifiedRetriever(BaseRetriever):
                 query, self.top_k * 2, source_types=self.source_types
             ),
         )
-        fused_results = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
+        fused_results = rrf_fusion(
+            dense_results,
+            bm25_results,
+            k=self.rrf_k,
+            deduplicate_by="source_id",
+            top_k=self.top_k,
+        )
 
         documents = []
-        for item in fused_results[: self.top_k]:
+        for item in fused_results:
             doc = self._to_document(item)
             documents.append(doc)
 
@@ -108,15 +114,27 @@ class UnifiedRetriever(BaseRetriever):
         Returns:
             LangChain Document 对象
         """
+        metadata = {
+            "chunk_id": item.get("chunk_id"),
+            "source_id": item.get("source_id"),
+            "source_type": item.get("source_type"),
+            "chunk_level": item.get("chunk_level"),
+            "rrf_score": item.get("rrf_score"),
+            "parent_chunk_id": item.get("parent_chunk_id"),
+        }
+        if item.get("source"):
+            metadata["source"] = item.get("source")
+        elif item.get("metadata", {}).get("filename"):
+            metadata["source"] = item["metadata"]["filename"]
+        elif item.get("metadata", {}).get("name"):
+            metadata["source"] = item["metadata"]["name"]
+        elif item.get("source_id"):
+            metadata["source"] = item.get("source_id")
+        else:
+            metadata["source"] = None
         return Document(
             page_content=item.get("content", ""),
-            metadata={
-                "chunk_id": item.get("chunk_id"),
-                "source_id": item.get("source_id"),
-                "source_type": item.get("source_type"),
-                "chunk_level": item.get("chunk_level"),
-                "rrf_score": item.get("rrf_score"),
-            },
+            metadata=metadata,
         )
 
 

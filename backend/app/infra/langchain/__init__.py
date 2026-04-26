@@ -59,6 +59,7 @@ def create_retriever(
         embeddings=embeddings,
         top_k=5,
         rrf_k=60,
+        chunk_levels=[2, 3],
     )
 
 
@@ -120,6 +121,9 @@ def create_rag_agent(
         score_threshold=0.7,
         max_attempts=3,
         rerank_top_n=settings.RERANK_TOP_N,
+        merge_enabled=settings.CHUNK_MERGE_ENABLED,
+        merge_max_level=settings.CHUNK_MERGE_MAX_LEVEL,
+        merge_max_parents=settings.CHUNK_MERGE_MAX_PARENTS,
     )
 
 

@@ -127,3 +127,6 @@ class TestFactoryFunctions:
 
         assert agent is not None
         assert hasattr(agent, "run")
+        assert agent.merge_enabled == settings.CHUNK_MERGE_ENABLED
+        assert agent.merge_max_level == settings.CHUNK_MERGE_MAX_LEVEL
+        assert agent.merge_max_parents == settings.CHUNK_MERGE_MAX_PARENTS

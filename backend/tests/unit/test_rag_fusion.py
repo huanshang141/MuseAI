@@ -79,3 +79,87 @@ def test_rrf_fusion_missing_chunk_id():
 
     with pytest.raises(ValueError, match="missing 'chunk_id' field"):
         rrf_fusion([], [{"content": "no id"}])
+
+
+def test_rrf_fusion_deduplicates_by_source_id():
+    dense = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+        {"chunk_id": "c2", "source_id": "doc-a", "content": "A2"},
+        {"chunk_id": "c3", "source_id": "doc-b", "content": "B1"},
+    ]
+    bm25 = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+        {"chunk_id": "c3", "source_id": "doc-b", "content": "B1"},
+        {"chunk_id": "c4", "source_id": "doc-c", "content": "C1"},
+    ]
+    result = rrf_fusion(dense, bm25, k=60, deduplicate_by="source_id", top_k=3)
+    source_ids = [r["source_id"] for r in result]
+    assert len(source_ids) == len(set(source_ids)), "Results should be deduplicated by source_id"
+    assert "doc-a" in source_ids
+    assert "doc-b" in source_ids
+    assert "doc-c" in source_ids
+
+
+def test_rrf_fusion_deduplicate_preserves_highest_score():
+    dense = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+        {"chunk_id": "c2", "source_id": "doc-a", "content": "A2"},
+    ]
+    bm25 = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+    ]
+    result = rrf_fusion(dense, bm25, k=60, deduplicate_by="source_id")
+    assert len(result) == 1
+    assert result[0]["chunk_id"] == "c1"
+
+
+def test_rrf_fusion_deduplicate_fallback_to_chunk_id():
+    dense = [
+        {"chunk_id": "c1", "content": "A1"},
+        {"chunk_id": "c2", "content": "A2"},
+    ]
+    bm25 = []
+    result = rrf_fusion(dense, bm25, k=60, deduplicate_by="source_id")
+    assert len(result) == 2
+
+
+def test_rrf_fusion_top_k_limits_results():
+    dense = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+        {"chunk_id": "c2", "source_id": "doc-b", "content": "B1"},
+        {"chunk_id": "c3", "source_id": "doc-c", "content": "C1"},
+        {"chunk_id": "c4", "source_id": "doc-d", "content": "D1"},
+    ]
+    bm25 = []
+    result = rrf_fusion(dense, bm25, k=60, top_k=2)
+    assert len(result) == 2
+
+
+def test_rrf_fusion_no_dedup_when_none():
+    dense = [
+        {"chunk_id": "c1", "source_id": "doc-a", "content": "A1"},
+        {"chunk_id": "c2", "source_id": "doc-a", "content": "A2"},
+    ]
+    bm25 = []
+    result = rrf_fusion(dense, bm25, k=60, deduplicate_by=None)
+    assert len(result) == 2
+
+
+def test_rrf_fusion_top_k_zero_raises():
+    with pytest.raises(ValueError, match="top_k must be positive"):
+        rrf_fusion([{"chunk_id": "c1"}], [], k=60, top_k=0)
+
+
+def test_rrf_fusion_top_k_negative_raises():
+    with pytest.raises(ValueError, match="top_k must be positive"):
+        rrf_fusion([{"chunk_id": "c1"}], [], k=60, top_k=-1)
+
+
+def test_rrf_fusion_top_k_greater_than_results():
+    dense = [
+        {"chunk_id": "c1", "content": "A1"},
+        {"chunk_id": "c2", "content": "A2"},
+    ]
+    bm25 = []
+    result = rrf_fusion(dense, bm25, k=60, top_k=10)
+    assert len(result) == 2

@@ -340,6 +340,7 @@ class TestUnifiedIndexingServiceChunkLevels:
         )
 
         # Verify default configs are set
-        assert len(service.chunk_configs) == 2
+        assert len(service.chunk_configs) == 3
         assert service.chunk_configs[0].level == 1
         assert service.chunk_configs[1].level == 2
+        assert service.chunk_configs[2].level == 3

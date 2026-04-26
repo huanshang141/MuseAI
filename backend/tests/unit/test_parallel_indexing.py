@@ -177,22 +177,18 @@ class TestIndexSourceBehavior:
 
         content = "This is test content. " * 100
 
-        # Calculate total expected chunks across all configs
-        total_expected = 0
-        chunk_counts = []
-        for config in configs:
-            chunker = TextChunker(config)
-            chunks = chunker.chunk(text=content, document_id="test-doc", source="document")
-            chunk_counts.append(len(chunks))
-            total_expected += len(chunks)
+        chunker1 = TextChunker(configs[0])
+        level1 = chunker1.chunk(text=content, document_id="test-doc", source="document")
+
+        chunker2 = TextChunker(configs[1])
+        level2 = []
+        for parent in level1:
+            children = chunker2.chunk(text=parent.content, document_id="test-doc", source="document")
+            level2.extend(children)
+
+        total_expected = len(level1) + len(level2)
 
         mock_embeddings = MagicMock()
-        # Return embeddings for total expected chunks
-        mock_embeddings.aembed_documents = AsyncMock(
-            return_value=[[0.1] * 768 for _ in range(total_expected)]
-        )
-
-        # We need to mock aembed_documents to return correct number per call
         call_count = [0]
 
         def get_embeddings(texts):
@@ -216,7 +212,6 @@ class TestIndexSourceBehavior:
 
         count = await service.index_source(source, max_concurrency=10)
 
-        # Verify all chunks from all configs were processed
         assert count == total_expected
         assert len(indexed_chunks) == total_expected
 

@@ -1,5 +1,7 @@
 # backend/tests/unit/test_db_models.py
-from app.infra.postgres.models import ChatMessage, ChatSession, Document, IngestionJob, User
+from datetime import UTC, datetime
+
+from app.infra.postgres.models import ChatMessage, ChatSession, Document, IngestionJob, LLMTraceEvent, User
 
 
 def test_user_model():
@@ -87,3 +89,42 @@ def test_user_role_field_exists():
     assert role_column is not None
     assert role_column.default is not None
     assert role_column.default.arg == "user"
+
+
+def test_llm_trace_event_model():
+    event = LLMTraceEvent(
+        id="evt-123",
+        call_id="call-abc",
+        request_id="req-1",
+        trace_id="trace-1",
+        source="chat_stream",
+        provider="openai-compatible",
+        model="gpt-4o-mini",
+        status="success",
+        started_at=datetime.now(UTC),
+    )
+    assert event.call_id == "call-abc"
+    assert event.source == "chat_stream"
+    assert event.status == "success"
+
+
+def test_llm_trace_event_optional_fields():
+    event = LLMTraceEvent(
+        id="evt-456",
+        call_id="call-def",
+        source="rag_generate",
+        provider="langchain-openai",
+        model="gpt-4",
+        status="error",
+        started_at=datetime.now(UTC),
+        request_payload_masked={"messages": [{"role": "user", "content": "hello"}]},
+        response_payload_masked=None,
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        duration_ms=1200,
+        error_type="TimeoutError",
+        error_message_masked="[MASKED]",
+    )
+    assert event.total_tokens == 15
+    assert event.error_type == "TimeoutError"

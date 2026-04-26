@@ -3,6 +3,7 @@ from app.infra.postgres.models.chat import ChatMessage, ChatSession
 from app.infra.postgres.models.document import Document, IngestionJob
 from app.infra.postgres.models.exhibit import Exhibit
 from app.infra.postgres.models.hall import Hall
+from app.infra.postgres.models.llm_trace import LLMTraceEvent
 from app.infra.postgres.models.profile import VisitorProfile
 from app.infra.postgres.models.prompt import Prompt, PromptVersion
 from app.infra.postgres.models.tour import TourEventModel, TourPath, TourReportModel, TourSessionModel
@@ -24,4 +25,5 @@ __all__ = [
     "TourReportModel",
     "Prompt",
     "PromptVersion",
+    "LLMTraceEvent",
 ]

@@ -35,12 +35,13 @@ def create_embeddings(settings: Settings) -> CustomOllamaEmbeddings:
     )
 
 
-def create_llm(settings: Settings) -> ChatOpenAI:
+def create_llm(settings: Settings, callbacks: list | None = None) -> ChatOpenAI:
     """创建LLM实例。"""
     return ChatOpenAI(
         base_url=settings.LLM_BASE_URL,
         api_key=settings.LLM_API_KEY,
         model=settings.LLM_MODEL,
+        callbacks=callbacks,
     )
 
 

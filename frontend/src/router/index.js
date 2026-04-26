@@ -78,6 +78,12 @@ const routes = [
         name: 'admin-prompts',
         component: () => import('../components/admin/PromptManager.vue'),
         meta: { title: '提示词管理' }
+      },
+      {
+        path: 'llm-traces',
+        name: 'admin-llm-traces',
+        component: () => import('../components/admin/LLMTraceManager.vue'),
+        meta: { title: 'LLM 调用追踪' }
       }
     ]
   },

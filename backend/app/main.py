@@ -8,6 +8,7 @@ from loguru import logger
 from app.api.admin import documents_router as admin_documents_router
 from app.api.admin import exhibits_router as admin_exhibits_router
 from app.api.admin import halls_router as admin_halls_router
+from app.api.admin import llm_traces_router as admin_llm_traces_router
 from app.api.admin import prompts_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
@@ -33,8 +34,9 @@ from app.infra.langchain import (
     create_rerank_provider,
     create_retriever,
 )
+from app.infra.langchain.llm_trace_callback import LLMTraceCallbackHandler
 from app.infra.postgres.adapters import PostgresPromptRepository
-from app.infra.postgres.database import close_database, get_session, init_database
+from app.infra.postgres.database import close_database, get_session, get_session_maker, init_database
 from app.infra.redis.cache import RedisCache
 from app.observability.logging import setup_logging
 from app.observability.middleware import RequestLoggingMiddleware
@@ -81,7 +83,13 @@ async def lifespan(app: FastAPI):
             app.state.degraded.add("elasticsearch")
 
         embeddings = create_embeddings(settings)
-        llm = create_llm(settings)
+
+        from app.application.llm_trace.recorder import LLMTraceRecorder
+
+        session_maker = get_session_maker()
+        trace_recorder = LLMTraceRecorder(session_maker=session_maker)
+        llm_trace_callback = LLMTraceCallbackHandler(trace_recorder=trace_recorder)
+        llm = create_llm(settings, callbacks=[llm_trace_callback])
         retriever = create_retriever(es_client, embeddings, settings)
 
         rerank_provider = create_rerank_provider(settings)
@@ -99,7 +107,7 @@ async def lifespan(app: FastAPI):
 
         from app.infra.providers.llm import OpenAICompatibleProvider
 
-        llm_provider = OpenAICompatibleProvider.from_settings(settings)
+        llm_provider = OpenAICompatibleProvider.from_settings(settings, trace_recorder=trace_recorder)
         query_rewriter = create_query_rewriter(llm_provider, prompt_gateway=prompt_gateway)
 
         rag_agent = create_rag_agent(
@@ -225,6 +233,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(admin_exhibits_router, prefix="/api/v1")
 app.include_router(admin_documents_router, prefix="/api/v1")
 app.include_router(admin_halls_router, prefix="/api/v1")
+app.include_router(admin_llm_traces_router, prefix="/api/v1")
 app.include_router(prompts_router, prefix="/api/v1")
 app.include_router(curator_router, prefix="/api/v1")
 app.include_router(profile_router, prefix="/api/v1")

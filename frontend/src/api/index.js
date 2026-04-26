@@ -317,6 +317,17 @@ export const api = {
       reload: (key) => request(`/admin/prompts/${key}/reload`, { method: 'POST' }),
       reloadAll: () => request('/admin/prompts/reload-all', { method: 'POST' }),
     },
+
+    // LLM Traces
+    llmTraces: {
+      list: (params = {}) => {
+        const filteredParams = Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v != null)
+        )
+        return request(`/admin/llm-traces?${new URLSearchParams(filteredParams)}`)
+      },
+      get: (callId) => request(`/admin/llm-traces/${callId}`),
+    },
   },
 
   // Curator (AI-powered tour planning)

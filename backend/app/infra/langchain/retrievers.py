@@ -29,23 +29,29 @@ class RRFRetriever(BaseRetriever):
     async def _aget_relevant_documents(self, query: str) -> list[Document]:
         query_vector = await self.embeddings.aembed_query(query)
 
-        # 并行执行 dense 和 BM25 检索
         dense_results, bm25_results = await asyncio.gather(
             self.es_client.search_dense(query_vector, self.top_k * 2),
             self.es_client.search_bm25(query, self.top_k * 2),
         )
 
-        fused = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
+        fused = rrf_fusion(
+            dense_results,
+            bm25_results,
+            k=self.rrf_k,
+            deduplicate_by="document_id",
+            top_k=self.top_k,
+        )
 
         documents = []
-        for item in fused[: self.top_k]:
+        for item in fused:
+            source = item.get("source") or item.get("document_id")
             doc = Document(
                 page_content=item.get("content", ""),
                 metadata={
                     "chunk_id": item.get("chunk_id"),
                     "document_id": item.get("document_id"),
                     "chunk_level": item.get("chunk_level"),
-                    "source": item.get("source"),
+                    "source": source,
                     "rrf_score": item.get("rrf_score"),
                 },
             )
@@ -177,7 +183,13 @@ class ExhibitAwareRetriever(BaseRetriever):
             self.es_client.search_dense(query_vector, self.top_k * 2),
             self.es_client.search_bm25(query, self.top_k * 2),
         )
-        fused_chunks = rrf_fusion(dense_results, bm25_results, k=self.rrf_k)
+        fused_chunks = rrf_fusion(
+            dense_results,
+            bm25_results,
+            k=self.rrf_k,
+            deduplicate_by="document_id",
+            top_k=self.top_k,
+        )
 
         all_results: list[dict[str, Any]] = []
         for item in fused_chunks:
@@ -229,14 +241,14 @@ class ExhibitAwareRetriever(BaseRetriever):
                     },
                 )
             else:
-                # 构建文档块 Document
+                source = item.get("source") or item.get("document_id")
                 doc = Document(
                     page_content=item.get("content", ""),
                     metadata={
                         "chunk_id": item.get("chunk_id"),
                         "document_id": item.get("document_id"),
                         "chunk_level": item.get("chunk_level"),
-                        "source": item.get("source"),
+                        "source": source,
                         "doc_type": "chunk",
                         "rrf_score": item.get("rrf_score"),
                     },

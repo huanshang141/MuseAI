@@ -57,7 +57,7 @@ def create_retriever(
     return UnifiedRetriever(
         es_client=es_client,
         embeddings=embeddings,
-        top_k=5,
+        top_k=settings.RETRIEVAL_TOP_K,
         rrf_k=60,
         chunk_levels=[2, 3],
     )
@@ -114,6 +114,15 @@ def create_rag_agent(
     Returns:
         RAG Agent实例
     """
+    from app.application.document_filter import FilterConfig
+
+    filter_config = FilterConfig(
+        absolute_threshold=settings.RERANK_ABSOLUTE_THRESHOLD,
+        relative_gap=settings.RERANK_RELATIVE_GAP,
+        min_docs=settings.RERANK_MIN_DOCS,
+        max_docs=settings.RERANK_MAX_DOCS,
+    )
+
     return RAGAgent(
         llm=llm,
         retriever=retriever,
@@ -127,6 +136,7 @@ def create_rag_agent(
         merge_enabled=settings.CHUNK_MERGE_ENABLED,
         merge_max_level=settings.CHUNK_MERGE_MAX_LEVEL,
         merge_max_parents=settings.CHUNK_MERGE_MAX_PARENTS,
+        filter_config=filter_config,
     )
 
 

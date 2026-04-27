@@ -67,7 +67,7 @@ class UnifiedRetriever(BaseRetriever):
 
     es_client: Any
     embeddings: Any
-    top_k: int = 5
+    top_k: int = 15
     rrf_k: int = 60
     source_types: list[str] | None = None
     chunk_levels: list[int] | None = None

@@ -161,6 +161,12 @@ async def ask_question_stream_with_rag(
         yield sse_chat_event("rag_step", step="rerank", status="running", message="正在对文档进行重排序...")
         yield sse_chat_event("rag_step", step="rerank", status="completed", message="重排序完成")
 
+        yield sse_chat_event("rag_step", step="filter", status="running", message="正在筛选高质量参考文档...")
+        filtered_count = len(result.get("filtered_documents", []))
+        original_count = len(result.get("reranked_documents", []))
+        f_msg = f'从 {original_count} 篇文档中筛选出 {filtered_count} 篇高质量参考'
+        yield sse_chat_event("rag_step", step="filter", status="completed", message=f_msg)
+
         yield sse_chat_event("rag_step", step="evaluate", status="running", message="正在评估检索质量...")
 
         transformations = result.get("transformations", [])
@@ -173,7 +179,11 @@ async def ask_question_stream_with_rag(
 
         yield sse_chat_event("rag_step", step="generate", status="running", message="正在生成回答...")
 
-        docs = result.get("reranked_documents") or result.get("documents", [])
+        docs = (
+            result.get("filtered_documents")
+            or result.get("reranked_documents")
+            or result.get("documents", [])
+        )
         context = "\n\n".join(doc.page_content for doc in docs)
 
         prompt = None
@@ -212,8 +222,12 @@ async def ask_question_stream_with_rag(
             await add_message(session, session_id, "assistant", answer_content, trace_id=trace_id)
             await session.commit()
 
-        docs = result.get("reranked_documents") or result.get("documents", [])
-        _log.debug(f"Using docs count: {len(docs)}")
+        docs = (
+            result.get("filtered_documents")
+            or result.get("reranked_documents")
+            or result.get("documents", [])
+        )
+        _log.debug(f"Using docs count: {len(docs)} (filtered from {len(result.get('reranked_documents', []))})")
 
         has_rerank_scores = any(
             d.metadata.get("rerank_score") is not None for d in docs
@@ -299,7 +313,11 @@ async def ask_question_stream_guest(
         eval_msg = f"检索评分: {retrieval_score:.2f}"
         yield sse_chat_event("thinking", stage="evaluate", content=eval_msg)
 
-        docs = result.get("reranked_documents") or result.get("documents", [])
+        docs = (
+            result.get("filtered_documents")
+            or result.get("reranked_documents")
+            or result.get("documents", [])
+        )
         context = "\n\n".join(doc.page_content for doc in docs)
 
         prompt = None
@@ -334,7 +352,11 @@ async def ask_question_stream_guest(
         existing_messages.append({"role": "assistant", "content": answer})
         await redis.set_guest_session(session_id, existing_messages, ttl=3600)
 
-        docs = result.get("reranked_documents") or result.get("documents", [])
+        docs = (
+            result.get("filtered_documents")
+            or result.get("reranked_documents")
+            or result.get("documents", [])
+        )
 
         has_rerank_scores = any(
             d.metadata.get("rerank_score") is not None for d in docs

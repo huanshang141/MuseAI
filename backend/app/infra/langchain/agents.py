@@ -12,6 +12,7 @@ from langchain_core.retrievers import BaseRetriever
 from langgraph.graph import END, StateGraph
 from loguru import logger
 
+from app.application.document_filter import DynamicDocumentFilter, FilterConfig
 from app.application.ports.prompt_gateway import PromptGateway
 from app.application.workflows.query_transform import (
     ConversationAwareQueryRewriter,
@@ -33,6 +34,7 @@ class RAGState(TypedDict):
     documents: list[Document]
     merged_documents: list[Document]
     reranked_documents: list[Document]
+    filtered_documents: list[Document]
     retrieval_score: float
     attempts: int
     transformations: list[str]
@@ -68,6 +70,7 @@ class RAGAgent:
         merge_enabled: bool = True,
         merge_max_level: int = 1,
         merge_max_parents: int = 3,
+        filter_config: FilterConfig | None = None,
     ):
         """初始化RAG Agent。
 
@@ -84,6 +87,7 @@ class RAGAgent:
             merge_enabled: 是否启用层级合并
             merge_max_level: 合并时允许的最大chunk_level
             merge_max_parents: 最多替换多少个父文档
+            filter_config: 动态文档过滤配置（可选）
         """
         self.llm = llm
         self.retriever = retriever
@@ -97,6 +101,7 @@ class RAGAgent:
         self.merge_enabled = merge_enabled
         self.merge_max_level = merge_max_level
         self.merge_max_parents = merge_max_parents
+        self.document_filter = DynamicDocumentFilter(filter_config)
         self._graph = self._build_graph()
 
     def _build_graph(self) -> Any:
@@ -108,6 +113,7 @@ class RAGAgent:
         workflow.add_node("retrieve", self.retrieve)
         workflow.add_node("merge", self.merge_chunks)
         workflow.add_node("rerank", self.rerank)
+        workflow.add_node("filter", self.filter_documents)
         workflow.add_node("evaluate", self.evaluate)
         workflow.add_node("transform", self.transform)
         workflow.add_node("generate", self.generate)
@@ -117,7 +123,8 @@ class RAGAgent:
         workflow.add_edge("rewrite", "retrieve")
         workflow.add_edge("retrieve", "merge")
         workflow.add_edge("merge", "rerank")
-        workflow.add_edge("rerank", "evaluate")
+        workflow.add_edge("rerank", "filter")
+        workflow.add_edge("filter", "evaluate")
 
         # 条件边：评估后决定是转换还是生成
         workflow.add_conditional_edges(
@@ -294,23 +301,52 @@ class RAGAgent:
             logger.warning(f"Rerank failed: {e}, using original order")
             return {"reranked_documents": documents}
 
+    def filter_documents(self, state: RAGState) -> dict[str, Any]:
+        """对重排序后的文档进行动态过滤。"""
+        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
+
+        if not docs:
+            logger.debug("filter_documents: no documents to filter")
+            return {"filtered_documents": []}
+
+        filtered = self.document_filter.filter(docs)
+        logger.info(
+            f"filter_documents: {len(docs)} docs -> {len(filtered)} docs "
+            f"(config: min={self.document_filter.config.min_docs}, "
+            f"max={self.document_filter.config.max_docs}, "
+            f"absolute_threshold={self.document_filter.config.absolute_threshold}, "
+            f"relative_gap={self.document_filter.config.relative_gap})"
+        )
+        return {"filtered_documents": filtered}
+
     def evaluate(self, state: RAGState) -> dict[str, Any]:
         """评估检索质量。"""
-        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
+        docs = (
+            state.get("filtered_documents")
+            or state.get("reranked_documents")
+            or state.get("merged_documents")
+            or state["documents"]
+        )
 
         if not docs:
             return {"retrieval_score": 0.0}
 
-        # 计算平均分数
         scores = []
         for doc in docs:
-            # 优先使用rerank分数，其次使用rrf分数
             score = doc.metadata.get("rerank_score", doc.metadata.get("rrf_score", 0.5))
             scores.append(score)
 
-        avg_score = sum(scores) / len(scores) if scores else 0.0
-        logger.debug(f"Evaluation score: {avg_score:.3f} from {len(docs)} documents")
-        return {"retrieval_score": avg_score}
+        max_score = max(scores) if scores else 0.0
+        valid_count = sum(1 for s in scores if s >= 0.3)
+
+        retrieval_score = max_score * (1.0 + 0.05 * min(valid_count, 5))
+        retrieval_score = min(retrieval_score, 1.0)
+
+        logger.debug(
+            f"Evaluation score: {retrieval_score:.3f} (max={max_score:.3f}, "
+            f"valid_docs={valid_count}, total={len(docs)})"
+        )
+        return {"retrieval_score": retrieval_score}
 
     async def transform(self, state: RAGState) -> dict[str, Any]:
         """查询转换（当检索质量不佳时）。"""
@@ -357,7 +393,12 @@ class RAGAgent:
 
     async def generate(self, state: RAGState) -> dict[str, Any]:
         """生成答案。"""
-        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
+        docs = (
+            state.get("filtered_documents")
+            or state.get("reranked_documents")
+            or state.get("merged_documents")
+            or state["documents"]
+        )
         context = "\n\n".join(doc.page_content for doc in docs)
 
         custom_system_prompt = state.get("system_prompt", "")
@@ -402,6 +443,7 @@ class RAGAgent:
             "documents": [],
             "merged_documents": [],
             "reranked_documents": [],
+            "filtered_documents": [],
             "retrieval_score": 0.0,
             "attempts": 0,
             "transformations": [],

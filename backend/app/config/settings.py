@@ -58,7 +58,28 @@ class Settings(BaseSettings):
     RERANK_BASE_URL: str = ""
     RERANK_API_KEY: str = ""
     RERANK_MODEL: str = "rerank-v1"
-    RERANK_TOP_N: int = 5  # 返回top N结果
+    RERANK_TOP_N: int = 10
+
+    # 动态文档过滤配置
+    RETRIEVAL_TOP_K: int = 15
+    RERANK_ABSOLUTE_THRESHOLD: float = 0.25
+    RERANK_RELATIVE_GAP: float = 0.25
+    RERANK_MIN_DOCS: int = 1
+    RERANK_MAX_DOCS: int = 8
+
+    @field_validator("RETRIEVAL_TOP_K", "RERANK_TOP_N", "RERANK_MIN_DOCS", "RERANK_MAX_DOCS")
+    @classmethod
+    def validate_positive_int(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError(f"must be positive, got {v}")
+        return v
+
+    @field_validator("RERANK_ABSOLUTE_THRESHOLD", "RERANK_RELATIVE_GAP")
+    @classmethod
+    def validate_threshold(cls, v: float) -> float:
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(f"must be between 0 and 1, got {v}")
+        return v
 
     CHUNK_MERGE_ENABLED: bool = True
     CHUNK_MERGE_MAX_LEVEL: int = 1

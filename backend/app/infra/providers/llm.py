@@ -93,6 +93,7 @@ class OpenAICompatibleProvider:
                         provider="openai-compatible",
                         model=self.model,
                         status="success",
+                        source="openai-compatible",
                         base_url=self.base_url,
                         request_payload={"model": self.model, "messages": messages},
                         response_payload={
@@ -129,6 +130,7 @@ class OpenAICompatibleProvider:
                 call_id=call_id,
                 error_type=type(last_error).__name__ if last_error else "UnknownError",
                 error_message=str(last_error) if last_error else "unknown error",
+                source="openai-compatible",
                 started_at=started_at,
                 ended_at=ended_at,
             )
@@ -152,6 +154,7 @@ class OpenAICompatibleProvider:
                     provider="openai-compatible",
                     model=self.model,
                     status="success",
+                    source="openai-compatible",
                     base_url=self.base_url,
                     request_payload={"model": self.model, "messages": messages},
                     response_payload={"content": "".join(chunks)},
@@ -165,6 +168,7 @@ class OpenAICompatibleProvider:
                     call_id=call_id,
                     error_type=type(e).__name__,
                     error_message=str(e),
+                    source="openai-compatible",
                     started_at=started_at,
                     ended_at=ended_at,
                 )

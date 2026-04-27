@@ -13,7 +13,12 @@ from langgraph.graph import END, StateGraph
 from loguru import logger
 
 from app.application.ports.prompt_gateway import PromptGateway
-from app.application.workflows.query_transform import ConversationAwareQueryRewriter
+from app.application.workflows.query_transform import (
+    ConversationAwareQueryRewriter,
+    QueryTransformer,
+    QueryTransformStrategy,
+    select_strategy,
+)
 from app.infra.providers.rerank import BaseRerankProvider, RerankResult
 
 SCORE_THRESHOLD = 0.7
@@ -56,6 +61,7 @@ class RAGAgent:
         rerank_provider: BaseRerankProvider | None = None,
         query_rewriter: ConversationAwareQueryRewriter | None = None,
         prompt_gateway: PromptGateway | None = None,
+        llm_provider: Any | None = None,
         score_threshold: float = SCORE_THRESHOLD,
         max_attempts: int = MAX_ATTEMPTS,
         rerank_top_n: int = 5,
@@ -71,6 +77,7 @@ class RAGAgent:
             rerank_provider: Rerank服务提供者（可选）
             query_rewriter: 查询重写器（可选）
             prompt_gateway: Prompt网关（可选）
+            llm_provider: LLM提供者（可选，用于查询转换）
             score_threshold: 检索评分阈值
             max_attempts: 最大重试次数
             rerank_top_n: Rerank返回的文档数量
@@ -83,6 +90,7 @@ class RAGAgent:
         self.rerank_provider = rerank_provider
         self.query_rewriter = query_rewriter
         self.prompt_gateway = prompt_gateway
+        self.llm_provider = llm_provider
         self.score_threshold = score_threshold
         self.max_attempts = max_attempts
         self.rerank_top_n = rerank_top_n
@@ -304,12 +312,48 @@ class RAGAgent:
         logger.debug(f"Evaluation score: {avg_score:.3f} from {len(docs)} documents")
         return {"retrieval_score": avg_score}
 
-    def transform(self, state: RAGState) -> dict[str, Any]:
+    async def transform(self, state: RAGState) -> dict[str, Any]:
         """查询转换（当检索质量不佳时）。"""
-        return {
-            "attempts": state["attempts"] + 1,
-            "transformations": state["transformations"] + ["query_transform"],
-        }
+        new_attempts = state["attempts"] + 1
+        new_transformations = state["transformations"] + ["query_transform"]
+
+        query = state.get("rewritten_query") or state["query"]
+        retrieval_score = state["retrieval_score"]
+
+        strategy = select_strategy(query, retrieval_score, new_attempts)
+        logger.info(
+            f"Query transform: attempt={new_attempts}, strategy={strategy.value}, "
+            f"score={retrieval_score:.3f}, query='{query[:50]}...'"
+        )
+
+        if strategy == QueryTransformStrategy.NONE or self.llm_provider is None:
+            return {"attempts": new_attempts, "transformations": new_transformations}
+
+        try:
+            transformer = QueryTransformer(self.llm_provider, prompt_gateway=self.prompt_gateway)
+
+            if strategy == QueryTransformStrategy.STEP_BACK:
+                transformed = await transformer.transform_step_back(query)
+                new_transformations[-1] = f"step_back: {transformed[:80]}"
+            elif strategy == QueryTransformStrategy.HYDE:
+                transformed = await transformer.transform_hyde(query)
+                new_transformations[-1] = f"hyde: {transformed[:80]}"
+            elif strategy == QueryTransformStrategy.MULTI_QUERY:
+                queries = await transformer.transform_multi_query(query)
+                transformed = queries[0] if queries else query
+                new_transformations[-1] = f"multi_query: {', '.join(queries)[:80]}"
+            else:
+                transformed = query
+
+            logger.info(f"Query transformed: '{query[:50]}' -> '{transformed[:50]}'")
+            return {
+                "attempts": new_attempts,
+                "transformations": new_transformations,
+                "rewritten_query": transformed,
+            }
+        except Exception as e:
+            logger.warning(f"Query transform failed: {e}, keeping original query")
+            return {"attempts": new_attempts, "transformations": new_transformations}
 
     async def generate(self, state: RAGState) -> dict[str, Any]:
         """生成答案。"""

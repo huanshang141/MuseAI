@@ -98,6 +98,7 @@ def create_rag_agent(
     rerank_provider: Any | None = None,
     query_rewriter: ConversationAwareQueryRewriter | None = None,
     prompt_gateway: PromptGateway | None = None,
+    llm_provider: Any | None = None,
 ) -> RAGAgent:
     """创建RAG Agent实例。
 
@@ -108,6 +109,7 @@ def create_rag_agent(
         rerank_provider: Rerank提供者（可选）
         query_rewriter: 查询重写器（可选）
         prompt_gateway: Prompt网关（可选）
+        llm_provider: LLM提供者（可选，用于查询转换）
 
     Returns:
         RAG Agent实例
@@ -118,6 +120,7 @@ def create_rag_agent(
         rerank_provider=rerank_provider,
         query_rewriter=query_rewriter,
         prompt_gateway=prompt_gateway,
+        llm_provider=llm_provider,
         score_threshold=0.7,
         max_attempts=3,
         rerank_top_n=settings.RERANK_TOP_N,

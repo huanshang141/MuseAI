@@ -117,6 +117,7 @@ async def lifespan(app: FastAPI):
             rerank_provider=rerank_provider,
             query_rewriter=query_rewriter,
             prompt_gateway=prompt_gateway,
+            llm_provider=llm_provider,
         )
 
         ingestion_service = IngestionService(

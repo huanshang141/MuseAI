@@ -122,6 +122,9 @@ class LLMTraceRecorder:
             ):
                 payload[key] = kwargs.pop(key, None) or ctx.get(key)
 
+            if payload.get("source") is None:
+                payload["source"] = "unknown"
+
             provider = kwargs.get("provider") or "unknown"
             model = kwargs.get("model") or "unknown"
             base_url = kwargs.get("base_url")

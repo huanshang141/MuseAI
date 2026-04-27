@@ -128,10 +128,93 @@ async def test_rag_agent_transform_node():
         conversation_history=[],
     )
 
-    result = agent.transform(state)
+    result = await agent.transform(state)
 
     assert result["attempts"] == 1
     assert len(result["transformations"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_rag_agent_transform_with_llm_provider():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+    mock_llm_provider = AsyncMock()
+    mock_llm_provider.generate = AsyncMock(
+        return_value=MagicMock(content="1. 博物馆中的公共烹饪设施有哪些\n2. 古代大型灶具的用途\n3. 连通灶的历史背景")
+    )
+
+    agent = RAGAgent(llm=mock_llm, retriever=mock_retriever, llm_provider=mock_llm_provider)
+    state = RAGState(
+        query="介绍一下连通灶",
+        rewritten_query="介绍一下连通灶",
+        documents=[],
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.3,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.transform(state)
+
+    assert result["attempts"] == 1
+    assert len(result["transformations"]) == 1
+    assert "rewritten_query" in result
+    assert result["rewritten_query"] != "介绍一下连通灶"
+
+
+@pytest.mark.asyncio
+async def test_rag_agent_transform_without_llm_provider():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+
+    agent = RAGAgent(llm=mock_llm, retriever=mock_retriever)
+    state = RAGState(
+        query="test query",
+        rewritten_query="test query",
+        documents=[],
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.3,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.transform(state)
+
+    assert result["attempts"] == 1
+    assert "rewritten_query" not in result
+
+
+@pytest.mark.asyncio
+async def test_rag_agent_transform_failure_fallback():
+    mock_llm = MagicMock()
+    mock_retriever = MagicMock()
+    mock_llm_provider = AsyncMock()
+    mock_llm_provider.generate = AsyncMock(side_effect=Exception("LLM unavailable"))
+
+    agent = RAGAgent(llm=mock_llm, retriever=mock_retriever, llm_provider=mock_llm_provider)
+    state = RAGState(
+        query="test query",
+        rewritten_query="test query",
+        documents=[],
+        merged_documents=[],
+        reranked_documents=[],
+        retrieval_score=0.3,
+        attempts=0,
+        transformations=[],
+        answer="",
+        conversation_history=[],
+    )
+
+    result = await agent.transform(state)
+
+    assert result["attempts"] == 1
+    assert "rewritten_query" not in result
 
 
 @pytest.mark.asyncio

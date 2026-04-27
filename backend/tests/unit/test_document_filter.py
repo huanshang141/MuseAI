@@ -1,7 +1,6 @@
 import pytest
-from langchain_core.documents import Document
-
 from app.application.document_filter import DynamicDocumentFilter, FilterConfig
+from langchain_core.documents import Document
 
 
 class TestFilterConfig:

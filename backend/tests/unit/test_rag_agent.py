@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from app.application.document_filter import FilterConfig
 from app.infra.langchain.agents import RAGAgent, RAGState
 from langchain_core.documents import Document
 
@@ -638,3 +639,95 @@ async def test_merge_chunks_no_parent_chunk_id():
     result = await agent.merge_chunks(state)
     assert len(result["merged_documents"]) == 1
     assert result["merged_documents"][0].page_content == "orphan"
+
+
+class TestRAGAgentFilterNode:
+    @pytest.fixture
+    def mock_rag_agent(self):
+        mock_llm = MagicMock()
+        mock_retriever = MagicMock()
+        agent = RAGAgent(
+            llm=mock_llm,
+            retriever=mock_retriever,
+            rerank_provider=None,
+            filter_config=FilterConfig(
+                absolute_threshold=0.25,
+                relative_gap=0.25,
+                min_docs=1,
+                max_docs=8,
+            ),
+        )
+        return agent
+
+    def test_filter_node_with_specific_exhibit(self, mock_rag_agent):
+        """模拟连通灶场景"""
+        state: RAGState = {
+            "query": "介绍一下连通灶",
+            "rewritten_query": "介绍一下连通灶",
+            "documents": [],
+            "merged_documents": [],
+            "reranked_documents": [
+                Document(page_content="连通灶是大型公共灶...", metadata={"rerank_score": 0.41}),
+                Document(page_content="青铜馆A厅介绍...", metadata={"rerank_score": 0.001}),
+                Document(page_content="半坡人生活方式...", metadata={"rerank_score": 0.00006}),
+            ],
+            "filtered_documents": [],
+            "retrieval_score": 0.0,
+            "attempts": 0,
+            "transformations": [],
+            "answer": "",
+            "conversation_history": [],
+            "system_prompt": "",
+        }
+        result = mock_rag_agent.filter_documents(state)
+        filtered = result["filtered_documents"]
+        assert len(filtered) == 1
+        assert filtered[0].metadata["rerank_score"] == pytest.approx(0.41)
+
+    def test_filter_node_with_broad_topic(self, mock_rag_agent):
+        """模拟半坡陶器场景"""
+        state: RAGState = {
+            "query": "介绍一下半坡的陶器",
+            "rewritten_query": "介绍一下半坡的陶器",
+            "documents": [],
+            "merged_documents": [],
+            "reranked_documents": [
+                Document(page_content="陶器的造型与纹饰...", metadata={"rerank_score": 0.97}),
+                Document(page_content="雕塑艺术...", metadata={"rerank_score": 0.97}),
+                Document(page_content="彩陶图案集萃...", metadata={"rerank_score": 0.88}),
+            ],
+            "filtered_documents": [],
+            "retrieval_score": 0.0,
+            "attempts": 0,
+            "transformations": [],
+            "answer": "",
+            "conversation_history": [],
+            "system_prompt": "",
+        }
+        result = mock_rag_agent.filter_documents(state)
+        filtered = result["filtered_documents"]
+        assert len(filtered) == 3
+
+    def test_evaluate_uses_filtered_documents(self, mock_rag_agent):
+        """评估节点应优先使用 filtered_documents"""
+        state: RAGState = {
+            "query": "test",
+            "rewritten_query": "test",
+            "documents": [],
+            "merged_documents": [],
+            "reranked_documents": [
+                Document(page_content="a", metadata={"rerank_score": 0.9}),
+                Document(page_content="b", metadata={"rerank_score": 0.1}),
+            ],
+            "filtered_documents": [
+                Document(page_content="a", metadata={"rerank_score": 0.9}),
+            ],
+            "retrieval_score": 0.0,
+            "attempts": 0,
+            "transformations": [],
+            "answer": "",
+            "conversation_history": [],
+            "system_prompt": "",
+        }
+        result = mock_rag_agent.evaluate(state)
+        assert result["retrieval_score"] == pytest.approx(0.945)

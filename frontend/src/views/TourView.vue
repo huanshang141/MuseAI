@@ -4,7 +4,7 @@ import { useTour } from '../composables/useTour.js'
 import OnboardingQuiz from '../components/tour/OnboardingQuiz.vue'
 import OpeningNarrative from '../components/tour/OpeningNarrative.vue'
 import HallSelect from '../components/tour/HallSelect.vue'
-import ExhibitTour from '../components/tour/ExhibitTour.vue'
+import TourWorkspace from '../components/tour/TourWorkspace.vue'
 import TourReport from '../components/tour/TourReport.vue'
 
 const { tourStep, restoreSession, setupBeforeUnload, resetTour } = useTour()
@@ -24,7 +24,7 @@ onMounted(async () => {
       <OnboardingQuiz v-if="tourStep === 'onboarding'" />
       <OpeningNarrative v-else-if="tourStep === 'opening'" />
       <HallSelect v-else-if="tourStep === 'hall-select'" />
-      <ExhibitTour v-else-if="tourStep === 'tour'" />
+      <TourWorkspace v-else-if="tourStep === 'tour'" />
       <TourReport v-else-if="tourStep === 'report'" />
     </div>
   </div>

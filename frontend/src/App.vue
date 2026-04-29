@@ -13,9 +13,9 @@ provide('showAuthModal', (show = true) => {
 })
 
 const route = useRoute()
-const isTourMode = computed(() => route.path.startsWith('/tour'))
+const isTourRoute = computed(() => route.path.startsWith('/tour'))
 const sidebarType = computed(() => route.meta?.sidebar ?? null)
-const hasSidebar = computed(() => !isTourMode.value && !!sidebarType.value)
+const hasSidebar = computed(() => !!sidebarType.value)
 
 const isMobile = useMediaQuery('(max-width: 767px)')
 const isSidebarDrawerOpen = ref(false)
@@ -36,7 +36,6 @@ function toggleSidebarDrawer() {
 <template>
   <div class="app-container">
     <AppHeader
-      v-if="!isTourMode"
       :show-sidebar-toggle="isMobile && hasSidebar"
       @toggle-sidebar="toggleSidebarDrawer"
     />
@@ -53,7 +52,7 @@ function toggleSidebarDrawer() {
         <AppSidebar :type="sidebarType" />
       </AppDrawer>
 
-      <div class="app-main" :class="{ 'tour-mode': isTourMode }">
+      <div class="app-main" :class="{ 'app-main--no-padding': isTourRoute }">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
@@ -75,9 +74,8 @@ function toggleSidebarDrawer() {
   background: #f5f7fa;
 }
 
-.app-main.tour-mode {
+.app-main--no-padding {
   padding: 0;
-  background: #1a1a2e;
 }
 
 .fade-enter-active,
@@ -93,10 +91,6 @@ function toggleSidebarDrawer() {
 @media (max-width: 767px) {
   .app-main {
     padding: 12px;
-  }
-
-  .app-main.tour-mode {
-    padding: 0;
   }
 }
 </style>

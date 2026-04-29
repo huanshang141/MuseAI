@@ -132,10 +132,12 @@ export function useTour() {
     }, token)
   }
 
-  async function sendTourMessage(message) {
+  async function sendTourMessage(message, skipUserPush = false) {
     if (!tourSession.value) return
     loading.value.chat = true
-    chatMessages.value.push({ role: 'user', content: message })
+    if (!skipUserPush) {
+      chatMessages.value.push({ role: 'user', content: message })
+    }
     streamingContent.value = ''
     suggestedActions.value = null
 

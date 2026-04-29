@@ -1,17 +1,39 @@
 <script setup>
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useTour } from '../../../composables/useTour.js'
 import { useTourWorkbench } from '../../../composables/useTourWorkbench.js'
 
 const { chatMessages, streamingContent, loading, sendTourMessage, currentExhibit, suggestedActions } = useTour()
-const { chatDraft, buildStyledPrompt, uiPreferences } = useTourWorkbench()
+const { chatDraft, buildStyledPrompt, uiPreferences, activeTab } = useTourWorkbench()
+
+const messagesArea = ref(null)
+
+function scrollToBottom() {
+  if (!uiPreferences.value.autoScroll) return
+  const el = messagesArea.value
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+watch([chatMessages, streamingContent], () => {
+  nextTick(scrollToBottom)
+}, { deep: true })
+
+watch(activeTab, (newTab, oldTab) => {
+  if (oldTab === 'session' && !uiPreferences.value.rememberDraft) {
+    chatDraft.value = ''
+  }
+})
 
 async function sendMessage() {
   if (!chatDraft.value.trim() || loading.value.chat) return
   const rawInput = chatDraft.value.trim()
   const styledInput = buildStyledPrompt(rawInput)
   chatDraft.value = ''
-  await sendTourMessage(styledInput)
+  chatMessages.value.push({ role: 'user', content: rawInput })
+  await sendTourMessage(styledInput, true)
 }
+
+onMounted(scrollToBottom)
 </script>
 
 <template>
@@ -19,12 +41,15 @@ async function sendMessage() {
     <div v-if="currentExhibit" class="session-exhibit-bar">
       <span class="exhibit-name">{{ currentExhibit.name }}</span>
     </div>
-    <div class="messages-area">
-      <div v-for="(msg, i) in chatMessages" :key="i" class="message" :class="msg.role">
+    <div ref="messagesArea" class="messages-area">
+      <div v-for="(msg, i) in chatMessages" :key="msg.role + '-' + i" class="message" :class="msg.role">
         <span class="msg-content">{{ msg.content }}</span>
       </div>
-      <div v-if="loading.chat && streamingContent" class="message assistant">
+      <div v-if="loading.chat && streamingContent" class="message assistant streaming-content">
         <span class="msg-content">{{ streamingContent }}<span class="cursor">|</span></span>
+      </div>
+      <div v-if="loading.chat && !streamingContent" class="message assistant loading-hint">
+        <span class="msg-content">正在思考<span class="dots">...</span></span>
       </div>
     </div>
     <div v-if="suggestedActions && !loading.chat && uiPreferences.showQuickPrompts" class="quick-prompts">
@@ -88,6 +113,20 @@ async function sendMessage() {
   align-self: flex-start;
   background: var(--color-surface-card, #fbf5e6);
   color: var(--color-text-primary, #2a2420);
+}
+
+.loading-hint {
+  opacity: 0.6;
+}
+
+.dots {
+  animation: dots-pulse 1.2s infinite;
+}
+
+@keyframes dots-pulse {
+  0%, 20% { opacity: 0.2; }
+  40% { opacity: 0.6; }
+  60%, 100% { opacity: 1; }
 }
 
 .cursor {

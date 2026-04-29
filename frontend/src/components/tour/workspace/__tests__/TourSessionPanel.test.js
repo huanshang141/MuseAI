@@ -30,6 +30,16 @@ vi.mock('../../../../api/index.js', () => ({
   },
 }))
 
+const mediaQueryHolder = vi.hoisted(() => ({ ref: null }))
+
+vi.mock('../../../../composables/useMediaQuery.js', () => {
+  const { ref } = require('vue')
+  mediaQueryHolder.ref = ref(true)
+  return {
+    useMediaQuery: () => mediaQueryHolder.ref,
+  }
+})
+
 import TourWorkspace from '../../TourWorkspace.vue'
 import TourSessionPanel from '../TourSessionPanel.vue'
 

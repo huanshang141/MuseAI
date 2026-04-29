@@ -1,5 +1,8 @@
 <script setup>
+import { computed } from 'vue'
 import { useTourWorkbench } from '../../composables/useTourWorkbench.js'
+import { useMediaQuery } from '../../composables/useMediaQuery.js'
+import { BREAKPOINTS } from '../../design-system/tokens/breakpoints.js'
 import TourWorkspaceSidebar from './workspace/TourWorkspaceSidebar.vue'
 import TourSecondaryTabs from './workspace/TourSecondaryTabs.vue'
 import TourSessionPanel from './workspace/TourSessionPanel.vue'
@@ -8,6 +11,7 @@ import TourProgressPanel from './workspace/TourProgressPanel.vue'
 import TourSettingsPanel from './workspace/TourSettingsPanel.vue'
 
 const { activeTab } = useTourWorkbench()
+const isDesktop = useMediaQuery(`(min-width: ${BREAKPOINTS.md}px)`)
 
 function onSwitchTab(tab) {
   activeTab.value = tab
@@ -16,7 +20,7 @@ function onSwitchTab(tab) {
 
 <template>
   <section class="tour-workspace" data-testid="tour-workspace">
-    <TourWorkspaceSidebar @switch-tab="onSwitchTab" />
+    <TourWorkspaceSidebar v-if="isDesktop" @switch-tab="onSwitchTab" />
     <div class="tour-workspace-main">
       <TourSecondaryTabs :active-tab="activeTab" @update:active-tab="onSwitchTab" />
       <div class="tour-workspace-panel">
@@ -49,5 +53,11 @@ function onSwitchTab(tab) {
 .tour-workspace-panel {
   flex: 1;
   overflow-y: auto;
+}
+
+@media (max-width: 767px) {
+  .tour-workspace {
+    flex-direction: column;
+  }
 }
 </style>

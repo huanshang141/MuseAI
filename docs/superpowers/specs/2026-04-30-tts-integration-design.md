@@ -45,7 +45,11 @@ Add Text-to-Speech (TTS) to MuseAI's two LLM conversation features — intellige
 │                                                         │
 │  api/tts.py (standalone TTS endpoint for click-to-play) │
 │  tts_service.py (orchestrates TTS calls)                │
-│  infra/providers/tts.py (Xiaomi TTS API client)         │
+│  infra/providers/tts/                                   │
+│    ├── base.py (BaseTTSProvider ABC, TTSConfig)          │
+│    ├── xiaomi.py (XiaomiTTSProvider)                     │
+│    ├── mock.py (MockTTSProvider for tests)               │
+│    └── factory.py (create_tts_provider)                  │
 │                                                         │
 │  prompt_service.py (existing, for tour TTS prompts)     │
 │  config/settings.py (new TTS settings)                  │
@@ -60,6 +64,7 @@ Add new settings fields:
 
 ```python
 TTS_ENABLED: bool = True
+TTS_PROVIDER: str = "xiaomi"           # xiaomi, openai, mock
 TTS_BASE_URL: str = "https://api.xiaomimimo.com/v1"
 TTS_API_KEY: str = ""
 TTS_MODEL: str = "mimo-v2.5-tts"
@@ -69,54 +74,128 @@ TTS_TIMEOUT: float = 30.0
 
 - `TTS_API_KEY` required in production (add to `validate_production_secrets`).
 - `TTS_ENABLED` allows disabling TTS entirely (e.g. in tests or when API key is unavailable).
+- `TTS_PROVIDER` selects the implementation via factory (extensible for future providers).
 
-### 2. TTS Provider — `infra/providers/tts.py`
+### 2. TTS Provider — `infra/providers/tts/`
 
-New module wrapping the Xiaomi TTS API via the OpenAI SDK (same pattern as `llm.py`).
+Follows the rerank provider pattern: abstract base class + concrete implementations + factory function.
+
+```
+infra/providers/tts/
+├── __init__.py
+├── base.py          # BaseTTSProvider(ABC), TTSConfig, TTSResponse
+├── xiaomi.py        # XiaomiTTSProvider(BaseTTSProvider)
+├── mock.py          # MockTTSProvider(BaseTTSProvider) for tests
+└── factory.py       # create_tts_provider(settings) -> BaseTTSProvider | None
+```
+
+**`base.py`** — Abstract base class and shared models:
 
 ```python
-class TTSProvider:
+from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
+
+@dataclass
+class TTSConfig:
+    voice: str
+    style: str | None = None  # Style control instruction (user message)
+
+class BaseTTSProvider(ABC):
+    @abstractmethod
+    def synthesize_stream(
+        self, text: str, config: TTSConfig
+    ) -> AsyncGenerator[str, None]:
+        """Yield base64-encoded PCM16 audio chunks (24kHz mono)."""
+        ...
+
+    @abstractmethod
+    async def synthesize(self, text: str, config: TTSConfig) -> bytes:
+        """Return complete WAV audio bytes (non-streaming)."""
+        ...
+
+    async def close(self) -> None:
+        pass
+```
+
+**`xiaomi.py`** — Xiaomi Mimo-V2.5-TTS implementation:
+
+```python
+class XiaomiTTSProvider(BaseTTSProvider):
     def __init__(self, base_url: str, api_key: str, model: str, timeout: float):
         self.client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self.model = model
 
-    async def synthesize_stream(self, text: str, voice: str, style: str | None = None):
-        """Yield PCM16 audio chunks (base64-encoded) for streaming playback."""
+    def synthesize_stream(self, text: str, config: TTSConfig):
         messages = []
-        if style:
-            messages.append({"role": "user", "content": style})
+        if config.style:
+            messages.append({"role": "user", "content": config.style})
         messages.append({"role": "assistant", "content": text})
 
         stream = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            audio={"format": "pcm16", "voice": voice},
-            stream=True,
+            model=self.model, messages=messages,
+            audio={"format": "pcm16", "voice": config.voice}, stream=True,
         )
         async for chunk in stream:
             delta = chunk.choices[0].delta if chunk.choices else None
             audio = getattr(delta, "audio", None) if delta else None
             if audio and "data" in audio:
-                yield audio["data"]  # base64-encoded PCM16
+                yield audio["data"]
 
-    async def synthesize(self, text: str, voice: str, style: str | None = None) -> bytes:
-        """Return complete WAV audio bytes (non-streaming)."""
-        # Similar but format="wav", stream=False, returns decoded bytes
+    async def synthesize(self, text: str, config: TTSConfig) -> bytes:
+        # Non-streaming, format="wav", returns decoded bytes
+        ...
+
+    async def close(self) -> None:
+        await self.client.close()
+```
+
+**`mock.py`** — For testing:
+
+```python
+class MockTTSProvider(BaseTTSProvider):
+    async def synthesize_stream(self, text: str, config: TTSConfig):
+        yield ""  # empty chunk
+    async def synthesize(self, text: str, config: TTSConfig) -> bytes:
+        return b""
+```
+
+**`factory.py`** — Provider selection:
+
+```python
+def create_tts_provider(settings: Settings) -> BaseTTSProvider | None:
+    if not settings.TTS_ENABLED or not settings.TTS_API_KEY:
+        return None
+
+    provider_type = settings.TTS_PROVIDER.lower()
+    if provider_type == "xiaomi":
+        return XiaomiTTSProvider(
+            base_url=settings.TTS_BASE_URL,
+            api_key=settings.TTS_API_KEY,
+            model=settings.TTS_MODEL,
+            timeout=settings.TTS_TIMEOUT,
+        )
+    elif provider_type == "mock":
+        return MockTTSProvider()
+    else:
+        logger.warning(f"Unknown TTS provider: {provider_type}, returning None")
+        return None
 ```
 
 Key decisions:
-- Uses `AsyncOpenAI` client (already a dependency) — no new pip packages needed.
-- `synthesize_stream` yields base64 strings directly — no server-side audio buffering.
-- No retry logic for streaming (consistent with `LLMProvider.generate_stream`).
-- Graceful degradation: if TTS fails, emit an `audio_error` event; the text response is already delivered.
+- `BaseTTSProvider(ABC)` with `synthesize_stream` and `synthesize` abstract methods — consistent with `BaseRerankProvider`.
+- `TTSConfig` dataclass bundles voice + style — cleaner than passing multiple args.
+- Factory returns `None` when disabled — services check for `None` to skip TTS gracefully.
+- `MockTTSProvider` for tests — no real API calls needed.
+- Adding a new provider (e.g. OpenAI TTS, Azure TTS) requires only a new file + factory branch.
 
 ### 3. TTS Service — `application/tts_service.py`
 
-Orchestrates TTS calls for both chat and tour scenarios.
+Orchestrates TTS calls for both chat and tour scenarios. Depends on `BaseTTSProvider` (not a concrete implementation).
 
 ```python
 class TTSService:
-    def __init__(self, provider: TTSProvider, prompt_gateway: PromptGateway):
+    def __init__(self, provider: BaseTTSProvider, prompt_gateway: PromptGateway):
         self.provider = provider
         self.prompt_gateway = prompt_gateway
 
@@ -137,7 +216,7 @@ class TTSService:
         )
 ```
 
-`TTSConfig` is a simple dataclass holding `voice: str` and `style: str | None`.
+`TTSConfig` is imported from `infra.providers.tts.base`.
 
 ### 4. SSE Events — `application/sse_events.py`
 
@@ -220,20 +299,16 @@ Response: { "audio": "<base64-wav>", "format": "wav" }
 
 ### 9. Singleton Initialization — `main.py`
 
-Add `TTSProvider` to the lifespan initialization:
+Add TTS provider to the lifespan initialization using the factory:
 
 ```python
-tts_provider = TTSProvider(
-    base_url=settings.TTS_BASE_URL,
-    api_key=settings.TTS_API_KEY,
-    model=settings.TTS_MODEL,
-    timeout=settings.TTS_TIMEOUT,
-) if settings.TTS_ENABLED and settings.TTS_API_KEY else None
+from app.infra.providers.tts.factory import create_tts_provider
 
+tts_provider = create_tts_provider(settings)
 app.state.tts_provider = tts_provider
 ```
 
-Store as `app.state.tts_provider`. Services check for `None` to gracefully skip TTS.
+Store as `app.state.tts_provider`. Factory returns `None` when disabled or unconfigured — services check for `None` to gracefully skip TTS.
 
 ### 9. Tour TTS Prompts — Admin Configuration
 
@@ -420,7 +495,8 @@ No new pip packages — uses `openai` (already installed) for the Xiaomi TTS API
 
 ## Testing Strategy
 
-1. **Unit tests**: Mock TTS provider, verify SSE events are emitted correctly after text events
+1. **Unit tests**: Use `MockTTSProvider` to verify SSE audio events are emitted correctly after text events
 2. **Contract tests**: Verify API endpoints accept `tts`/`tts_voice` parameters
-3. **Integration tests**: Verify TTS provider correctly calls Xiaomi API with proper message format
-4. **Frontend tests**: Verify useTTSPlayer decodes PCM16 correctly, schedules playback
+3. **Integration tests**: Verify `XiaomiTTSProvider` correctly calls Xiaomi API with proper message format
+4. **Factory tests**: Verify `create_tts_provider` returns correct provider type based on settings, returns `None` when disabled
+5. **Frontend tests**: Verify useTTSPlayer decodes PCM16 correctly, schedules playback

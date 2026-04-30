@@ -144,16 +144,39 @@ async def test_update_session_ignores_disallowed_fields():
     mock_session.commit.return_value = None
     mock_session.refresh.return_value = None
 
-    original_persona = model.persona
+    original_token = model.session_token
+    await update_session(
+        mock_session,
+        "test-session-id",
+        session_token="tampered",
+        status="touring",
+    )
+
+    assert model.session_token == original_token
+    assert model.status == "touring"
+
+
+@pytest.mark.asyncio
+async def test_update_session_allows_persona_fields():
+    from app.application.tour_session_service import update_session
+
+    model = _make_model()
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+    mock_session.commit.return_value = None
+    mock_session.refresh.return_value = None
+
     await update_session(
         mock_session,
         "test-session-id",
         persona="C",
-        status="touring",
+        interest_type="B",
+        assumption="C",
     )
 
-    assert model.persona == original_persona
-    assert model.status == "touring"
+    assert model.persona == "C"
+    assert model.interest_type == "B"
+    assert model.assumption == "C"
 
 
 @pytest.mark.asyncio

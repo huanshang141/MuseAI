@@ -70,7 +70,7 @@ async def update_session(
     **updates,
 ) -> TourSession:
     model = await get_session_model(session, session_id)
-    allowed_fields = {"current_hall", "current_exhibit_id", "status", "visited_halls", "visited_exhibit_ids"}
+    allowed_fields = {"current_hall", "current_exhibit_id", "status", "visited_halls", "visited_exhibit_ids", "interest_type", "persona", "assumption"}
     for key, value in updates.items():
         if key in allowed_fields:
             setattr(model, key, value)

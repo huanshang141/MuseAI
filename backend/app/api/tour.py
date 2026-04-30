@@ -45,6 +45,9 @@ class TourSessionUpdate(BaseModel):
     current_hall: str | None = None
     current_exhibit_id: str | None = None
     status: Literal["onboarding", "opening", "touring", "completed"] | None = None
+    interest_type: Literal["A", "B", "C"] | None = None
+    persona: Literal["A", "B", "C"] | None = None
+    assumption: Literal["A", "B", "C"] | None = None
 
 
 class TourEventItem(BaseModel):

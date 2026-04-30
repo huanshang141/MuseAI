@@ -33,3 +33,38 @@ def sse_tour_event(event_: str, **fields: Any) -> str:
     payload: dict[str, Any] = {"event": event_}
     payload.update(fields)
     return f"data: {json.dumps(payload)}\n\n"
+
+
+# --- Audio (TTS) event helpers ---
+
+
+def sse_chat_audio_start(**fields: Any) -> str:
+    return sse_chat_event("audio_start", **fields)
+
+
+def sse_chat_audio_chunk(data: str) -> str:
+    return sse_chat_event("audio_chunk", data=data)
+
+
+def sse_chat_audio_end() -> str:
+    return sse_chat_event("audio_end")
+
+
+def sse_chat_audio_error(code: str, message: str) -> str:
+    return sse_chat_event("audio_error", code=code, message=message)
+
+
+def sse_tour_audio_start(**fields: Any) -> str:
+    return sse_tour_event("audio_start", **fields)
+
+
+def sse_tour_audio_chunk(data: str) -> str:
+    return sse_tour_event("audio_chunk", data=data)
+
+
+def sse_tour_audio_end() -> str:
+    return sse_tour_event("audio_end")
+
+
+def sse_tour_audio_error(code: str, message: str) -> str:
+    return sse_tour_event("audio_error", code=code, message=message)

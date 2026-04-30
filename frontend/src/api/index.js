@@ -404,12 +404,14 @@ export const api = {
     getReport: (id, token) => request(`/tour/sessions/${id}/report`, {
       headers: token ? { 'X-Session-Token': token } : {},
     }),
-    chatStream: async function* (id, message, token, exhibitId = null, style = null) {
+    chatStream: async function* (id, message, token, exhibitId = null, style = null, ttsOptions = {}) {
       const headers = { 'Content-Type': 'application/json' }
       if (token) headers['X-Session-Token'] = token
       const body = { message }
       if (exhibitId) body.exhibit_id = exhibitId
       if (style) body.style = style
+      if (ttsOptions.tts) body.tts = true
+      if (ttsOptions.tts_voice) body.tts_voice = ttsOptions.tts_voice
 
       const response = await fetch(`${BASE_URL}/tour/sessions/${id}/chat/stream`, {
         method: 'POST',

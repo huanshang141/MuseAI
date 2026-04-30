@@ -100,9 +100,26 @@ const terminologyOptions = [
 
     <div class="settings-section tts-section">
       <h4 class="settings-heading">语音朗读</h4>
-      <div class="tts-placeholder">
-        <span class="tts-icon">🔊</span>
-        <span>即将推出</span>
+      <div class="settings-row">
+        <span class="settings-label">启用语音朗读</span>
+        <el-switch v-model="ttsPreferences.enabled" />
+      </div>
+      <div class="settings-row" v-if="ttsPreferences.enabled">
+        <span class="settings-label">自动播放</span>
+        <el-switch v-model="ttsPreferences.autoPlay" />
+      </div>
+      <div class="settings-row" v-if="ttsPreferences.enabled">
+        <span class="settings-label">音色</span>
+        <el-select v-model="ttsPreferences.voice" size="small">
+          <el-option label="冰糖 (女)" value="冰糖" />
+          <el-option label="茉莉 (女)" value="茉莉" />
+          <el-option label="苏打 (男)" value="苏打" />
+          <el-option label="白桦 (男)" value="白桦" />
+          <el-option label="Mia (EN/F)" value="Mia" />
+          <el-option label="Chloe (EN/F)" value="Chloe" />
+          <el-option label="Milo (EN/M)" value="Milo" />
+          <el-option label="Dean (EN/M)" value="Dean" />
+        </el-select>
       </div>
     </div>
 
@@ -145,20 +162,5 @@ const terminologyOptions = [
 
 .settings-label {
   color: var(--color-text-secondary, #5a5248);
-}
-
-.tts-placeholder {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  background: var(--color-bg-subtle, #efe5cc);
-  border-radius: 8px;
-  color: var(--color-text-muted, #8a8074);
-  font-size: 14px;
-}
-
-.tts-icon {
-  font-size: 18px;
 }
 </style>

@@ -1,6 +1,8 @@
 import { ref, computed } from 'vue'
 import { api } from '../api/index.js'
 import { useAuth } from './useAuth.js'
+import { useTTSPlayer } from './useTTSPlayer.js'
+import { useTourWorkbench } from './useTourWorkbench.js'
 
 const tourSession = ref(null)
 const sessionToken = ref(null)
@@ -44,6 +46,8 @@ function _persistEvents() {
 
 export function useTour() {
   const { isAuthenticated, user } = useAuth()
+  const { ttsPreferences } = useTourWorkbench()
+  const { isPlaying: ttsPlaying, feedChunk, stop: stopTTS } = useTTSPlayer()
 
   async function createTourSession(interestType, persona, assumption) {
     loading.value.session = true
@@ -169,6 +173,10 @@ export function useTour() {
         token,
         currentExhibit.value?.id,
         style,
+        {
+          tts: ttsPreferences.value.enabled,
+          tts_voice: ttsPreferences.value.voice,
+        },
       )) {
         if (event.event === 'chunk' && event.data?.content) {
           streamingContent.value += event.data.content
@@ -181,6 +189,16 @@ export function useTour() {
           }
         } else if (event.event === 'error') {
           error.value = event.data?.message || 'AI导览暂时不可用'
+        } else if (event.event === 'audio_start') {
+          stopTTS()
+        } else if (event.event === 'audio_chunk') {
+          if (ttsPreferences.value.enabled && ttsPreferences.value.autoPlay) {
+            feedChunk(event.data)
+          }
+        } else if (event.event === 'audio_end') {
+          // playback finishes naturally
+        } else if (event.event === 'audio_error') {
+          console.warn('TTS error:', event.data?.message)
         }
       }
     } catch (e) {
@@ -314,6 +332,7 @@ export function useTour() {
     halls,
     personaLabel,
     reportThemeTitle,
+    ttsPlaying,
     createTourSession,
     restoreSession,
     fetchHalls,

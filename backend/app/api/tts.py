@@ -33,7 +33,7 @@ async def synthesize_tts(body: SynthesizeRequest, request: Request):
     try:
         audio_bytes = await tts_service.provider.synthesize(body.text, config)
     except Exception:
-        raise HTTPException(status_code=502, detail="TTS synthesis failed")
+        raise HTTPException(status_code=502, detail="TTS synthesis failed") from None
 
     return SynthesizeResponse(
         audio=base64.b64encode(audio_bytes).decode("ascii"),

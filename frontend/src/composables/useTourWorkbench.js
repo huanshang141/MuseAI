@@ -18,9 +18,9 @@ const DEFAULT_STYLE_PREFERENCES = {
 }
 
 const DEFAULT_TTS_PREFERENCES = {
-  voice: 'female_warm',
-  speed: '1x',
-  autoPlay: false,
+  voice: '冰糖',
+  autoPlay: true,
+  enabled: true,
 }
 
 const EXHIBIT_TEMPLATES = {

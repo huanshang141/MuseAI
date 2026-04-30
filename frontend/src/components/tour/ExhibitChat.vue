@@ -1,18 +1,41 @@
 <script setup>
 import { ref } from 'vue'
 import { useTour } from '../../composables/useTour.js'
+import { useTourWorkbench } from '../../composables/useTourWorkbench.js'
+import { api } from '../../api/index.js'
 
 const props = defineProps({ exhibit: Object })
 const emit = defineEmits(['deep-dive'])
 
 const { sendTourMessage, streamingContent, chatMessages, loading, suggestedActions } = useTour()
+const { ttsPreferences } = useTourWorkbench()
 const inputMessage = ref('')
+const manualTtsPlaying = ref(false)
 
 async function sendMessage() {
   if (!inputMessage.value.trim() || loading.value.chat) return
   const msg = inputMessage.value.trim()
   inputMessage.value = ''
   await sendTourMessage(msg)
+}
+
+async function playMessageTTS(text) {
+  if (!text) return
+  manualTtsPlaying.value = true
+  try {
+    const result = await api.tts.synthesize(text, ttsPreferences.value.voice)
+    if (result.ok && result.data?.audio) {
+      const audio = new Audio(`data:audio/wav;base64,${result.data.audio}`)
+      audio.onended = () => { manualTtsPlaying.value = false }
+      audio.onerror = () => { manualTtsPlaying.value = false }
+      await audio.play()
+    } else {
+      manualTtsPlaying.value = false
+    }
+  } catch (err) {
+    console.error('TTS playback error:', err)
+    manualTtsPlaying.value = false
+  }
 }
 
 function handleDeepDive() { emit('deep-dive') }
@@ -27,6 +50,15 @@ function handleDeepDive() { emit('deep-dive') }
     <div class="messages">
       <div v-for="(msg, i) in chatMessages" :key="i" class="message" :class="msg.role">
         <span class="msg-content">{{ msg.content }}</span>
+        <button
+          v-if="msg.role === 'assistant' && ttsPreferences.enabled"
+          class="speaker-btn"
+          title="语音播放"
+          :disabled="manualTtsPlaying"
+          @click="playMessageTTS(msg.content)"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        </button>
       </div>
       <div v-if="loading.chat && streamingContent" class="message assistant">
         <span class="msg-content">{{ streamingContent }}<span class="cursor">|</span></span>
@@ -51,7 +83,10 @@ function handleDeepDive() { emit('deep-dive') }
 .messages { flex: 1; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; }
 .message { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 15px; line-height: 1.7; white-space: pre-wrap; }
 .message.user { align-self: flex-end; background: rgba(212,165,116,0.2); color: #f0e6d3; }
-.message.assistant { align-self: flex-start; background: rgba(255,255,255,0.06); color: #e0e0e0; }
+.message.assistant { align-self: flex-start; background: rgba(255,255,255,0.06); color: #e0e0e0; position: relative; }
+.speaker-btn { position: absolute; bottom: 4px; right: 4px; background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.3); padding: 4px; border-radius: 4px; display: flex; align-items: center; transition: color 0.2s, background 0.2s; }
+.speaker-btn:hover { color: #d4a574; background: rgba(212,165,116,0.1); }
+.speaker-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .cursor { animation: blink 0.8s infinite; color: #d4a574; }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 .suggestions { padding: 8px 24px; }

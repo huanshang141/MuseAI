@@ -42,11 +42,11 @@ class TestAskRequestTTSFields:
 
 
 class TestChatStreamTTSEvents:
-    """Verify TTS audio events are appended after done event."""
+    """Verify TTS audio events are interleaved with text events."""
 
     @pytest.mark.asyncio
     async def test_simple_stream_appends_tts_events(self):
-        """ask_question_stream should yield audio_start/chunk/end after done."""
+        """ask_question_stream should yield audio_start/chunk/end before done."""
         from app.application.chat_stream_service import ask_question_stream
 
         mock_llm = AsyncMock()
@@ -71,10 +71,13 @@ class TestChatStreamTTSEvents:
                 events.append(json.loads(event.removeprefix("data: ").removesuffix("\n\n")))
 
         types = [e["type"] for e in events]
+        assert "audio_start" in types
+        assert "audio_chunk" in types
+        assert "audio_end" in types
+        # Audio events should come before done (sentence-level streaming)
         done_idx = types.index("done")
-        assert types[done_idx + 1] == "audio_start"
-        assert types[done_idx + 2] == "audio_chunk"
-        assert types[done_idx + 3] == "audio_end"
+        audio_start_idx = types.index("audio_start")
+        assert audio_start_idx < done_idx
 
     @pytest.mark.asyncio
     async def test_no_tts_events_when_provider_none(self):

@@ -447,12 +447,12 @@ async def tour_chat_stream(
 
     # Resolve persona for TTS config
     persona = None
-    if tts_provider and tts_service and body.tts:
+    if body.tts:
         try:
             tour_session_obj = await get_session(session, session_id)
             persona = tour_session_obj.persona
         except (TourSessionNotFound, TourSessionExpired):
-            pass  # Will be handled by ask_stream_tour
+            pass  # Will fall back to session persona in ask_stream_tour
 
     return StreamingResponse(
         ask_stream_tour(
@@ -465,8 +465,8 @@ async def tour_chat_stream(
             exhibit_id=body.exhibit_id,
             style=body.style,
             degraded_services=degraded,
-            tts_provider=tts_provider,
-            tts_service=tts_service,
+            tts_provider=tts_provider if body.tts else None,
+            tts_service=tts_service if body.tts else None,
             persona=persona,
         ),
         media_type="text/event-stream",

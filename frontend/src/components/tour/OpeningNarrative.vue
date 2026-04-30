@@ -1,11 +1,17 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { useTour } from '../../composables/useTour.js'
+import { useTourWorkbench } from '../../composables/useTourWorkbench.js'
+import { useTTSPlayer } from '../../composables/useTTSPlayer.js'
+import { api } from '../../api/index.js'
 
 const { tourSession, tourStep, fetchHalls, sendTourMessage, streamingContent, chatMessages, loading } = useTour()
+const { ttsPreferences } = useTourWorkbench()
+const { feedChunk, stop: stopTTS } = useTTSPlayer()
 
 const displayedText = ref('')
 const isTyping = ref(true)
+const ttsPlaying = ref(false)
 
 const openingTexts = {
   A: '你好，我是本次带你勘探的考古队长。你现在站立的地方，不仅是西安半坡博物馆，更是中国第一座史前遗址博物馆。收起那些走马观花的游览心思吧，在我们脚下，是一座距今6000多年的母系氏族繁荣期村落。从1953年春天在浐河岸边发现它开始，老一辈考古人在这里进行了五次大规模的科学发掘，揭露面积整整达到1万平方米。直到今天，馆内依然保留着未发掘的探方。带好你的求知欲，跟紧我的脚步，我们马上进入这片国家一级遗址的核心区，用文物和地层数据说话。',
@@ -28,6 +34,29 @@ onMounted(() => {
   }, 30)
 })
 
+async function playOpeningTTS() {
+  if (ttsPlaying.value) {
+    stopTTS()
+    ttsPlaying.value = false
+    return
+  }
+
+  ttsPlaying.value = true
+  try {
+    const result = await api.tts.synthesize(fullText.value, ttsPreferences.value.voice)
+    if (result.ok && result.data?.audio) {
+      stopTTS()
+      feedChunk(result.data.audio)
+      ttsPlaying.value = false
+    } else {
+      ttsPlaying.value = false
+    }
+  } catch (err) {
+    console.error('Opening TTS error:', err)
+    ttsPlaying.value = false
+  }
+}
+
 async function startExplore() {
   await fetchHalls()
   tourStep.value = 'hall-select'
@@ -40,6 +69,17 @@ async function startExplore() {
       <div class="persona-badge">
         {{ tourSession?.persona === 'B' ? '🏠 半坡原住民' : tourSession?.persona === 'C' ? '📚 历史老师' : '⛏️ 考古队长' }}
       </div>
+      <button
+        v-if="!isTyping && ttsPreferences.enabled"
+        class="tts-play-btn"
+        :class="{ playing: ttsPlaying }"
+        title="语音播放"
+        @click="playOpeningTTS"
+      >
+        <svg v-if="!ttsPlaying" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        <span>{{ ttsPlaying ? '暂停' : '播放' }}</span>
+      </button>
       <div class="narrative-text">
         {{ displayedText }}
         <span v-if="isTyping" class="cursor">|</span>
@@ -112,5 +152,30 @@ async function startExplore() {
 
 .start-btn:hover {
   background: #c49564;
+}
+
+.tts-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  margin-bottom: 24px;
+  background: rgba(212, 165, 116, 0.1);
+  border: 1px solid rgba(212, 165, 116, 0.3);
+  border-radius: 20px;
+  color: #d4a574;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tts-play-btn:hover {
+  background: rgba(212, 165, 116, 0.2);
+  border-color: rgba(212, 165, 116, 0.5);
+}
+
+.tts-play-btn.playing {
+  background: rgba(212, 165, 116, 0.25);
+  border-color: #d4a574;
 }
 </style>

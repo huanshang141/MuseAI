@@ -43,11 +43,11 @@ class TestTourChatRequestTTSField:
 
 
 class TestTourStreamTTSEvents:
-    """Verify TTS audio events are appended after done event in tour stream."""
+    """Verify TTS audio events are interleaved with text events in tour stream."""
 
     @pytest.mark.asyncio
-    async def test_tts_events_after_done(self):
-        """ask_stream_tour should yield audio_start/chunk/end after done when TTS is enabled."""
+    async def test_tts_events_before_done(self):
+        """ask_stream_tour should yield audio_start/chunk/end before done when TTS is enabled."""
         from app.application.tour_chat_service import ask_stream_tour
 
         mock_llm = AsyncMock()
@@ -95,11 +95,13 @@ class TestTourStreamTTSEvents:
                 events.append(json.loads(event.removeprefix("data: ").removesuffix("\n\n")))
 
         event_names = [e.get("event") for e in events]
+        assert "audio_start" in event_names
+        assert "audio_chunk" in event_names
+        assert "audio_end" in event_names
+        # Audio events should come before done (sentence-level streaming)
         done_idx = event_names.index("done")
-        assert event_names[done_idx + 1] == "audio_start"
-        assert event_names[done_idx + 2] == "audio_chunk"
-        assert event_names[done_idx + 3] == "audio_chunk"
-        assert event_names[done_idx + 4] == "audio_end"
+        audio_start_idx = event_names.index("audio_start")
+        assert audio_start_idx < done_idx
 
     @pytest.mark.asyncio
     async def test_no_tts_events_when_provider_none(self):
@@ -193,8 +195,11 @@ class TestTourStreamTTSEvents:
                 events.append(json.loads(event.removeprefix("data: ").removesuffix("\n\n")))
 
         event_names = [e.get("event") for e in events]
+        assert "audio_start" in event_names
+        assert "audio_error" in event_names
+        # Audio events should come before done (sentence-level streaming)
         done_idx = event_names.index("done")
-        assert event_names[done_idx + 1] == "audio_start"
-        assert event_names[done_idx + 2] == "audio_error"
-        audio_error = events[done_idx + 2]
+        audio_start_idx = event_names.index("audio_start")
+        assert audio_start_idx < done_idx
+        audio_error = next(e for e in events if e.get("event") == "audio_error")
         assert audio_error["code"] == "TTS_ERROR"

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useTour } from '../../composables/useTour.js'
 import { useTourWorkbench } from '../../composables/useTourWorkbench.js'
+import { useTTSPlayer } from '../../composables/useTTSPlayer.js'
 import { api } from '../../api/index.js'
 
 const props = defineProps({ exhibit: Object })
@@ -9,6 +10,7 @@ const emit = defineEmits(['deep-dive'])
 
 const { sendTourMessage, streamingContent, chatMessages, loading, suggestedActions } = useTour()
 const { ttsPreferences } = useTourWorkbench()
+const { feedChunk, stop: stopTTS } = useTTSPlayer()
 const inputMessage = ref('')
 const manualTtsPlaying = ref(false)
 
@@ -21,14 +23,18 @@ async function sendMessage() {
 
 async function playMessageTTS(text) {
   if (!text) return
+  if (manualTtsPlaying.value) {
+    stopTTS()
+    manualTtsPlaying.value = false
+    return
+  }
   manualTtsPlaying.value = true
   try {
     const result = await api.tts.synthesize(text, ttsPreferences.value.voice)
     if (result.ok && result.data?.audio) {
-      const audio = new Audio(`data:audio/wav;base64,${result.data.audio}`)
-      audio.onended = () => { manualTtsPlaying.value = false }
-      audio.onerror = () => { manualTtsPlaying.value = false }
-      await audio.play()
+      stopTTS()
+      feedChunk(result.data.audio)
+      manualTtsPlaying.value = false
     } else {
       manualTtsPlaying.value = false
     }

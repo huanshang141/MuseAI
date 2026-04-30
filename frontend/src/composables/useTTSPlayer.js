@@ -17,6 +17,10 @@ export function useTTSPlayer() {
     if (!base64Chunk) return
     initContext()
 
+    if (audioContext.state === 'suspended') {
+      audioContext.resume()
+    }
+
     // Decode base64 -> Int16 -> Float32
     const raw = atob(base64Chunk)
     const int16 = new Int16Array(raw.length / 2)

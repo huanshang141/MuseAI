@@ -73,14 +73,18 @@ function toggleTTS() {
 
 async function playMessageTTS(text) {
   if (!text) return
+  if (manualTtsPlaying.value) {
+    stopTTS()
+    manualTtsPlaying.value = false
+    return
+  }
   manualTtsPlaying.value = true
   try {
     const result = await api.tts.synthesize(text, ttsVoice.value)
     if (result.ok && result.data?.audio) {
-      const audio = new Audio(`data:audio/wav;base64,${result.data.audio}`)
-      audio.onended = () => { manualTtsPlaying.value = false }
-      audio.onerror = () => { manualTtsPlaying.value = false }
-      await audio.play()
+      stopTTS()
+      feedChunk(result.data.audio)
+      manualTtsPlaying.value = false
     } else {
       manualTtsPlaying.value = false
     }

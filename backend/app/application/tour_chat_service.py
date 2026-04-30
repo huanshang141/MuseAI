@@ -5,13 +5,8 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.sse_events import (
-    sse_tour_audio_chunk,
-    sse_tour_audio_end,
-    sse_tour_audio_error,
-    sse_tour_audio_start,
-    sse_tour_event,
-)
+from app.application.sse_events import sse_tour_event
+from app.application.tts_streaming import TTSStreamManager
 from app.infra.providers.tts.base import BaseTTSProvider
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import detect_ceramic_question
@@ -142,11 +137,27 @@ async def ask_stream_tour(
     )
     is_ceramic = detect_ceramic_question(message)
 
+    # Resolve TTS config before streaming so we can interleave audio events
+    tts_config = None
+    if tts_provider is not None and tts_service is not None:
+        effective_persona = persona or tour_session.persona or "A"
+        try:
+            tts_config = await tts_service.get_tour_tts_config(effective_persona)
+            log.debug("TTS config resolved: voice={}, persona={}", tts_config.voice if tts_config else None, effective_persona)
+        except Exception as e:
+            log.warning("Failed to resolve TTS config for persona {}: {}", effective_persona, e)
+    else:
+        log.debug("TTS not configured: provider={}, service={}", tts_provider is not None, tts_service is not None)
+    tts_mgr = TTSStreamManager(tts_provider, tts_config, schema="tour")
+    log.debug("TTSStreamManager enabled={}", tts_mgr.enabled)
+
     full_content_parts: list[str] = []
     try:
         async for event, chunk in _stream_rag(rag_agent, llm_provider, message, system_prompt):
             if chunk is not None:
                 full_content_parts.append(chunk)
+                async for audio_event in tts_mgr.feed(chunk):
+                    yield audio_event
             yield event
     except Exception as e:
         log.error("Tour chat RAG error: {}", e)
@@ -156,24 +167,15 @@ async def ask_stream_tour(
         )
         return
 
+    # Flush remaining TTS audio
+    async for audio_event in tts_mgr.flush():
+        yield audio_event
+
     yield sse_tour_event(
         "done",
         trace_id=trace_id,
         is_ceramic_question=is_ceramic,
     )
-
-    # TTS audio events (after done)
-    if tts_provider is not None and tts_service is not None:
-        full_content = "".join(full_content_parts)
-        tts_config = await tts_service.get_tour_tts_config(persona)
-        yield sse_tour_audio_start(voice=tts_config.voice, format="pcm16")
-        try:
-            async for audio_chunk in tts_provider.synthesize_stream(full_content, tts_config):
-                yield sse_tour_audio_chunk(audio_chunk)
-            yield sse_tour_audio_end()
-        except Exception as e:
-            log.warning(f"TTS synthesis failed: {e}")
-            yield sse_tour_audio_error("TTS_ERROR", "语音合成失败")
 
     try:
         async with session_maker() as event_session:

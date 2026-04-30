@@ -15,8 +15,8 @@ class SynthesizeRequest(BaseModel):
 
 
 class SynthesizeResponse(BaseModel):
-    audio: str  # base64-encoded WAV
-    format: str = "wav"
+    audio: str  # base64-encoded PCM16
+    format: str = "pcm16"
 
 
 def _get_tts_service(request: Request):
@@ -34,11 +34,15 @@ async def synthesize_tts(body: SynthesizeRequest, request: Request):
 
     config = TTSConfig(voice=body.voice, style=body.style)
     try:
-        audio_bytes = await tts_service.provider.synthesize(body.text, config)
+        # Use synthesize_stream to get PCM16 chunks, collect all into one buffer
+        chunks = []
+        async for chunk in tts_service.provider.synthesize_stream(body.text, config):
+            chunks.append(chunk)
+        audio_b64 = "".join(chunks)
     except Exception:
         raise HTTPException(status_code=502, detail="TTS synthesis failed") from None
 
     return SynthesizeResponse(
-        audio=base64.b64encode(audio_bytes).decode("ascii"),
-        format="wav",
+        audio=audio_b64,
+        format="pcm16",
     )

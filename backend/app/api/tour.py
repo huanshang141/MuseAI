@@ -72,6 +72,7 @@ class TourChatRequest(BaseModel):
     message: str = Field(..., max_length=2000)
     exhibit_id: str | None = None
     style: TourChatStyle | None = None
+    tts: bool = False
 
 
 class TourHallItem(BaseModel):

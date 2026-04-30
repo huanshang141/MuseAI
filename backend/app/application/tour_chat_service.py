@@ -5,7 +5,14 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.application.sse_events import sse_tour_event
+from app.application.sse_events import (
+    sse_tour_audio_chunk,
+    sse_tour_audio_end,
+    sse_tour_audio_error,
+    sse_tour_audio_start,
+    sse_tour_event,
+)
+from app.infra.providers.tts.base import BaseTTSProvider
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import detect_ceramic_question
 from app.application.tour_session_service import get_session
@@ -100,6 +107,9 @@ async def ask_stream_tour(
     exhibit_context: str | None = None,
     style: Any = None,
     degraded_services: set[str] | None = None,
+    tts_provider: BaseTTSProvider | None = None,
+    tts_service: Any = None,
+    persona: str | None = None,
 ) -> AsyncGenerator[str, None]:
     tour_session = await get_session(db_session, tour_session_id)
 
@@ -132,8 +142,11 @@ async def ask_stream_tour(
     )
     is_ceramic = detect_ceramic_question(message)
 
+    full_content_parts: list[str] = []
     try:
-        async for event in _stream_rag(rag_agent, llm_provider, message, system_prompt):
+        async for event, chunk in _stream_rag(rag_agent, llm_provider, message, system_prompt):
+            if chunk is not None:
+                full_content_parts.append(chunk)
             yield event
     except Exception as e:
         log.error("Tour chat RAG error: {}", e)
@@ -148,6 +161,19 @@ async def ask_stream_tour(
         trace_id=trace_id,
         is_ceramic_question=is_ceramic,
     )
+
+    # TTS audio events (after done)
+    if tts_provider is not None and tts_service is not None:
+        full_content = "".join(full_content_parts)
+        tts_config = await tts_service.get_tour_tts_config(persona)
+        yield sse_tour_audio_start(voice=tts_config.voice, format="pcm16")
+        try:
+            async for audio_chunk in tts_provider.synthesize_stream(full_content, tts_config):
+                yield sse_tour_audio_chunk(audio_chunk)
+            yield sse_tour_audio_end()
+        except Exception as e:
+            log.warning(f"TTS synthesis failed: {e}")
+            yield sse_tour_audio_error("TTS_ERROR", "语音合成失败")
 
     try:
         async with session_maker() as event_session:
@@ -165,7 +191,7 @@ async def ask_stream_tour(
 
 async def _stream_rag(
     rag_agent: Any, llm_provider: Any, message: str, system_prompt: str
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[tuple[str, str | None], None]:
     result = await rag_agent.run(message, system_prompt=system_prompt)
 
     docs = (
@@ -190,4 +216,4 @@ async def _stream_rag(
 
     messages = [{"role": "user", "content": prompt}]
     async for chunk in llm_provider.generate_stream(messages):
-        yield sse_tour_event("chunk", data={"content": chunk})
+        yield sse_tour_event("chunk", data={"content": chunk}), chunk

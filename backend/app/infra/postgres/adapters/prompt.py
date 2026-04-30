@@ -115,6 +115,8 @@ class PostgresPromptRepository:
         self._session.add(version_orm)
 
         await self._session.flush()
+        # Refresh to eagerly load the versions relationship in async context
+        await self._session.refresh(orm, ["versions"])
         return self._to_entity(orm)
 
     async def update(
@@ -143,6 +145,50 @@ class PostgresPromptRepository:
         new_version = max_version + 1
 
         orm.content = content
+        orm.updated_at = datetime.now(UTC)
+
+        version_orm = PromptVersionORM(
+            id=str(uuid4()),
+            prompt_id=orm.id,
+            version=new_version,
+            content=content,
+            changed_by=changed_by,
+            change_reason=change_reason,
+            created_at=datetime.now(UTC),
+        )
+        self._session.add(version_orm)
+
+        await self._session.flush()
+        return self._to_entity(orm)
+
+    async def update_with_variables(
+        self,
+        key: str,
+        content: str,
+        variables: list[dict[str, str]],
+        changed_by: str | None = None,
+        change_reason: str | None = None,
+    ) -> Prompt:
+        result = await self._session.execute(
+            select(PromptORM)
+            .options(selectinload(PromptORM.versions))
+            .where(PromptORM.key == key)
+        )
+        orm = result.scalar_one_or_none()
+
+        if orm is None:
+            raise PromptNotFoundError(f"Prompt not found: {key}")
+
+        version_result = await self._session.execute(
+            select(func.max(PromptVersionORM.version)).where(
+                PromptVersionORM.prompt_id == orm.id
+            )
+        )
+        max_version = version_result.scalar() or 0
+        new_version = max_version + 1
+
+        orm.content = content
+        orm.variables = variables
         orm.updated_at = datetime.now(UTC)
 
         version_orm = PromptVersionORM(

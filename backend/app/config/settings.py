@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     TTS_MODEL: str = "mimo-v2.5-tts"
     TTS_DEFAULT_VOICE: str = "冰糖"
     TTS_TIMEOUT: float = 30.0
+    TTS_VOICE_DESIGN_MODEL: str = "mimo-v2.5-tts-voicedesign"
 
     # 动态文档过滤配置
     RETRIEVAL_TOP_K: int = 15

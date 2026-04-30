@@ -10,6 +10,7 @@ from app.api.admin import exhibits_router as admin_exhibits_router
 from app.api.admin import halls_router as admin_halls_router
 from app.api.admin import llm_traces_router as admin_llm_traces_router
 from app.api.admin import prompts_router
+from app.api.admin import tts_persona_router as admin_tts_persona_router
 from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.curator import router as curator_router
@@ -256,3 +257,4 @@ app.include_router(profile_router, prefix="/api/v1")
 app.include_router(tour_router, prefix="/api/v1")
 app.include_router(exhibits_router, prefix="/api/v1")
 app.include_router(tts_router, prefix="/api/v1")
+app.include_router(admin_tts_persona_router, prefix="/api/v1")

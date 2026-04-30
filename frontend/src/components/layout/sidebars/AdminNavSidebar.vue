@@ -1,5 +1,5 @@
 <script setup>
-import { Collection, Document, MapLocation, OfficeBuilding, Cpu } from '@element-plus/icons-vue'
+import { Collection, Document, MapLocation, OfficeBuilding, Cpu, Microphone } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
@@ -10,6 +10,7 @@ const adminItems = [
   { path: '/admin/exhibits', label: '展品管理', icon: Collection },
   { path: '/admin/tour-paths', label: '路线管理', icon: MapLocation },
   { path: '/admin/prompts', label: '提示词管理', icon: Document },
+  { path: '/admin/tts-personas', label: '语音角色管理', icon: Microphone },
   { path: '/admin/llm-traces', label: 'LLM 调用追踪', icon: Cpu },
 ]
 </script>

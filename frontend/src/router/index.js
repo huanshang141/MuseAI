@@ -84,6 +84,12 @@ const routes = [
         name: 'admin-llm-traces',
         component: () => import('../components/admin/LLMTraceManager.vue'),
         meta: { title: 'LLM 调用追踪' }
+      },
+      {
+        path: 'tts-personas',
+        name: 'admin-tts-personas',
+        component: () => import('../components/admin/TtsPersonaManager.vue'),
+        meta: { title: '语音角色管理' }
       }
     ]
   },

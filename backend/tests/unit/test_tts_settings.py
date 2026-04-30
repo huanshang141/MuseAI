@@ -7,6 +7,8 @@ class TestTTSSettings:
             JWT_SECRET="test-secret-that-is-long-enough-32chars",
             LLM_API_KEY="test-key",
             APP_ENV="development",
+            TTS_API_KEY="",
+            _env_file=None,
         )
         assert settings.TTS_ENABLED is True
         assert settings.TTS_PROVIDER == "xiaomi"
@@ -15,6 +17,7 @@ class TestTTSSettings:
         assert settings.TTS_MODEL == "mimo-v2.5-tts"
         assert settings.TTS_DEFAULT_VOICE == "冰糖"
         assert settings.TTS_TIMEOUT == 30.0
+        assert settings.TTS_VOICE_DESIGN_MODEL == "mimo-v2.5-tts-voicedesign"
 
     def test_production_requires_tts_api_key_when_provider_set(self):
         try:

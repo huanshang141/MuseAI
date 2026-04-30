@@ -2,6 +2,26 @@ from app.application.ports.prompt_gateway import PromptGateway
 from app.config.settings import get_settings
 from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig
 
+VOICE_DESCRIPTION_KEY = "__voice_description__"
+
+
+def extract_voice_description(variables: list[dict[str, str]]) -> str | None:
+    """Extract voice_description from the variables metadata list."""
+    for var in variables:
+        if var.get("name") == VOICE_DESCRIPTION_KEY:
+            return var.get("description", "")
+    return None
+
+
+def store_voice_description(
+    variables: list[dict[str, str]], voice_description: str
+) -> list[dict[str, str]]:
+    """Store voice_description in the variables metadata list."""
+    cleaned = [v for v in variables if v.get("name") != VOICE_DESCRIPTION_KEY]
+    if voice_description:
+        cleaned.append({"name": VOICE_DESCRIPTION_KEY, "description": voice_description})
+    return cleaned
+
 
 class TTSService:
     def __init__(self, provider: BaseTTSProvider, prompt_gateway: PromptGateway):

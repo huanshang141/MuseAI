@@ -327,6 +327,20 @@ export const api = {
       reloadAll: () => request('/admin/prompts/reload-all', { method: 'POST' }),
     },
 
+    // TTS Personas
+    ttsPersonas: {
+      list: () => request('/admin/tts/personas'),
+      get: (persona) => request(`/admin/tts/personas/${persona}`),
+      update: (persona, data) => request(`/admin/tts/personas/${persona}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+      voicePreview: (data) => request('/admin/tts/voice-preview', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    },
+
     // LLM Traces
     llmTraces: {
       list: (params = {}) => {

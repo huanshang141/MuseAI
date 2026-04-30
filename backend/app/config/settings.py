@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     RERANK_MODEL: str = "rerank-v1"
     RERANK_TOP_N: int = 10
 
+    # TTS服务配置
+    TTS_ENABLED: bool = True
+    TTS_PROVIDER: str = "xiaomi"  # xiaomi, mock
+    TTS_BASE_URL: str = "https://api.xiaomimimo.com/v1"
+    TTS_API_KEY: str = ""
+    TTS_MODEL: str = "mimo-v2.5-tts"
+    TTS_DEFAULT_VOICE: str = "冰糖"
+    TTS_TIMEOUT: float = 30.0
+
     # 动态文档过滤配置
     RETRIEVAL_TOP_K: int = 15
     RERANK_ABSOLUTE_THRESHOLD: float = 0.25

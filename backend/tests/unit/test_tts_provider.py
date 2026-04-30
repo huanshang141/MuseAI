@@ -2,8 +2,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig
+from app.infra.providers.tts.factory import create_tts_provider
 from app.infra.providers.tts.mock import MockTTSProvider
 from app.infra.providers.tts.xiaomi import XiaomiTTSProvider
+from app.config.settings import Settings
 
 
 class TestTTSConfig:
@@ -152,3 +154,48 @@ class TestXiaomiTTSProvider:
         with patch.object(provider.client, "close", new_callable=AsyncMock) as mock_close:
             await provider.close()
             mock_close.assert_called_once()
+
+
+class TestCreateTTSProvider:
+    def _make_settings(self, **overrides):
+        defaults = {
+            "TTS_ENABLED": True,
+            "TTS_PROVIDER": "xiaomi",
+            "TTS_BASE_URL": "https://api.xiaomimimo.com/v1",
+            "TTS_API_KEY": "test-key",
+            "TTS_MODEL": "mimo-v2.5-tts",
+            "TTS_DEFAULT_VOICE": "冰糖",
+            "TTS_TIMEOUT": 30.0,
+        }
+        defaults.update(overrides)
+        return Settings(**defaults)
+
+    def test_returns_xiaomi_provider(self):
+        settings = self._make_settings()
+        provider = create_tts_provider(settings)
+        assert isinstance(provider, XiaomiTTSProvider)
+
+    def test_returns_mock_provider(self):
+        settings = self._make_settings(TTS_PROVIDER="mock")
+        provider = create_tts_provider(settings)
+        assert isinstance(provider, MockTTSProvider)
+
+    def test_returns_none_when_disabled(self):
+        settings = self._make_settings(TTS_ENABLED=False)
+        provider = create_tts_provider(settings)
+        assert provider is None
+
+    def test_returns_none_when_no_api_key(self):
+        settings = self._make_settings(TTS_API_KEY="")
+        provider = create_tts_provider(settings)
+        assert provider is None
+
+    def test_returns_none_for_unknown_provider(self):
+        settings = self._make_settings(TTS_PROVIDER="unknown")
+        provider = create_tts_provider(settings)
+        assert provider is None
+
+    def test_mock_does_not_require_api_key(self):
+        settings = self._make_settings(TTS_PROVIDER="mock", TTS_API_KEY="")
+        provider = create_tts_provider(settings)
+        assert isinstance(provider, MockTTSProvider)

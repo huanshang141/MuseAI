@@ -95,6 +95,10 @@ async def lifespan(app: FastAPI):
 
         rerank_provider = create_rerank_provider(settings)
 
+        from app.infra.providers.tts.factory import create_tts_provider
+
+        tts_provider = create_tts_provider(settings)
+
         prompt_cache = PromptCache()
         async with get_session() as session:
             prompt_repository = PostgresPromptRepository(session)
@@ -103,6 +107,12 @@ async def lifespan(app: FastAPI):
         app.state.prompt_cache = prompt_cache
 
         prompt_gateway = PromptServiceAdapter(prompt_cache)
+
+        tts_service = None
+        if tts_provider is not None:
+            from app.application.tts_service import TTSService
+
+            tts_service = TTSService(provider=tts_provider, prompt_gateway=prompt_gateway)
 
         app.state.reflection_service = ReflectionPromptService(prompt_gateway)
 
@@ -147,6 +157,8 @@ async def lifespan(app: FastAPI):
         app.state.unified_indexing_service = unified_indexing_service
         app.state.settings = settings
         app.state.prompt_gateway = prompt_gateway
+        app.state.tts_provider = tts_provider
+        app.state.tts_service = tts_service
 
         yield
 
@@ -159,6 +171,8 @@ async def lifespan(app: FastAPI):
             await app.state.redis_cache.close()
         if hasattr(app.state, "es_client") and app.state.es_client:
             await app.state.es_client.close()
+        if hasattr(app.state, "tts_provider") and app.state.tts_provider:
+            await app.state.tts_provider.close()
         logger.info("Shutting down")
 
 

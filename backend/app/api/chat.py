@@ -258,6 +258,14 @@ async def ask_stream_endpoint(
         degraded = set()
         if hasattr(request.app.state, "degraded"):
             degraded = set(request.app.state.degraded)
+
+        tts_provider = getattr(request.app.state, "tts_provider", None)
+        tts_service = getattr(request.app.state, "tts_service", None)
+
+        tts_config = None
+        if ask_request.tts and tts_provider and tts_service:
+            tts_config = tts_service.get_qa_tts_config(ask_request.tts_voice)
+
         async for event in _with_heartbeat(
             ask_question_stream_with_rag(
                 session,
@@ -268,6 +276,8 @@ async def ask_stream_endpoint(
                 current_user["id"],
                 session_maker=session_maker,
                 degraded_services=degraded,
+                tts_provider=tts_provider,
+                tts_config=tts_config,
             ),
             request=request,
         ):
@@ -287,6 +297,8 @@ async def ask_stream_endpoint(
 class MessageRequest(BaseModel):
     session_id: str | None = None
     message: str
+    tts: bool = False
+    tts_voice: str | None = None
 
 
 @router.post("/guest/message", summary="Send guest message (SSE)")
@@ -305,6 +317,13 @@ async def send_guest_message(
     if hasattr(http_request.app.state, "degraded"):
         degraded = set(http_request.app.state.degraded)
 
+    tts_provider = getattr(http_request.app.state, "tts_provider", None)
+    tts_service = getattr(http_request.app.state, "tts_service", None)
+
+    tts_config = None
+    if message_request.tts and tts_provider and tts_service:
+        tts_config = tts_service.get_qa_tts_config(message_request.tts_voice)
+
     return StreamingResponse(
         _with_heartbeat(
             ask_question_stream_guest(
@@ -314,6 +333,8 @@ async def send_guest_message(
                 llm_provider=llm_provider,
                 redis=redis,
                 degraded_services=degraded,
+                tts_provider=tts_provider,
+                tts_config=tts_config,
             ),
         ),
         media_type="text/event-stream",

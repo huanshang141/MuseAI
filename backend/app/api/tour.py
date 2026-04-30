@@ -442,6 +442,18 @@ async def tour_chat_stream(
     if hasattr(request.app.state, "degraded"):
         degraded = set(request.app.state.degraded)
 
+    tts_provider = getattr(request.app.state, "tts_provider", None)
+    tts_service = getattr(request.app.state, "tts_service", None)
+
+    # Resolve persona for TTS config
+    persona = None
+    if tts_provider and tts_service and body.tts:
+        try:
+            tour_session_obj = await get_session(session, session_id)
+            persona = tour_session_obj.persona
+        except (TourSessionNotFound, TourSessionExpired):
+            pass  # Will be handled by ask_stream_tour
+
     return StreamingResponse(
         ask_stream_tour(
             db_session=session,
@@ -453,6 +465,9 @@ async def tour_chat_stream(
             exhibit_id=body.exhibit_id,
             style=body.style,
             degraded_services=degraded,
+            tts_provider=tts_provider,
+            tts_service=tts_service,
+            persona=persona,
         ),
         media_type="text/event-stream",
         headers={

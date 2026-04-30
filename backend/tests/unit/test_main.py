@@ -45,6 +45,7 @@ def test_cors_rejects_unauthorized_origin_in_production(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "a" * 32)
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("CORS_ORIGINS", "https://example.com")
+    monkeypatch.setenv("TTS_ENABLED", "false")
 
     app = _load_isolated_app()
 

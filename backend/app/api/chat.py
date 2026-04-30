@@ -108,6 +108,8 @@ class MessageResponse(BaseModel):
 class AskRequest(BaseModel):
     session_id: str
     message: str
+    tts: bool = False
+    tts_voice: str | None = None
 
 
 class AskResponse(BaseModel):

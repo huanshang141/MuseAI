@@ -9,8 +9,15 @@ from app.application.chat_message_service import add_message
 from app.application.chat_session_service import get_session_by_id
 from app.application.error_handling import sanitize_error_message
 from app.application.ports.repositories import CachePort, LLMProviderPort
-from app.application.sse_events import sse_chat_event
+from app.application.sse_events import (
+    sse_chat_audio_chunk,
+    sse_chat_audio_end,
+    sse_chat_audio_error,
+    sse_chat_audio_start,
+    sse_chat_event,
+)
 from app.domain.exceptions import LLMError
+from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig
 from app.observability.context import request_id_var
 
 
@@ -78,6 +85,8 @@ async def ask_question_stream(
     message: str,
     llm_provider: LLMProviderPort,
     user_id: str,
+    tts_provider: BaseTTSProvider | None = None,
+    tts_config: TTSConfig | None = None,
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
@@ -103,6 +112,18 @@ async def ask_question_stream(
         await session.commit()
 
         yield sse_chat_event("done", stage="generate", trace_id=trace_id, chunks=chunks)
+
+        # TTS audio events (after done)
+        if tts_provider is not None and tts_config is not None:
+            yield sse_chat_audio_start(voice=tts_config.voice, format="pcm16")
+            try:
+                async for chunk in tts_provider.synthesize_stream(full_content, tts_config):
+                    yield sse_chat_audio_chunk(chunk)
+                yield sse_chat_audio_end()
+            except Exception as e:
+                _log = logger.bind(trace_id=trace_id)
+                _log.warning(f"TTS synthesis failed: {e}")
+                yield sse_chat_audio_error("TTS_ERROR", "语音合成失败")
     except LLMError as e:
         sanitized = sanitize_error_message(e)
         yield sse_chat_event("error", code="LLM_ERROR", message=sanitized)
@@ -120,6 +141,8 @@ async def ask_question_stream_with_rag(
     user_id: str,
     session_maker: async_sessionmaker[AsyncSession] | None = None,
     degraded_services: set[str] | None = None,
+    tts_provider: BaseTTSProvider | None = None,
+    tts_config: TTSConfig | None = None,
 ) -> AsyncGenerator[str, None]:
     chat_session = await get_session_by_id(session, session_id, user_id)
     if chat_session is None:
@@ -266,6 +289,17 @@ async def ask_question_stream_with_rag(
 
         _log.debug(f"Final sources count: {len(sources)}")
         yield sse_chat_event("done", stage="generate", trace_id=trace_id, sources=sources)
+
+        # TTS audio events (after done)
+        if tts_provider is not None and tts_config is not None:
+            yield sse_chat_audio_start(voice=tts_config.voice, format="pcm16")
+            try:
+                async for chunk in tts_provider.synthesize_stream(answer_content, tts_config):
+                    yield sse_chat_audio_chunk(chunk)
+                yield sse_chat_audio_end()
+            except Exception as e:
+                _log.warning(f"TTS synthesis failed: {e}")
+                yield sse_chat_audio_error("TTS_ERROR", "语音合成失败")
     except Exception as e:
         sanitized = sanitize_error_message(e)
         yield sse_chat_event("error", code="RAG_ERROR", message=sanitized)
@@ -292,6 +326,8 @@ async def ask_question_stream_guest(
     llm_provider: LLMProviderPort,
     redis: CachePort,
     degraded_services: set[str] | None = None,
+    tts_provider: BaseTTSProvider | None = None,
+    tts_config: TTSConfig | None = None,
 ) -> AsyncGenerator[str, None]:
     trace_id = str(uuid.uuid4())
 
@@ -389,6 +425,17 @@ async def ask_question_stream_guest(
                 )
 
         yield sse_chat_event("done", stage="generate", trace_id=trace_id, sources=sources)
+
+        # TTS audio events (after done)
+        if tts_provider is not None and tts_config is not None:
+            yield sse_chat_audio_start(voice=tts_config.voice, format="pcm16")
+            try:
+                async for chunk in tts_provider.synthesize_stream(answer, tts_config):
+                    yield sse_chat_audio_chunk(chunk)
+                yield sse_chat_audio_end()
+            except Exception as e:
+                logger.warning(f"TTS synthesis failed: {e}")
+                yield sse_chat_audio_error("TTS_ERROR", "语音合成失败")
     except Exception as e:
         sanitized = sanitize_error_message(e)
         yield sse_chat_event("error", code="RAG_ERROR", message=sanitized)

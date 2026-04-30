@@ -4,7 +4,7 @@ import { useTour } from '../../../composables/useTour.js'
 import { useTourWorkbench } from '../../../composables/useTourWorkbench.js'
 
 const { chatMessages, streamingContent, loading, sendTourMessage, currentExhibit, suggestedActions } = useTour()
-const { chatDraft, buildStyledPrompt, uiPreferences, activeTab } = useTourWorkbench()
+const { chatDraft, getStylePayload, uiPreferences, activeTab } = useTourWorkbench()
 
 const messagesArea = ref(null)
 
@@ -27,10 +27,9 @@ watch(activeTab, (newTab, oldTab) => {
 async function sendMessage() {
   if (!chatDraft.value.trim() || loading.value.chat) return
   const rawInput = chatDraft.value.trim()
-  const styledInput = buildStyledPrompt(rawInput)
   chatDraft.value = ''
   chatMessages.value.push({ role: 'user', content: rawInput })
-  await sendTourMessage(styledInput, true)
+  await sendTourMessage(rawInput, true, getStylePayload())
 }
 
 onMounted(scrollToBottom)

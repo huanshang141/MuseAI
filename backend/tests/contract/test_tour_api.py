@@ -177,7 +177,8 @@ async def test_create_tour_session_returns_existing(override_dependencies, auth_
         data2 = response2.json()
 
     assert data1["id"] == data2["id"]
-    assert data2["interest_type"] == "A"
+    assert data2["interest_type"] == "C"
+    assert data2["persona"] == "C"
 
 
 @pytest.mark.asyncio

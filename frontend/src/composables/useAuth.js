@@ -37,6 +37,9 @@ export function useAuth() {
     localStorage.removeItem('user')
     localStorage.removeItem('user_role')
     localStorage.removeItem('auth_token')
+    localStorage.removeItem('tour_session_id')
+    localStorage.removeItem('tour_session_token')
+    localStorage.removeItem('tour_pending_events')
   }
 
   async function register(email, password) {
@@ -54,7 +57,11 @@ export function useAuth() {
   }
 
   async function logout() {
-    await api.auth.logout()
+    try {
+      await api.auth.logout()
+    } catch {
+      // ignore API errors — still clear local state
+    }
     clearAuth()
   }
 

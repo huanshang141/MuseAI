@@ -80,6 +80,24 @@ async def update_session(
     return model.to_entity()
 
 
+async def re_onboard_session(
+    session: AsyncSession,
+    session_id: str,
+    interest_type: str,
+    persona: str,
+    assumption: str,
+) -> TourSession:
+    model = await get_session_model(session, session_id)
+    model.interest_type = interest_type
+    model.persona = persona
+    model.assumption = assumption
+    model.status = "onboarding"
+    model.last_active_at = datetime.now(UTC)
+    await session.commit()
+    await session.refresh(model)
+    return model.to_entity()
+
+
 async def verify_session_token(session: AsyncSession, session_id: str, token: str) -> TourSession:
     model = await session.get(TourSessionModel, session_id)
     if model is None:

@@ -43,7 +43,7 @@ async function checkHealth() {
 
 async function handleLogout() {
   await logout()
-  checkHealth()
+  window.location.reload()
 }
 
 function handleLoginClick() {

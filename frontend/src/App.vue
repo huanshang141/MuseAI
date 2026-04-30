@@ -31,6 +31,10 @@ function toggleSidebarDrawer() {
   if (!hasSidebar.value) return
   isSidebarDrawerOpen.value = !isSidebarDrawerOpen.value
 }
+
+function reloadPage() {
+  window.location.reload()
+}
 </script>
 
 <template>
@@ -61,7 +65,7 @@ function toggleSidebarDrawer() {
       </div>
     </div>
 
-    <AuthModal v-model:visible="showAuthModal" />
+    <AuthModal v-model:visible="showAuthModal" @success="reloadPage" />
   </div>
 </template>
 

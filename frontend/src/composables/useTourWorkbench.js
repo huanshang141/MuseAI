@@ -128,6 +128,16 @@ export function useTourWorkbench() {
     return lines.join('\n')
   }
 
+  function getStylePayload() {
+    const s = stylePreferences.value
+    if (s.enabled === false) return null
+    const payload = {}
+    if (s.answerLength) payload.answer_length = s.answerLength
+    if (s.depth) payload.depth = s.depth
+    if (s.terminology) payload.terminology = s.terminology
+    return Object.keys(payload).length ? payload : null
+  }
+
   return {
     activeTab,
     chatDraft,
@@ -136,6 +146,7 @@ export function useTourWorkbench() {
     ttsPreferences,
     insertTemplateForExhibit,
     buildStyledPrompt,
+    getStylePayload,
     persistPreferences,
     resetPreferences,
   }

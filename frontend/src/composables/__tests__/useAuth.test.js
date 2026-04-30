@@ -98,14 +98,19 @@ describe('useAuth', () => {
     expect(user.value).toBeNull()
   })
 
-  it('logout throws when API call fails', async () => {
+  it('logout clears state even when API call fails', async () => {
     localStorage.setItem('user', JSON.stringify({ email: 'test@example.com' }))
+    localStorage.setItem('auth_token', 'some-token')
 
     api.auth.logout.mockRejectedValueOnce(new Error('Network error'))
 
-    const { logout } = useAuth()
+    const { logout, user, isAuthenticated } = useAuth()
 
-    await expect(logout()).rejects.toThrow('Network error')
+    await logout()
+
+    expect(user.value).toBeNull()
+    expect(isAuthenticated.value).toBe(false)
+    expect(localStorage.getItem('auth_token')).toBeNull()
   })
 
   it('register calls api.auth.register', async () => {

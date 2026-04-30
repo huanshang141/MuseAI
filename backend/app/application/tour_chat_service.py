@@ -66,6 +66,29 @@ def build_system_prompt(
     return "\n\n".join(parts)
 
 
+STYLE_LABELS = {
+    "answer_length": {"brief": "简短", "balanced": "适中", "detailed": "详细"},
+    "depth": {"introductory": "入门", "standard": "标准", "deep": "深入"},
+    "terminology": {"plain": "通俗", "professional": "专业", "academic": "学术"},
+}
+
+
+def _build_style_prompt(style: Any) -> str | None:
+    if style is None:
+        return None
+    style_dict = style if isinstance(style, dict) else style.model_dump(exclude_none=True)
+    if not style_dict:
+        return None
+    lines = []
+    label_map = {"answer_length": "回答长度", "depth": "讲解深浅", "terminology": "术语难度"}
+    for key, label in label_map.items():
+        raw = style_dict.get(key)
+        if raw:
+            mapped = STYLE_LABELS.get(key, {}).get(raw, raw)
+            lines.append(f"{label}: {mapped}")
+    return "\n".join(lines) if lines else None
+
+
 async def ask_stream_tour(
     db_session: AsyncSession,
     session_maker: async_sessionmaker,
@@ -74,6 +97,7 @@ async def ask_stream_tour(
     rag_agent: Any,
     exhibit_id: str | None = None,
     exhibit_context: str | None = None,
+    style: Any = None,
     degraded_services: set[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     tour_session = await get_session(db_session, tour_session_id)
@@ -93,6 +117,10 @@ async def ask_stream_tour(
         exhibit_context=exhibit_context,
         visited_exhibits=visited_ids,
     )
+
+    style_prompt = _build_style_prompt(style)
+    if style_prompt:
+        system_prompt = f"[风格约束]\n{style_prompt}\n\n{system_prompt}"
 
     trace_id = str(uuid.uuid4())
     log = logger.bind(

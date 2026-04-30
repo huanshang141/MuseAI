@@ -38,7 +38,7 @@ async function startExplore() {
   <div class="opening">
     <div class="opening-inner">
       <div class="persona-badge">
-        {{ tourSession?.persona === 'A' ? '⛏️ 考古队长' : tourSession?.persona === 'B' ? '🏠 半坡原住民' : '📚 历史老师' }}
+        {{ tourSession?.persona === 'B' ? '🏠 半坡原住民' : tourSession?.persona === 'C' ? '📚 历史老师' : '⛏️ 考古队长' }}
       </div>
       <div class="narrative-text">
         {{ displayedText }}

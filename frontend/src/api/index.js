@@ -6,6 +6,9 @@ function clearAuthState() {
   localStorage.removeItem('user')
   localStorage.removeItem('user_role')
   localStorage.removeItem('auth_token')
+  localStorage.removeItem('tour_session_id')
+  localStorage.removeItem('tour_session_token')
+  localStorage.removeItem('tour_pending_events')
 }
 
 function getAuthToken() {
@@ -387,11 +390,12 @@ export const api = {
     getReport: (id, token) => request(`/tour/sessions/${id}/report`, {
       headers: token ? { 'X-Session-Token': token } : {},
     }),
-    chatStream: async function* (id, message, token, exhibitId = null) {
+    chatStream: async function* (id, message, token, exhibitId = null, style = null) {
       const headers = { 'Content-Type': 'application/json' }
       if (token) headers['X-Session-Token'] = token
       const body = { message }
       if (exhibitId) body.exhibit_id = exhibitId
+      if (style) body.style = style
 
       const response = await fetch(`${BASE_URL}/tour/sessions/${id}/chat/stream`, {
         method: 'POST',

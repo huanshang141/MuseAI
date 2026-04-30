@@ -14,6 +14,9 @@ vi.mock('../../api/index.js', () => ({
       chatStream: vi.fn(),
       getHalls: vi.fn(),
     },
+    exhibits: {
+      list: vi.fn(),
+    },
   },
 }))
 
@@ -96,6 +99,7 @@ describe('useTour', () => {
       ok: true,
       data: { id: 'stored-id', status: 'touring', current_hall: 'relic-hall' },
     })
+    api.exhibits.list.mockResolvedValueOnce({ ok: true, data: { exhibits: [] } })
 
     const { useTour } = await import('../useTour.js')
     const { restoreSession, tourStep, currentHall } = useTour()
@@ -167,6 +171,7 @@ describe('useTour', () => {
     await createTourSession('A', 'A', 'A')
 
     api.tour.updateSession.mockResolvedValueOnce({ ok: true })
+    api.exhibits.list.mockResolvedValueOnce({ ok: true, data: { exhibits: [] } })
 
     await selectHall('relic-hall')
 
@@ -189,6 +194,7 @@ describe('useTour', () => {
     await createTourSession('A', 'A', 'A')
 
     api.tour.updateSession.mockResolvedValueOnce({ ok: true })
+    api.exhibits.list.mockResolvedValueOnce({ ok: true, data: { exhibits: [] } })
     await selectHall('relic-hall')
 
     bufferEvent('hall_enter', {})
@@ -210,6 +216,7 @@ describe('useTour', () => {
     await createTourSession('A', 'A', 'A')
 
     api.tour.updateSession.mockResolvedValueOnce({ ok: true })
+    api.exhibits.list.mockResolvedValueOnce({ ok: true, data: { exhibits: [] } })
     await selectHall('relic-hall')
 
     api.tour.recordEvents.mockResolvedValueOnce({ ok: true, data: { recorded: 1 } })

@@ -1,3 +1,4 @@
+import json
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -19,6 +20,7 @@ from app.application.tour_session_service import (
     create_session,
     find_active_session_by_user,
     get_session,
+    re_onboard_session,
     update_session,
     verify_session_token,
 )
@@ -60,9 +62,16 @@ class TourEventBatch(BaseModel):
     events: list[TourEventItem] = Field(..., max_length=50)
 
 
+class TourChatStyle(BaseModel):
+    answer_length: str | None = None
+    depth: str | None = None
+    terminology: str | None = None
+
+
 class TourChatRequest(BaseModel):
     message: str = Field(..., max_length=2000)
     exhibit_id: str | None = None
+    style: TourChatStyle | None = None
 
 
 class TourHallItem(BaseModel):
@@ -157,11 +166,15 @@ async def _verify_ownership(
 
 def _format_session(tour_session) -> dict:
     eid = tour_session.current_exhibit_id
+    uid = tour_session.user_id
     return {
         "id": (
             tour_session.id.value
             if hasattr(tour_session.id, "value")
             else tour_session.id
+        ),
+        "user_id": (
+            str(uid.value) if uid and hasattr(uid, "value") else uid
         ),
         "session_token": tour_session.session_token,
         "interest_type": tour_session.interest_type,
@@ -219,6 +232,15 @@ async def create_tour_session(
     if user:
         existing = await find_active_session_by_user(session, user_id)
         if existing:
+            if existing.status in ("onboarding", "opening"):
+                updated = await re_onboard_session(
+                    session,
+                    existing.id.value,
+                    interest_type=body.interest_type,
+                    persona=body.persona,
+                    assumption=body.assumption,
+                )
+                return _format_session(updated)
             return _format_session(existing)
 
     tour_session = await create_session(
@@ -252,12 +274,18 @@ async def get_tour_session(
 @router.patch("/sessions/{session_id}", summary="Update tour session")
 async def patch_tour_session(
     session_id: str,
-    body: TourSessionUpdate,
+    request: Request,
     session: SessionDep,
     user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
     await _verify_ownership(session_id, user, x_session_token, session)
+    raw = await request.body()
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=422, detail="Invalid JSON body") from None
+    body = TourSessionUpdate.model_validate(data)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     try:
         tour_session = await update_session(session, session_id, **updates)
@@ -420,6 +448,7 @@ async def tour_chat_stream(
             message=body.message,
             rag_agent=rag_agent,
             exhibit_id=body.exhibit_id,
+            style=body.style,
             degraded_services=degraded,
         ),
         media_type="text/event-stream",

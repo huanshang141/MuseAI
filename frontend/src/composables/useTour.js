@@ -43,7 +43,7 @@ function _persistEvents() {
 }
 
 export function useTour() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
 
   async function createTourSession(interestType, persona, assumption) {
     loading.value.session = true
@@ -65,6 +65,7 @@ export function useTour() {
     tourSession.value = result.data
     sessionToken.value = result.data.session_token
     _persistSession()
+    await api.tour.updateSession(result.data.id, { status: 'opening' }, sessionToken.value)
     return result.data
   }
 
@@ -75,9 +76,15 @@ export function useTour() {
 
     const result = await api.tour.getSession(storedId, storedToken)
     if (!result.ok) {
-      localStorage.removeItem(STORAGE_KEY_SESSION)
-      localStorage.removeItem(STORAGE_KEY_TOKEN)
+      resetTour()
       return false
+    }
+
+    if (isAuthenticated.value && result.data.user_id) {
+      if (String(result.data.user_id) !== String(user.value?.id)) {
+        resetTour()
+        return false
+      }
     }
 
     tourSession.value = result.data
@@ -88,8 +95,16 @@ export function useTour() {
     } else if (result.data.status === 'touring') {
       tourStep.value = 'tour'
       currentHall.value = result.data.current_hall
+      if (result.data.current_hall) {
+        const exhibitsResult = await api.exhibits.list({ hall: result.data.current_hall })
+        if (exhibitsResult.ok) {
+          hallExhibits.value = exhibitsResult.data.exhibits || []
+        }
+      }
     } else if (result.data.status === 'opening') {
       tourStep.value = 'opening'
+    } else if (result.data.status === 'onboarding') {
+      tourStep.value = 'onboarding'
     }
     return true
   }
@@ -110,6 +125,11 @@ export function useTour() {
       status: 'touring',
     }, token)
     _persistSession()
+
+    const exhibitsResult = await api.exhibits.list({ hall: hallSlug })
+    if (exhibitsResult.ok) {
+      hallExhibits.value = exhibitsResult.data.exhibits || []
+    }
   }
 
   async function enterExhibit(exhibit) {
@@ -132,7 +152,7 @@ export function useTour() {
     }, token)
   }
 
-  async function sendTourMessage(message, skipUserPush = false) {
+  async function sendTourMessage(message, skipUserPush = false, style = null) {
     if (!tourSession.value) return
     loading.value.chat = true
     if (!skipUserPush) {
@@ -148,6 +168,7 @@ export function useTour() {
         message,
         token,
         currentExhibit.value?.id,
+        style,
       )) {
         if (event.event === 'chunk' && event.data?.content) {
           streamingContent.value += event.data.content
@@ -210,6 +231,7 @@ export function useTour() {
         tourStep.value = 'hall-select'
         currentHall.value = null
         currentExhibit.value = null
+        hallExhibits.value = []
       }
     }
     return result

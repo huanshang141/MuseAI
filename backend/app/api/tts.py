@@ -27,7 +27,10 @@ def _get_tts_service(request: Request):
 async def synthesize_tts(body: SynthesizeRequest, request: Request):
     tts_service = _get_tts_service(request)
     if tts_service is None:
-        raise HTTPException(status_code=503, detail="TTS service not available")
+        raise HTTPException(
+            status_code=503,
+            detail="TTS service not available. Check TTS_ENABLED and TTS_API_KEY in server config.",
+        )
 
     config = TTSConfig(voice=body.voice, style=body.style)
     try:

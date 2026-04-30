@@ -14,7 +14,10 @@ def create_tts_provider(settings: Settings) -> BaseTTSProvider | None:
     provider_type = settings.TTS_PROVIDER.lower()
 
     if provider_type != "mock" and not settings.TTS_API_KEY:
-        logger.debug("TTS not configured (no API key), returning None")
+        logger.warning(
+            f"TTS_ENABLED=true but TTS_API_KEY is not set; "
+            f"TTS provider '{provider_type}' will be unavailable"
+        )
         return None
 
     if provider_type == "xiaomi":

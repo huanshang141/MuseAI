@@ -155,6 +155,8 @@ class Settings(BaseSettings):
                 raise ValueError("LLM_API_KEY must be set in production")
             if self.RERANK_PROVIDER and not self.RERANK_API_KEY:
                 raise ValueError("RERANK_API_KEY must be set when RERANK_PROVIDER is configured in production")
+            if self.TTS_ENABLED and self.TTS_PROVIDER != "mock" and not self.TTS_API_KEY:
+                raise ValueError("TTS_API_KEY must be set when TTS_PROVIDER is configured in production")
             if self.CORS_ORIGINS.strip() == "*":
                 raise ValueError("CORS_ORIGINS cannot be wildcard in production")
             if self.ADMIN_EMAILS.strip():

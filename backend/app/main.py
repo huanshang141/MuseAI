@@ -99,6 +99,10 @@ async def lifespan(app: FastAPI):
         from app.infra.providers.tts.factory import create_tts_provider
 
         tts_provider = create_tts_provider(settings)
+        if tts_provider is not None and redis_cache is not None:
+            from app.infra.providers.tts.cached import CachedTTSProvider
+
+            tts_provider = CachedTTSProvider(tts_provider, redis=redis_cache.client)
 
         prompt_cache = PromptCache()
         async with get_session() as session:

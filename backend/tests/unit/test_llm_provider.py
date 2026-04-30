@@ -148,13 +148,17 @@ class TestOpenAICompatibleProvider:
         mock_settings.LLM_BASE_URL = "https://api.example.com/v1"
         mock_settings.LLM_API_KEY = "test-api-key"
         mock_settings.LLM_MODEL = "gemini-2.5-flash"
+        mock_settings.LLM_HEADERS = ""
 
         with patch("app.infra.providers.llm.AsyncOpenAI") as mock_client_class:
             provider = OpenAICompatibleProvider.from_settings(mock_settings)
 
             assert provider.model == "gemini-2.5-flash"
             mock_client_class.assert_called_once_with(
-                base_url="https://api.example.com/v1", api_key="test-api-key", timeout=60.0
+                base_url="https://api.example.com/v1",
+                api_key="test-api-key",
+                timeout=60.0,
+                default_headers=None,
             )
 
     @pytest.mark.asyncio

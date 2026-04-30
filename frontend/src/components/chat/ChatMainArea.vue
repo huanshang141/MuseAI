@@ -166,7 +166,7 @@ async function handleSendMessage() {
       } else if (event.type === 'rag_step') {
         scrollToBottom()
       } else if (event.type === 'audio_start') {
-        stopTTS()
+        // New audio segment — gapless scheduling in useTTSPlayer handles concatenation
       } else if (event.type === 'audio_chunk') {
         if (ttsEnabled.value) {
           feedChunk(event.data)

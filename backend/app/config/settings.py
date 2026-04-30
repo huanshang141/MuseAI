@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://api.openai.com/v1"
     LLM_API_KEY: str = ""  # Changed: No default
     LLM_MODEL: str = "gpt-4o-mini"
+    LLM_HEADERS: str = ""  # JSON string of extra headers, e.g. '{"User-Agent": "curl/8.5.0"}'
 
     EMBEDDING_PROVIDER: str = "ollama"
     EMBEDDING_OLLAMA_BASE_URL: str = "http://localhost:11434"

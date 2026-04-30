@@ -27,4 +27,17 @@ def sanitize_error_message(error: Exception) -> str:
 
     logger.error(f"API error: {error_type}: {error_msg}")
 
+    # Log additional detail for OpenAI API status errors
+    status_code = getattr(error, "status_code", None)
+    if status_code is not None:
+        body = getattr(error, "body", None)
+        response = getattr(error, "response", None)
+        headers = dict(response.headers) if response else None
+        logger.debug(
+            "API error detail: status={status}, headers={headers}, body={body}",
+            status=status_code,
+            headers=headers,
+            body=body,
+        )
+
     return SANITIZED_ERROR_MESSAGE

@@ -190,7 +190,7 @@ export function useTour() {
         } else if (event.event === 'error') {
           error.value = event.data?.message || 'AI导览暂时不可用'
         } else if (event.event === 'audio_start') {
-          stopTTS()
+          // New audio segment — gapless scheduling in useTTSPlayer handles concatenation
         } else if (event.event === 'audio_chunk') {
           if (ttsPreferences.value.enabled && ttsPreferences.value.autoPlay) {
             feedChunk(event.data)

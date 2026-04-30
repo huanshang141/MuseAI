@@ -3,9 +3,11 @@
 提供LLM、Embeddings、Retriever和RAG Agent的工厂函数。
 """
 
+import json
 from typing import Any
 
 from langchain_openai import ChatOpenAI
+from loguru import logger
 
 from app.application.ports.prompt_gateway import PromptGateway
 from app.application.workflows.query_transform import ConversationAwareQueryRewriter
@@ -37,10 +39,17 @@ def create_embeddings(settings: Settings) -> CustomOllamaEmbeddings:
 
 def create_llm(settings: Settings, callbacks: list | None = None) -> ChatOpenAI:
     """创建LLM实例。"""
+    default_headers: dict[str, str] | None = None
+    if settings.LLM_HEADERS:
+        try:
+            default_headers = json.loads(settings.LLM_HEADERS)
+        except json.JSONDecodeError:
+            logger.warning("LLM_HEADERS is not valid JSON, ignoring: {}", settings.LLM_HEADERS)
     return ChatOpenAI(
         base_url=settings.LLM_BASE_URL,
         api_key=settings.LLM_API_KEY,
         model=settings.LLM_MODEL,
+        default_headers=default_headers,
         callbacks=callbacks,
     )
 

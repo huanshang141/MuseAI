@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -7,7 +8,7 @@ from types import TracebackType
 from typing import Any, Protocol, Self
 
 from loguru import logger
-from openai import APIError, AsyncOpenAI
+from openai import APIError, APIStatusError, AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config.settings import Settings
@@ -37,21 +38,34 @@ class OpenAICompatibleProvider:
         timeout: float = 60.0,
         max_retries: int = 3,
         retry_delay: float = 1.0,
+        default_headers: dict[str, str] | None = None,
         trace_recorder: Any | None = None,
     ):
         self.base_url = base_url
         self.model = model
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self.client = AsyncOpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+        self.client = AsyncOpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            default_headers=default_headers or None,
+        )
         self.trace_recorder = trace_recorder
 
     @classmethod
     def from_settings(cls, settings: Settings, trace_recorder: Any | None = None) -> Self:
+        default_headers: dict[str, str] | None = None
+        if settings.LLM_HEADERS:
+            try:
+                default_headers = json.loads(settings.LLM_HEADERS)
+            except json.JSONDecodeError:
+                logger.warning("LLM_HEADERS is not valid JSON, ignoring: {}", settings.LLM_HEADERS)
         return cls(
             base_url=settings.LLM_BASE_URL,
             api_key=settings.LLM_API_KEY,
             model=settings.LLM_MODEL,
+            default_headers=default_headers,
             trace_recorder=trace_recorder,
         )
 
@@ -69,6 +83,31 @@ class OpenAICompatibleProvider:
     async def close(self) -> None:
         await self.client.close()
 
+    def _log_api_error(self, error: APIError, call_id: str, attempt: int | None = None) -> None:
+        """Log detailed API error info for debugging third-party provider issues."""
+        attempt_str = f" attempt={attempt}" if attempt is not None else ""
+        logger.warning(
+            "LLM API error[{call_id}]{attempt}: type={err_type}, message={msg}",
+            call_id=call_id,
+            attempt=attempt_str,
+            err_type=type(error).__name__,
+            msg=str(error),
+        )
+        if isinstance(error, APIStatusError):
+            logger.debug(
+                "LLM API status error detail[{call_id}]: status={status}, headers={headers}, body={body}",
+                call_id=call_id,
+                status=error.status_code,
+                headers=dict(error.response.headers) if error.response else None,
+                body=error.body,
+            )
+        else:
+            logger.debug(
+                "LLM API error detail[{call_id}]: body={body}",
+                call_id=call_id,
+                body=getattr(error, "body", None),
+            )
+
     async def generate(self, messages: list[dict[str, Any]]) -> LLMResponse:
         start_time = time.time()
         last_error: APIError | None = None
@@ -81,6 +120,8 @@ class OpenAICompatibleProvider:
                 duration_ms = int((time.time() - start_time) * 1000)
                 ended_at = datetime.now(UTC)
 
+                if not response.choices:
+                    raise LLMError("LLM returned empty choices in response")
                 content = response.choices[0].message.content or ""
                 usage = response.usage
 
@@ -121,6 +162,7 @@ class OpenAICompatibleProvider:
                 )
             except APIError as e:
                 last_error = e
+                self._log_api_error(e, call_id, attempt)
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay * (2**attempt))
 
@@ -143,6 +185,8 @@ class OpenAICompatibleProvider:
         try:
             stream = await self.client.chat.completions.create(model=self.model, messages=messages, stream=True)  # type: ignore[arg-type]
             async for chunk in stream:  # type: ignore[union-attr]
+                if not chunk.choices:
+                    continue
                 content = chunk.choices[0].delta.content
                 if content is not None:
                     chunks.append(content)
@@ -163,6 +207,7 @@ class OpenAICompatibleProvider:
                 )
         except APIError as e:
             ended_at = datetime.now(UTC)
+            self._log_api_error(e, call_id)
             if self.trace_recorder is not None:
                 await self.trace_recorder.record_call_error(
                     call_id=call_id,

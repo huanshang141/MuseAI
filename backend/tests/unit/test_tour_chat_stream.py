@@ -41,9 +41,21 @@ def fake_session_maker():
     return maker
 
 
+@pytest.fixture
+def fake_llm_provider():
+    provider = MagicMock()
+
+    async def fake_stream(messages):
+        for token in ["hello", " ", "world"]:
+            yield token
+
+    provider.generate_stream = fake_stream
+    return provider
+
+
 @pytest.mark.asyncio
 async def test_stream_emits_chunk_then_done_on_success(
-    monkeypatch, fake_tour_session, fake_session_maker
+    monkeypatch, fake_tour_session, fake_session_maker, fake_llm_provider
 ):
     async def fake_get_session(db, sid):
         return fake_tour_session
@@ -57,7 +69,8 @@ async def test_stream_emits_chunk_then_done_on_success(
     )
 
     rag_agent = MagicMock()
-    rag_agent.run = AsyncMock(return_value={"answer": "hello"})
+    rag_agent.run = AsyncMock(return_value={"answer": "hello", "documents": []})
+    rag_agent.prompt_gateway = None
 
     events = []
     async for event in ask_stream_tour(
@@ -66,16 +79,17 @@ async def test_stream_emits_chunk_then_done_on_success(
         tour_session_id="tour-1",
         message="q?",
         rag_agent=rag_agent,
+        llm_provider=fake_llm_provider,
     ):
         events.append(event)
 
     types = _collect_event_types(events)
-    assert types == ["chunk", "done"]
+    assert types == ["chunk", "chunk", "chunk", "done"]
 
 
 @pytest.mark.asyncio
 async def test_stream_emits_error_and_NOT_done_when_rag_fails(
-    monkeypatch, fake_tour_session, fake_session_maker
+    monkeypatch, fake_tour_session, fake_session_maker, fake_llm_provider
 ):
     async def fake_get_session(db, sid):
         return fake_tour_session
@@ -98,6 +112,7 @@ async def test_stream_emits_error_and_NOT_done_when_rag_fails(
         tour_session_id="tour-1",
         message="q?",
         rag_agent=rag_agent,
+        llm_provider=fake_llm_provider,
     ):
         events.append(event)
 
@@ -110,7 +125,7 @@ async def test_stream_emits_error_and_NOT_done_when_rag_fails(
 
 @pytest.mark.asyncio
 async def test_stream_logs_error_when_event_persistence_fails(
-    monkeypatch, fake_tour_session, fake_session_maker
+    monkeypatch, fake_tour_session, fake_session_maker, fake_llm_provider
 ):
     async def fake_get_session(db, sid):
         return fake_tour_session
@@ -132,7 +147,8 @@ async def test_stream_logs_error_when_event_persistence_fails(
     monkeypatch.setattr("app.application.tour_chat_service.logger", mock_logger)
 
     rag_agent = MagicMock()
-    rag_agent.run = AsyncMock(return_value={"answer": "hello"})
+    rag_agent.run = AsyncMock(return_value={"answer": "hello", "documents": []})
+    rag_agent.prompt_gateway = None
 
     events = []
     async for event in ask_stream_tour(
@@ -141,9 +157,10 @@ async def test_stream_logs_error_when_event_persistence_fails(
         tour_session_id="tour-1",
         message="q?",
         rag_agent=rag_agent,
+        llm_provider=fake_llm_provider,
     ):
         events.append(event)
 
     types = _collect_event_types(events)
-    assert types == ["chunk", "done"]
+    assert types == ["chunk", "chunk", "chunk", "done"]
     mock_bound_logger.error.assert_called_once()

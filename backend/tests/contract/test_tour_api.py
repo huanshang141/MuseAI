@@ -610,8 +610,19 @@ async def test_tour_chat_stream(override_dependencies):
         "documents": [],
         "retrieval_score": 0.8,
     })
+    mock_rag_agent.prompt_gateway = None
+
+    mock_llm_provider = MagicMock()
+
+    async def fake_stream(messages):
+        yield "这是"
+        yield "考古队长的"
+        yield "回答"
+
+    mock_llm_provider.generate_stream = fake_stream
 
     app.dependency_overrides[original_get_rag_agent] = lambda: mock_rag_agent
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm_provider
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -635,6 +646,7 @@ async def test_tour_chat_stream(override_dependencies):
         )
 
     app.dependency_overrides.pop(original_get_rag_agent, None)
+    app.dependency_overrides.pop(original_get_llm_provider, None)
 
     assert chat_resp.status_code == 200
     assert chat_resp.headers["content-type"] == "text/event-stream; charset=utf-8"
@@ -642,11 +654,21 @@ async def test_tour_chat_stream(override_dependencies):
 
 @pytest.mark.asyncio
 async def test_tour_chat_stream_no_auth(override_dependencies):
+    mock_rag_agent = MagicMock()
+    mock_rag_agent.prompt_gateway = None
+    mock_llm_provider = MagicMock()
+
+    app.dependency_overrides[original_get_rag_agent] = lambda: mock_rag_agent
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm_provider
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
             "/api/v1/tour/sessions/nonexistent/chat/stream",
             json={"message": "test"},
         )
+
+    app.dependency_overrides.pop(original_get_rag_agent, None)
+    app.dependency_overrides.pop(original_get_llm_provider, None)
 
     assert response.status_code == 403

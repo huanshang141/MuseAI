@@ -95,6 +95,7 @@ async def ask_stream_tour(
     tour_session_id: str,
     message: str,
     rag_agent: Any,
+    llm_provider: Any,
     exhibit_id: str | None = None,
     exhibit_context: str | None = None,
     style: Any = None,
@@ -132,7 +133,7 @@ async def ask_stream_tour(
     is_ceramic = detect_ceramic_question(message)
 
     try:
-        async for event in _stream_rag(rag_agent, message, system_prompt):
+        async for event in _stream_rag(rag_agent, llm_provider, message, system_prompt):
             yield event
     except Exception as e:
         log.error("Tour chat RAG error: {}", e)
@@ -162,8 +163,31 @@ async def ask_stream_tour(
             log.error("Failed to record tour event after retries: {}", e)
 
 
-async def _stream_rag(rag_agent: Any, message: str, system_prompt: str) -> AsyncGenerator[str, None]:
+async def _stream_rag(
+    rag_agent: Any, llm_provider: Any, message: str, system_prompt: str
+) -> AsyncGenerator[str, None]:
     result = await rag_agent.run(message, system_prompt=system_prompt)
-    answer = result.get("answer", "")
 
-    yield sse_tour_event("chunk", data={"content": answer})
+    docs = (
+        result.get("filtered_documents")
+        or result.get("reranked_documents")
+        or result.get("documents", [])
+    )
+    context = "\n\n".join(doc.page_content for doc in docs)
+
+    prompt = None
+    if hasattr(rag_agent, "prompt_gateway") and rag_agent.prompt_gateway:
+        prompt = await rag_agent.prompt_gateway.render(
+            "rag_answer_generation",
+            {"context": context, "query": message},
+        )
+
+    if prompt is None:
+        prompt = (
+            f"{system_prompt}\n\n参考上下文：\n{context}\n\n"
+            f"用户问题：{message}\n\n请基于以上信息回答："
+        )
+
+    messages = [{"role": "user", "content": prompt}]
+    async for chunk in llm_provider.generate_stream(messages):
+        yield sse_tour_event("chunk", data={"content": chunk})

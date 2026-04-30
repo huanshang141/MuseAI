@@ -431,6 +431,7 @@ async def tour_chat_stream(
     session: SessionDep,
     session_maker: SessionMakerDep,
     rag_agent: RagAgentDep,
+    llm_provider: LLMProviderDep,
     user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
@@ -447,6 +448,7 @@ async def tour_chat_stream(
             tour_session_id=session_id,
             message=body.message,
             rag_agent=rag_agent,
+            llm_provider=llm_provider,
             exhibit_id=body.exhibit_id,
             style=body.style,
             degraded_services=degraded,

@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useChat } from '../../composables/useChat.js'
+import { useTTSPlayer } from '../../composables/useTTSPlayer.js'
+import { api } from '../../api/index.js'
 import MessageItem from './MessageItem.vue'
 import SourceCard from './SourceCard.vue'
 import { error as logError } from '../../utils/logger.js'
@@ -30,6 +32,12 @@ const showRagSteps = ref(true)
 const inputMessage = ref('')
 const messagesContainer = ref(null)
 
+// TTS state
+const { isPlaying: ttsPlaying, feedChunk, stop: stopTTS } = useTTSPlayer()
+const ttsEnabled = ref(localStorage.getItem('chat_tts_enabled') === 'true')
+const ttsVoice = ref(localStorage.getItem('chat_tts_voice') || '冰糖')
+const manualTtsPlaying = ref(false)
+
 const currentRagStep = computed(() => {
   const runningStep = ragSteps.value.find((step) => step.status === 'running')
   return runningStep || ragSteps.value[ragSteps.value.length - 1]
@@ -53,6 +61,33 @@ function scrollToBottom() {
       messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
     }
   })
+}
+
+function toggleTTS() {
+  ttsEnabled.value = !ttsEnabled.value
+  localStorage.setItem('chat_tts_enabled', String(ttsEnabled.value))
+  if (!ttsEnabled.value) {
+    stopTTS()
+  }
+}
+
+async function playMessageTTS(text) {
+  if (!text) return
+  manualTtsPlaying.value = true
+  try {
+    const result = await api.tts.synthesize(text, ttsVoice.value)
+    if (result.ok && result.data?.audio) {
+      const audio = new Audio(`data:audio/wav;base64,${result.data.audio}`)
+      audio.onended = () => { manualTtsPlaying.value = false }
+      audio.onerror = () => { manualTtsPlaying.value = false }
+      await audio.play()
+    } else {
+      manualTtsPlaying.value = false
+    }
+  } catch (err) {
+    logError('TTS playback error:', err)
+    manualTtsPlaying.value = false
+  }
 }
 
 async function handleCreateSession() {
@@ -92,7 +127,9 @@ async function handleSendMessage() {
   try {
     let fullContent = ''
 
-    for await (const event of sendMessage(currentSession.value.id, userMessage)) {
+    const ttsOptions = ttsEnabled.value ? { tts: true, tts_voice: ttsVoice.value } : {}
+
+    for await (const event of sendMessage(currentSession.value.id, userMessage, ttsOptions)) {
       if (event.type === 'chunk') {
         if (chatState.value === ChatState.THINKING) {
           chatState.value = ChatState.STREAMING
@@ -124,6 +161,16 @@ async function handleSendMessage() {
         resetRagSteps()
       } else if (event.type === 'rag_step') {
         scrollToBottom()
+      } else if (event.type === 'audio_start') {
+        stopTTS()
+      } else if (event.type === 'audio_chunk') {
+        if (ttsEnabled.value) {
+          feedChunk(event.data)
+        }
+      } else if (event.type === 'audio_end') {
+        // playback finishes naturally via onended
+      } else if (event.type === 'audio_error') {
+        console.warn('TTS error:', event.message)
       }
     }
   } catch (error) {
@@ -161,7 +208,13 @@ onMounted(async () => {
     <template v-else>
       <header class="chat-main-header">
         <h3>{{ currentSession.title }}</h3>
-        <span>Session ID: {{ currentSession.id }}</span>
+        <div class="header-right">
+          <button class="tts-toggle-btn" :class="{ active: ttsEnabled }" title="语音播放" @click="toggleTTS">
+            <svg v-if="ttsEnabled" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>
+          </button>
+          <span class="session-id-label">Session ID: {{ currentSession.id }}</span>
+        </div>
       </header>
 
       <div ref="messagesContainer" class="chat-messages">
@@ -171,6 +224,16 @@ onMounted(async () => {
         <template v-else>
           <div v-for="(msg, idx) in messages" :key="idx">
             <MessageItem :message="msg" />
+            <div v-if="msg.role === 'assistant'" class="message-actions">
+              <button
+                class="speaker-btn"
+                title="语音播放"
+                :disabled="manualTtsPlaying"
+                @click="playMessageTTS(msg.content)"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+              </button>
+            </div>
             <div v-if="msg.sources?.length" class="message-sources">
               <div class="source-title">来源引用:</div>
               <SourceCard v-for="(source, sourceIdx) in msg.sources" :key="sourceIdx" :source="source" />
@@ -264,9 +327,73 @@ onMounted(async () => {
   font-size: 15px;
 }
 
-.chat-main-header span {
+.chat-main-header .header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-id-label {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.tts-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.tts-toggle-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tts-toggle-btn.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.message-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin: -8px 0 8px;
+  padding-left: 4px;
+}
+
+.speaker-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 0;
+}
+
+.speaker-btn:hover:not(:disabled) {
+  background: var(--color-bg-subtle);
+  color: var(--color-accent);
+}
+
+.speaker-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-messages {
@@ -383,6 +510,12 @@ onMounted(async () => {
   .chat-main-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 8px;
+  }
+
+  .chat-main-header .header-right {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .chat-main-area {

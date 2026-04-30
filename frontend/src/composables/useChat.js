@@ -145,7 +145,7 @@ export function useChat() {
     return result
   }
 
-  async function* sendMessage(sessionId, message) {
+  async function* sendMessage(sessionId, message, ttsOptions = {}) {
     // 重置RAG步骤状态
     ragSteps.value = []
 
@@ -154,7 +154,7 @@ export function useChat() {
       // Ensure we have a session
       const effectiveSessionId = sessionId || guestSessionId
 
-      for await (const event of api.chat.guestMessage(effectiveSessionId, message)) {
+      for await (const event of api.chat.guestMessage(effectiveSessionId, message, ttsOptions)) {
         // Store session ID for subsequent messages
         if (event.session_id && !guestSessionId) {
           guestSessionId = event.session_id
@@ -196,7 +196,7 @@ export function useChat() {
     }
 
     // Authenticated flow
-    for await (const event of api.chat.askStream(sessionId, message)) {
+    for await (const event of api.chat.askStream(sessionId, message, ttsOptions)) {
       // 处理rag_step事件
       if (event.type === 'rag_step') {
         const stepIndex = ragSteps.value.findIndex(s => s.step === event.step)

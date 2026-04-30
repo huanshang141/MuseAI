@@ -135,17 +135,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ session_id: sessionId, message }),
     }),
-    askStream: async function* (sessionId, message) {
+    askStream: async function* (sessionId, message, ttsOptions = {}) {
       const headers = { 'Content-Type': 'application/json' }
       const authToken = getAuthToken()
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`
       }
 
+      const body = { session_id: sessionId, message }
+      if (ttsOptions.tts) body.tts = true
+      if (ttsOptions.tts_voice) body.tts_voice = ttsOptions.tts_voice
+
       const response = await fetch(`${BASE_URL}/chat/ask/stream`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ session_id: sessionId, message }),
+        body: JSON.stringify(body),
       })
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
@@ -173,12 +177,14 @@ export const api = {
       }
     },
     // Guest chat - no authentication required
-    guestMessage: async function* (sessionId, message) {
+    guestMessage: async function* (sessionId, message, ttsOptions = {}) {
       const headers = { 'Content-Type': 'application/json' }
       const body = { message }
       if (sessionId) {
         body.session_id = sessionId
       }
+      if (ttsOptions.tts) body.tts = true
+      if (ttsOptions.tts_voice) body.tts_voice = ttsOptions.tts_voice
 
       const response = await fetch(`${BASE_URL}/chat/guest/message`, {
         method: 'POST',
@@ -355,6 +361,14 @@ export const api = {
     update: (data) => request('/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+  },
+
+  // TTS
+  tts: {
+    synthesize: (text, voice = '冰糖', style = null) => request('/tts/synthesize', {
+      method: 'POST',
+      body: JSON.stringify({ text, voice, style }),
     }),
   },
 

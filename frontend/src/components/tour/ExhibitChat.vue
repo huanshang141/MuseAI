@@ -8,7 +8,7 @@ import { api } from '../../api/index.js'
 const props = defineProps({ exhibit: Object })
 const emit = defineEmits(['deep-dive'])
 
-const { sendTourMessage, streamingContent, chatMessages, loading, suggestedActions } = useTour()
+const { sendTourMessage, streamingContent, chatMessages, loading, suggestedActions, tourSession } = useTour()
 const { ttsPreferences } = useTourWorkbench()
 const { feedChunk, stop: stopTTS } = useTTSPlayer()
 const inputMessage = ref('')
@@ -30,7 +30,8 @@ async function playMessageTTS(text) {
   }
   manualTtsPlaying.value = true
   try {
-    const result = await api.tts.synthesize(text, ttsPreferences.value.voice)
+    const persona = tourSession.value?.persona || 'A'
+    const result = await api.tts.synthesize(text, ttsPreferences.value.voice, null, persona)
     if (result.ok && result.data?.audio) {
       stopTTS()
       feedChunk(result.data.audio)

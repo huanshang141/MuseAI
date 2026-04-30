@@ -24,8 +24,20 @@ const previewDialogVisible = ref(false)
 const currentPersona = ref(null)
 const versions = ref([])
 const versionsLoading = ref(false)
+const presetVoices = [
+  { value: '冰糖', label: '冰糖 (中文女声)' },
+  { value: '茉莉', label: '茉莉 (中文女声)' },
+  { value: '苏打', label: '苏打 (中文男声)' },
+  { value: '白桦', label: '白桦 (中文男声)' },
+  { value: 'Mia', label: 'Mia (英文女声)' },
+  { value: 'Chloe', label: 'Chloe (英文女声)' },
+  { value: 'Milo', label: 'Milo (英文男声)' },
+  { value: 'Dean', label: 'Dean (英文男声)' },
+]
+
 const editForm = ref({
   content: '',
+  voice: '',
   voice_description: '',
   change_reason: ''
 })
@@ -58,6 +70,7 @@ function openEditDrawer(persona) {
   currentPersona.value = persona
   editForm.value = {
     content: persona.content,
+    voice: persona.voice || '',
     voice_description: persona.voice_description || '',
     change_reason: ''
   }
@@ -75,6 +88,7 @@ async function handleUpdate() {
     const letter = getPersonaLetter(currentPersona.value.key)
     const result = await api.admin.ttsPersonas.update(letter, {
       content: editForm.value.content,
+      voice: editForm.value.voice || null,
       voice_description: editForm.value.voice_description || null,
       change_reason: editForm.value.change_reason || null
     })
@@ -222,6 +236,12 @@ onMounted(fetchPersonas)
           {{ truncateText(row.voice_description) }}
         </template>
       </el-table-column>
+      <el-table-column label="预设音色" width="120" align="center">
+        <template #default="{ row }">
+          <el-tag v-if="row.voice" size="small" type="info">{{ row.voice }}</el-tag>
+          <span v-else class="current-label">默认</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="current_version" label="版本" width="80" align="center">
         <template #default="{ row }">
           <el-tag size="small" type="success">v{{ row.current_version }}</el-tag>
@@ -283,6 +303,24 @@ onMounted(fetchPersonas)
               :rows="6"
               placeholder="请输入风格提示词"
             />
+          </div>
+
+          <div class="editor-section">
+            <h4>预设音色</h4>
+            <p class="field-hint">选择该角色使用的预设音色，留空则使用全局默认音色</p>
+            <el-select
+              v-model="editForm.voice"
+              placeholder="使用全局默认音色"
+              clearable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="v in presetVoices"
+                :key="v.value"
+                :label="v.label"
+                :value="v.value"
+              />
+            </el-select>
           </div>
 
           <div class="editor-section">

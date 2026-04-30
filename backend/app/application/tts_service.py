@@ -3,12 +3,21 @@ from app.config.settings import get_settings
 from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig
 
 VOICE_DESCRIPTION_KEY = "__voice_description__"
+VOICE_KEY = "__voice__"
 
 
 def extract_voice_description(variables: list[dict[str, str]]) -> str | None:
     """Extract voice_description from the variables metadata list."""
     for var in variables:
         if var.get("name") == VOICE_DESCRIPTION_KEY:
+            return var.get("description", "")
+    return None
+
+
+def extract_voice(variables: list[dict[str, str]]) -> str | None:
+    """Extract preset voice name from the variables metadata list."""
+    for var in variables:
+        if var.get("name") == VOICE_KEY:
             return var.get("description", "")
     return None
 
@@ -38,8 +47,10 @@ class TTSService:
     async def get_tour_tts_config(self, persona: str) -> TTSConfig:
         settings = get_settings()
         prompt_key = f"tour_tts_persona_{persona}"
-        style = await self.prompt_gateway.get(prompt_key)
+        prompt = await self.prompt_gateway.get_entity(prompt_key)
+        style = prompt.content if prompt else None
+        voice = extract_voice(prompt.variables) if prompt else None
         return TTSConfig(
-            voice=settings.TTS_DEFAULT_VOICE,
+            voice=voice or settings.TTS_DEFAULT_VOICE,
             style=style or "用温和亲切的语气讲解，语速适中",
         )

@@ -1,5 +1,3 @@
-import base64
-
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
@@ -12,6 +10,7 @@ class SynthesizeRequest(BaseModel):
     text: str
     voice: str = "冰糖"
     style: str | None = None
+    persona: str | None = None
 
 
 class SynthesizeResponse(BaseModel):
@@ -32,7 +31,10 @@ async def synthesize_tts(body: SynthesizeRequest, request: Request):
             detail="TTS service not available. Check TTS_ENABLED and TTS_API_KEY in server config.",
         )
 
-    config = TTSConfig(voice=body.voice, style=body.style)
+    if body.persona:
+        config = await tts_service.get_tour_tts_config(body.persona)
+    else:
+        config = TTSConfig(voice=body.voice, style=body.style)
     try:
         # Use synthesize_stream to get PCM16 chunks, collect all into one buffer
         chunks = []

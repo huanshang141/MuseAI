@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.application.ports.prompt_gateway import PromptGateway
 from app.application.prompt_service import PromptService
+from app.domain.entities import Prompt
 from app.infra.cache.prompt_cache import PromptCache
 from app.infra.postgres.adapters import PostgresPromptRepository
 
@@ -81,4 +82,27 @@ class PromptServiceAdapter(PromptGateway):
             return None
         except Exception as e:
             logger.warning(f"Failed to get prompt '{key}': {e}")
+            return None
+
+    async def get_entity(self, key: str) -> Prompt | None:
+        """Get the full prompt entity including variables metadata.
+
+        Args:
+            key: Unique prompt key
+
+        Returns:
+            Full Prompt entity if found, None otherwise
+        """
+        from app.infra.postgres.database import get_session
+
+        try:
+            async with get_session() as session:
+                repository = PostgresPromptRepository(session)
+                service = PromptService(repository, self._cache)
+                return await service.get_prompt(key)
+        except RuntimeError as e:
+            logger.debug(f"PromptService unavailable for key '{key}': {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Failed to get prompt entity '{key}': {e}")
             return None

@@ -30,6 +30,10 @@ onMounted(() => {
     } else {
       isTyping.value = false
       clearInterval(timer)
+      // Auto-play TTS when typewriter finishes
+      if (ttsPreferences.value.enabled) {
+        playOpeningTTS()
+      }
     }
   }, 30)
 })
@@ -43,7 +47,8 @@ async function playOpeningTTS() {
 
   ttsPlaying.value = true
   try {
-    const result = await api.tts.synthesize(fullText.value, ttsPreferences.value.voice)
+    const persona = tourSession.value?.persona || 'A'
+    const result = await api.tts.synthesize(fullText.value, ttsPreferences.value.voice, null, persona)
     if (result.ok && result.data?.audio) {
       stopTTS()
       feedChunk(result.data.audio)

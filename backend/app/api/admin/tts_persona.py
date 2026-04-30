@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from app.api.deps import CurrentAdminUser, PromptCacheDep, SessionDep
 from app.application.tts_service import (
+    VOICE_KEY,
+    extract_voice,
     extract_voice_description,
     store_voice_description,
 )
@@ -30,6 +32,7 @@ class TtsPersonaResponse(BaseModel):
     description: str | None
     category: str
     content: str
+    voice: str | None
     voice_description: str | None
     variables: list[dict[str, str]]
     is_active: bool
@@ -45,6 +48,7 @@ class TtsPersonaListResponse(BaseModel):
 
 class UpdateTtsPersonaRequest(BaseModel):
     content: str
+    voice: str | None = None
     voice_description: str | None = None
     change_reason: str | None = None
 
@@ -67,6 +71,7 @@ def _persona_to_response(prompt: Prompt) -> TtsPersonaResponse:
         description=prompt.description,
         category=prompt.category,
         content=prompt.content,
+        voice=extract_voice(prompt.variables),
         voice_description=extract_voice_description(prompt.variables),
         variables=prompt.variables,
         is_active=prompt.is_active,
@@ -136,6 +141,11 @@ async def update_tts_persona(
     new_variables = store_voice_description(
         existing.variables, request.voice_description or ""
     )
+
+    if request.voice is not None:
+        new_variables = [v for v in new_variables if v.get("name") != VOICE_KEY]
+        if request.voice:
+            new_variables.append({"name": VOICE_KEY, "description": request.voice})
 
     try:
         prompt = await repository.update_with_variables(

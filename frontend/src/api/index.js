@@ -380,9 +380,9 @@ export const api = {
 
   // TTS
   tts: {
-    synthesize: (text, voice = '冰糖', style = null) => request('/tts/synthesize', {
+    synthesize: (text, voice = '冰糖', style = null, persona = null) => request('/tts/synthesize', {
       method: 'POST',
-      body: JSON.stringify({ text, voice, style }),
+      body: JSON.stringify({ text, voice, style, persona }),
     }),
   },
 

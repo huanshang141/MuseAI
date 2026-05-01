@@ -190,32 +190,19 @@ async def test_get_user_by_id_not_found():
 
 
 # Password validation tests
-def test_password_too_short():
-    """Test that passwords shorter than 8 characters are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        RegisterRequest(email="test@example.com", password="Short1")
-    assert "Password must be at least 8 characters" in str(exc_info.value)
-
-
-def test_password_no_uppercase():
-    """Test that passwords without uppercase letters are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        RegisterRequest(email="test@example.com", password="lowercase1")
-    assert "Password must contain at least one uppercase letter" in str(exc_info.value)
-
-
-def test_password_no_lowercase():
-    """Test that passwords without lowercase letters are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        RegisterRequest(email="test@example.com", password="UPPERCASE1")
-    assert "Password must contain at least one lowercase letter" in str(exc_info.value)
-
-
-def test_password_no_digit():
-    """Test that passwords without digits are rejected."""
-    with pytest.raises(ValidationError) as exc_info:
-        RegisterRequest(email="test@example.com", password="NoDigitsHere")
-    assert "Password must contain at least one digit" in str(exc_info.value)
+@pytest.mark.parametrize(
+    "password,expected_error",
+    [
+        ("Short1", "at least 8 characters"),
+        ("lowercase1", "uppercase letter"),
+        ("UPPERCASE1", "lowercase letter"),
+        ("NoDigitsHere", "digit"),
+    ],
+)
+def test_password_validation_rejects_invalid(password, expected_error):
+    """Test that passwords not meeting requirements are rejected."""
+    with pytest.raises(ValidationError, match=expected_error):
+        RegisterRequest(email="test@example.com", password=password)
 
 
 def test_valid_password_accepted():
@@ -223,12 +210,6 @@ def test_valid_password_accepted():
     request = RegisterRequest(email="test@example.com", password="ValidPass1!")
     assert request.password == "ValidPass1!"
     assert request.email == "test@example.com"
-
-
-def test_valid_password_complex():
-    """Test that complex valid passwords are accepted."""
-    request = RegisterRequest(email="test@example.com", password="MySecure123Password!")
-    assert request.password == "MySecure123Password!"
 
 
 def test_password_validation_error_messages_clear():

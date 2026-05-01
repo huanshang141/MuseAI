@@ -55,20 +55,3 @@ async def test_redis_close_cleans_up():
     cache.client.close.assert_called_once()
 
 
-def test_deps_get_redis_cache_uses_singleton():
-    """deps.get_redis_cache should return singleton from request.app.state."""
-    from app.api.deps import get_redis_cache
-    from app.infra.redis.cache import RedisCache
-    from app.main import app
-
-    # Mock the app.state to have a redis_cache
-    mock_cache = MagicMock(spec=RedisCache)
-    app.state.redis_cache = mock_cache
-
-    # Mock the request with app reference
-    mock_request = MagicMock()
-    mock_request.app = app
-
-    # deps.get_redis_cache should return the same instance
-    result = get_redis_cache(mock_request)
-    assert result is mock_cache

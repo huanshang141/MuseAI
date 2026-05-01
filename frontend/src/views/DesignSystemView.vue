@@ -24,7 +24,7 @@ const colorTokens = [
   { name: '--color-bg-base', value: 'var(--color-bg-base)' },
   { name: '--color-bg-elevated', value: 'var(--color-bg-elevated)' },
   { name: '--color-jade', value: 'var(--color-jade)' },
-  { name: '--color-gold-line', value: 'var(--color-gold-line)' },
+  { name: '--color-gold', value: 'var(--color-gold)' },
   { name: '--color-text-primary', value: 'var(--color-text-primary)' },
 ]
 
@@ -78,17 +78,17 @@ const showDialog = ref(false)
 
     <section>
       <h2>Components</h2>
-      <MuseumCard title="半坡彩陶盆" subtitle="新石器时代 · 人面鱼纹" :accent="true" motif="basin">
+      <MuseumCard title="半坡彩陶盆" subtitle="新石器时代 · 人面鱼纹">
         <p>MuseumCard、MuseumButton、SectionDivider、EmptyState 示例。</p>
         <div class="buttons">
           <MuseumButton variant="primary">Primary</MuseumButton>
           <MuseumButton variant="secondary">Secondary</MuseumButton>
-          <MuseumButton variant="ghost">Ghost</MuseumButton>
+          <MuseumButton variant="text">Text</MuseumButton>
           <MuseumButton variant="text" @click="showDialog = true">Open Dialog</MuseumButton>
         </div>
       </MuseumCard>
-      <SectionDivider :ornament="true" />
-      <EmptyState icon="jar" title="示例空状态" description="用于替换系统默认空状态" />
+      <SectionDivider />
+      <EmptyState title="示例空状态" description="用于替换系统默认空状态" />
       <MuseumDialog :visible="showDialog" title="Dialog Example" @update:visible="showDialog = $event">
         <p>这是 MuseumDialog 的预览内容。</p>
         <template #footer>
@@ -116,7 +116,7 @@ const showDialog = ref(false)
 
 .hero h1 {
   margin: 0;
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
   font-size: var(--font-size-h1);
 }
 
@@ -131,7 +131,7 @@ const showDialog = ref(false)
 
 section h2 {
   margin: 0 0 var(--space-3);
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
   font-size: var(--font-size-h3);
 }
 
@@ -154,7 +154,7 @@ section h2 {
 .chip {
   width: 28px;
   height: 28px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
 }
 

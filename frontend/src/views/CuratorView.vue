@@ -29,10 +29,8 @@ async function handleSelectExhibit(exhibit) {
 
 <template>
   <MuseumPage class="curator-view">
-    <template #hero>
-      <h1>导览助手</h1>
-      <p>根据你的时间与兴趣自动生成路线，并在地图上追踪每个重点展品。</p>
-    </template>
+    <h1>导览助手</h1>
+    <p>根据你的时间与兴趣自动生成路线，并在地图上追踪每个重点展品。</p>
 
     <div class="curator-main">
       <section class="curator-column planner-column">
@@ -50,7 +48,7 @@ async function handleSelectExhibit(exhibit) {
       </section>
 
       <section class="curator-column detail-column">
-        <MuseumCard v-if="selectedExhibit" :title="selectedExhibit.name" subtitle="展品讲解与思考引导" motif="jar">
+        <MuseumCard v-if="selectedExhibit" :title="selectedExhibit.name" subtitle="展品讲解与思考引导">
           <div class="detail-sections">
             <section class="detail-block" v-if="narrative">
               <h4>讲解</h4>
@@ -68,7 +66,6 @@ async function handleSelectExhibit(exhibit) {
 
         <EmptyState
           v-else
-          icon="fish"
           title="等待选择展品"
           description="在路线或地图中点击任一展品，右侧将展示讲解与思考问题。"
         />
@@ -81,7 +78,7 @@ async function handleSelectExhibit(exhibit) {
 h1 {
   margin: 0;
   font-size: clamp(22px, 2.8vw, 30px);
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
 }
 
 p {

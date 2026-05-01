@@ -3,7 +3,7 @@ defineProps({
   variant: {
     type: String,
     default: 'primary',
-    validator: (value) => ['primary', 'secondary', 'ghost', 'text'].includes(value),
+    validator: (value) => ['primary', 'secondary', 'text'].includes(value),
   },
   size: {
     type: String,
@@ -39,19 +39,25 @@ defineProps({
   --el-button-text-color: var(--color-text-inverse);
   --el-button-hover-bg-color: var(--color-accent-hover);
   --el-button-hover-border-color: var(--color-accent-hover);
+  --el-button-hover-text-color: var(--color-text-inverse);
 }
 
 .museum-button.is-secondary {
-  --el-button-bg-color: var(--color-bg-elevated);
-  --el-button-border-color: var(--color-border-strong);
-  --el-button-text-color: var(--color-text-primary);
+  --el-button-bg-color: transparent;
+  --el-button-border-color: var(--color-border);
+  --el-button-text-color: var(--color-accent);
+  --el-button-hover-bg-color: var(--color-bg-subtle);
+  --el-button-hover-border-color: var(--color-accent);
+  --el-button-hover-text-color: var(--color-accent);
 }
 
-.museum-button.is-ghost,
 .museum-button.is-text {
   --el-button-bg-color: transparent;
   --el-button-border-color: transparent;
-  --el-button-text-color: var(--color-text-primary);
+  --el-button-text-color: var(--color-accent);
+  --el-button-hover-bg-color: transparent;
+  --el-button-hover-border-color: transparent;
+  --el-button-hover-text-color: var(--color-accent-hover);
 }
 
 .museum-button.is-sm {

@@ -1,27 +1,15 @@
 <script setup>
-import { computed } from 'vue'
-import { FishFaceBasin, FishSwim, PointedJar } from '../motifs/index.js'
+import { Box } from '@element-plus/icons-vue'
 
-const props = defineProps({
-  icon: {
-    type: String,
-    default: 'jar',
-    validator: (value) => ['jar', 'basin', 'fish'].includes(value),
-  },
+defineProps({
   title: { type: String, default: '' },
   description: { type: String, default: '' },
-})
-
-const iconComponent = computed(() => {
-  if (props.icon === 'basin') return FishFaceBasin
-  if (props.icon === 'fish') return FishSwim
-  return PointedJar
 })
 </script>
 
 <template>
   <div class="empty-state">
-    <component :is="iconComponent" :size="72" class="empty-icon" />
+    <el-icon :size="48" class="empty-icon"><Box /></el-icon>
     <h3 v-if="title" class="empty-title">{{ title }}</h3>
     <p v-if="description" class="empty-description">{{ description }}</p>
     <div v-if="$slots.default" class="empty-actions">
@@ -39,16 +27,16 @@ const iconComponent = computed(() => {
   gap: var(--space-3);
   padding: var(--space-8);
   text-align: center;
-  color: var(--color-text-secondary);
+  color: var(--color-text-muted);
 }
 
 .empty-icon {
-  color: var(--color-accent);
+  color: var(--color-text-faint);
 }
 
 .empty-title {
   margin: 0;
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-h4);
   color: var(--color-text-primary);
 }
 

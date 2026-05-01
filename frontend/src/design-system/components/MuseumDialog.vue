@@ -64,16 +64,22 @@ onUnmounted(() => {
 }
 
 .museum-dialog :deep(.el-dialog__title) {
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
   font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
 }
 
 .museum-dialog :deep(.el-dialog__body) {
   padding: 0;
 }
 
+.museum-dialog :deep(.el-dialog) {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
 .museum-dialog-body {
-  padding: var(--space-8);
+  padding: var(--space-6);
 }
 
 .museum-dialog-footer {

@@ -150,7 +150,7 @@ onMounted(checkHealth)
 }
 
 .logo-title {
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
 }
 
 .nav-menu .el-menu-item {

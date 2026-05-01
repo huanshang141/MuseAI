@@ -148,7 +148,7 @@ async function handleSubmit() {
       </el-button>
     </div>
 
-    <EmptyState v-if="!tourPaths.length" icon="jar" title="暂无路线数据" description="先创建一条导览路线。">
+    <EmptyState v-if="!tourPaths.length" title="暂无路线数据" description="先创建一条导览路线。">
       <el-button type="primary" @click="handleAdd">添加第一条路线</el-button>
     </EmptyState>
 

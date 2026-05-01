@@ -89,7 +89,7 @@ onMounted(loadProfile)
     </header>
 
     <el-form label-position="top" :model="profile" class="profile-form">
-      <MuseumCard title="兴趣偏好" subtitle="选择你想优先探索的文物类型" motif="basin">
+      <MuseumCard title="兴趣偏好" subtitle="选择你想优先探索的文物类型">
         <el-form-item label="感兴趣的文物类型">
           <el-checkbox-group v-model="profile.interests" class="interest-group">
             <el-checkbox v-for="option in interestOptions" :key="option.value" :label="option.value">
@@ -99,7 +99,7 @@ onMounted(loadProfile)
         </el-form-item>
       </MuseumCard>
 
-      <MuseumCard title="学习层级" subtitle="调整讲解深度和表达方式" motif="jar">
+      <MuseumCard title="学习层级" subtitle="调整讲解深度和表达方式">
         <el-form-item label="知识水平">
           <el-radio-group v-model="profile.knowledge_level">
             <el-radio v-for="level in knowledgeLevels" :key="level.value" :label="level.value">
@@ -117,7 +117,7 @@ onMounted(loadProfile)
         </el-form-item>
       </MuseumCard>
 
-      <MuseumCard title="反思深度" subtitle="决定导览中的问题挑战强度" motif="pot">
+      <MuseumCard title="反思深度" subtitle="决定导览中的问题挑战强度">
         <el-form-item label="反思深度 ({{ profile.reflection_depth }}/5)">
           <el-slider v-model="profile.reflection_depth" :min="1" :max="5" :step="1" show-stops />
           <div class="slider-labels">
@@ -151,7 +151,7 @@ onMounted(loadProfile)
 .profile-hero h1 {
   margin: 0;
   font-size: clamp(24px, 2.8vw, 32px);
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
 }
 
 .profile-hero p {

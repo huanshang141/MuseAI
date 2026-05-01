@@ -12,13 +12,11 @@ function startTour() {
 
 <template>
   <MuseumPage class="home-view">
-    <template #hero>
-      <div class="home-hero">
-        <h1>与半坡对话</h1>
-        <p>六千年的陶土之下，每一个疑问都值得追问。</p>
-        <el-button type="warning" @click="startTour">开始导览</el-button>
-      </div>
-    </template>
+    <div class="home-hero">
+      <h1>与半坡对话</h1>
+      <p>六千年的陶土之下，每一个疑问都值得追问。</p>
+      <el-button type="warning" @click="startTour">开始导览</el-button>
+    </div>
 
     <ChatMainArea />
   </MuseumPage>
@@ -49,7 +47,7 @@ function startTour() {
 .home-hero h1 {
   margin: 0;
   font-size: clamp(24px, 3vw, 32px);
-  font-family: var(--font-family-display);
+  font-family: var(--font-family-base);
 }
 
 .home-hero p {

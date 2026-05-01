@@ -9,10 +9,16 @@
 <style scoped>
 .museum-input :deep(.el-input__wrapper) {
   border-radius: var(--radius-sm);
-  box-shadow: inset 0 0 0 1px var(--color-border);
+  box-shadow: none;
+  border: 1px solid var(--color-border);
+}
+
+.museum-input :deep(.el-input__wrapper:hover) {
+  border-color: var(--color-border-strong);
 }
 
 .museum-input :deep(.el-input__wrapper.is-focus) {
-  box-shadow: inset 0 0 0 1px var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: none;
 }
 </style>

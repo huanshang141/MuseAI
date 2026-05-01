@@ -47,8 +47,8 @@ onMounted(async () => {
 }
 
 .tour-container--immersive {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
 }
 
 .tour-content {

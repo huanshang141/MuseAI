@@ -4,4 +4,9 @@
   --bp-md: 768px;
   --bp-lg: 1024px;
   --bp-xl: 1280px;
+
+  --content-width-sm: 640px;
+  --content-width-md: 840px;
+  --content-width-lg: 1200px;
+  --content-width-full: 1440px;
 }

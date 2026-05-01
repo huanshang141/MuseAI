@@ -11,4 +11,10 @@
   --space-12: 48px;
   --space-16: 64px;
   --space-20: 80px;
+
+  --space-fluid-xs: clamp(0.5rem, 1vw, 1rem);
+  --space-fluid-sm: clamp(0.75rem, 1.5vw, 1.5rem);
+  --space-fluid-md: clamp(1rem, 2vw, 2.5rem);
+  --space-fluid-lg: clamp(1.5rem, 3vw, 4rem);
+  --space-fluid-xl: clamp(2rem, 4vw, 6rem);
 }

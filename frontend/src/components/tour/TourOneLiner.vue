@@ -20,7 +20,7 @@ const props = defineProps({
 .liner-text {
   font-size: 20px;
   font-weight: 600;
-  color: #d4a574;
+  color: var(--color-accent);
   line-height: 1.6;
   font-style: italic;
 }

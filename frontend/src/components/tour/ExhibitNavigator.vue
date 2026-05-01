@@ -12,9 +12,9 @@ const emit = defineEmits(['next', 'complete', 'deep-dive'])
 </template>
 
 <style scoped>
-.navigator { display: flex; justify-content: center; gap: 16px; padding: 12px 24px; border-top: 1px solid rgba(255,255,255,0.08); background: rgba(0,0,0,0.2); }
+.navigator { display: flex; justify-content: center; gap: 16px; padding: 12px 24px; border-top: 1px solid var(--color-border); background: var(--color-bg-subtle); }
 .nav-btn { border-radius: 20px; }
-.deep-dive { color: #d4a574; }
-.next-btn { background: #d4a574; border-color: #d4a574; }
+.deep-dive { color: var(--color-accent); }
+.next-btn { background: var(--color-accent); border-color: var(--color-accent); }
 .complete-btn { background: #8fbc8f; border-color: #8fbc8f; }
 </style>

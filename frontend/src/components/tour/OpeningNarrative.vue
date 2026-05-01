@@ -120,10 +120,10 @@ async function startExplore() {
 .persona-badge {
   display: inline-block;
   padding: 8px 24px;
-  background: rgba(212, 165, 116, 0.15);
-  border: 1px solid rgba(212, 165, 116, 0.3);
+  background: var(--color-accent-muted);
+  border: 1px solid var(--color-accent);
   border-radius: 20px;
-  color: #d4a574;
+  color: var(--color-accent);
   font-size: 16px;
   margin-bottom: 32px;
 }
@@ -132,13 +132,13 @@ async function startExplore() {
   font-size: 17px;
   line-height: 2;
   text-align: left;
-  color: #f0e6d3;
+  color: var(--color-text-primary);
   white-space: pre-wrap;
 }
 
 .cursor {
   animation: blink 0.8s infinite;
-  color: #d4a574;
+  color: var(--color-accent);
 }
 
 @keyframes blink {
@@ -151,12 +151,12 @@ async function startExplore() {
   padding: 14px 48px;
   font-size: 18px;
   border-radius: 24px;
-  background: #d4a574;
-  border-color: #d4a574;
+  background: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 .start-btn:hover {
-  background: #c49564;
+  background: var(--color-accent-soft);
 }
 
 .tts-play-btn {
@@ -165,22 +165,22 @@ async function startExplore() {
   gap: 6px;
   padding: 8px 20px;
   margin-bottom: 24px;
-  background: rgba(212, 165, 116, 0.1);
-  border: 1px solid rgba(212, 165, 116, 0.3);
+  background: var(--color-accent-muted);
+  border: 1px solid var(--color-accent);
   border-radius: 20px;
-  color: #d4a574;
+  color: var(--color-accent);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .tts-play-btn:hover {
-  background: rgba(212, 165, 116, 0.2);
-  border-color: rgba(212, 165, 116, 0.5);
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
 }
 
 .tts-play-btn.playing {
-  background: rgba(212, 165, 116, 0.25);
-  border-color: #d4a574;
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
 }
 </style>

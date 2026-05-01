@@ -35,9 +35,9 @@ function continueTour() { emit('done') }
 
 <style scoped>
 .hall-intro { padding: 40px 24px; text-align: center; max-width: 640px; margin: 0 auto; }
-.hall-title { font-size: 24px; color: #d4a574; margin-bottom: 24px; }
+.hall-title { font-size: 24px; color: var(--color-accent); margin-bottom: 24px; }
 .intro-content { margin-bottom: 32px; }
-.intro-text { font-size: 16px; line-height: 2; color: #f0e6d3; text-align: left; white-space: pre-wrap; }
-.cursor { animation: blink 0.8s infinite; color: #d4a574; }
+.intro-text { font-size: 16px; line-height: 2; color: var(--color-text-primary); text-align: left; white-space: pre-wrap; }
+.cursor { animation: blink 0.8s infinite; color: var(--color-accent); }
 @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
 </style>

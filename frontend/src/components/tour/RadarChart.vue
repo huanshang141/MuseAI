@@ -44,7 +44,7 @@ function drawChart() {
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     }
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.06)'
     ctx.stroke()
   }
 
@@ -53,13 +53,13 @@ function drawChart() {
     ctx.beginPath()
     ctx.moveTo(cx, cy)
     ctx.lineTo(cx + maxR * Math.cos(angle), cy + maxR * Math.sin(angle))
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)'
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)'
     ctx.stroke()
 
     const labelR = maxR + 20
     const lx = cx + labelR * Math.cos(angle)
     const ly = cy + labelR * Math.sin(angle)
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+    ctx.fillStyle = 'rgba(26, 24, 22, 0.6)'
     ctx.font = '12px sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
@@ -77,9 +77,9 @@ function drawChart() {
     if (i === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   }
-  ctx.fillStyle = 'rgba(212, 165, 116, 0.2)'
+  ctx.fillStyle = 'rgba(169, 76, 44, 0.15)'
   ctx.fill()
-  ctx.strokeStyle = '#d4a574'
+  ctx.strokeStyle = '#a94c2c'
   ctx.lineWidth = 2
   ctx.stroke()
 
@@ -91,7 +91,7 @@ function drawChart() {
     const y = cy + r * Math.sin(angle)
     ctx.beginPath()
     ctx.arc(x, y, 4, 0, Math.PI * 2)
-    ctx.fillStyle = '#d4a574'
+    ctx.fillStyle = '#a94c2c'
     ctx.fill()
   }
 }
@@ -118,7 +118,7 @@ watch(() => props.scores, drawChart, { deep: true })
 
 .section-title {
   font-size: 18px;
-  color: #f0e6d3;
+  color: var(--color-text-primary);
   margin-bottom: 16px;
 }
 
@@ -135,6 +135,6 @@ watch(() => props.scores, drawChart, { deep: true })
   gap: 24px;
   margin-top: 8px;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.4);
+  color: var(--color-text-muted);
 }
 </style>

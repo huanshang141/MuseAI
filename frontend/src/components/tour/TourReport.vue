@@ -37,12 +37,12 @@ onMounted(async () => {
 
 <style scoped>
 .tour-report { max-width: 640px; margin: 0 auto; padding: 40px 24px; min-height: 100%; }
-.theme-A { background: linear-gradient(180deg, #1a1a2e 0%, #2d1f0e 100%); }
-.theme-B { background: linear-gradient(180deg, #1a1a2e 0%, #1e2d1a 100%); }
-.theme-C { background: linear-gradient(180deg, #1a1a2e 0%, #1a1e2d 100%); }
+.theme-A { background: var(--color-bg-base); }
+.theme-B { background: var(--color-bg-base); }
+.theme-C { background: var(--color-bg-base); }
 .report-header { text-align: center; margin-bottom: 32px; }
-.report-title { font-size: 28px; color: #d4a574; }
-.loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 80px 0; color: #d4a574; }
-.qr-placeholder { text-align: center; margin-top: 40px; padding: 24px; color: rgba(255,255,255,0.5); }
-.qr-box { width: 120px; height: 120px; border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px auto 0; font-size: 24px; color: rgba(255,255,255,0.3); }
+.report-title { font-size: 28px; color: var(--color-accent); }
+.loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 80px 0; color: var(--color-accent); }
+.qr-placeholder { text-align: center; margin-top: 40px; padding: 24px; color: var(--color-text-muted); }
+.qr-box { width: 120px; height: 120px; border: 2px dashed var(--color-border); border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 12px auto 0; font-size: 24px; color: var(--color-text-muted); }
 </style>

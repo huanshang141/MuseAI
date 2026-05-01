@@ -3,7 +3,7 @@ const props = defineProps({
   tags: Array,
 })
 
-const tagColors = ['#d4a574', '#8fbc8f', '#6fa8dc']
+const tagColors = ['#a94c2c', '#8fbc8f', '#6fa8dc']
 </script>
 
 <template>
@@ -24,7 +24,7 @@ const tagColors = ['#d4a574', '#8fbc8f', '#6fa8dc']
 
 .section-title {
   font-size: 18px;
-  color: #f0e6d3;
+  color: var(--color-text-primary);
   margin-bottom: 16px;
 }
 
@@ -36,7 +36,7 @@ const tagColors = ['#d4a574', '#8fbc8f', '#6fa8dc']
 
 .tag-card {
   padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-bg-subtle);
   border: 1px solid;
   border-radius: 12px;
 }

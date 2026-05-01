@@ -119,12 +119,12 @@ async function selectOption(value) {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--color-bg-subtle);
   transition: all 0.3s;
 }
 
 .dot.active {
-  background: #d4a574;
+  background: var(--color-accent);
 }
 
 .dot.done {
@@ -139,7 +139,7 @@ async function selectOption(value) {
   font-size: 22px;
   line-height: 1.6;
   margin-bottom: 32px;
-  color: #f0e6d3;
+  color: var(--color-text-primary);
 }
 
 .options {
@@ -153,16 +153,16 @@ async function selectOption(value) {
   align-items: center;
   gap: 16px;
   padding: 20px 24px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .option-card:hover {
-  background: rgba(212, 165, 116, 0.15);
-  border-color: #d4a574;
+  background: var(--color-accent-muted);
+  border-color: var(--color-accent);
   transform: translateX(4px);
 }
 
@@ -173,8 +173,8 @@ async function selectOption(value) {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(212, 165, 116, 0.2);
-  color: #d4a574;
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
   font-weight: 700;
   font-size: 16px;
   flex-shrink: 0;
@@ -193,7 +193,7 @@ async function selectOption(value) {
 
 .option-desc {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-muted);
   margin-top: 4px;
 }
 
@@ -205,9 +205,9 @@ async function selectOption(value) {
   align-items: center;
   justify-content: center;
   gap: 16px;
-  background: rgba(26, 26, 46, 0.9);
+  background: var(--color-bg-base);
   z-index: 100;
-  color: #d4a574;
+  color: var(--color-accent);
 }
 
 .fade-enter-active, .fade-leave-active {

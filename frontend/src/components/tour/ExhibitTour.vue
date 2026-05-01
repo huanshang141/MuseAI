@@ -79,8 +79,8 @@ function onDeepDive() {
 
 <style scoped>
 .exhibit-tour { display: flex; flex-direction: column; height: 100%; }
-.tour-header-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; background: rgba(255,255,255,0.03); border-bottom: 1px solid rgba(255,255,255,0.08); }
-.hall-name { font-size: 16px; font-weight: 600; color: #d4a574; }
-.exhibit-progress { font-size: 14px; color: rgba(255,255,255,0.5); }
-.loading { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 60px; color: rgba(255,255,255,0.5); }
+.tour-header-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; background: var(--color-bg-subtle); border-bottom: 1px solid var(--color-border); }
+.hall-name { font-size: 16px; font-weight: 600; color: var(--color-accent); }
+.exhibit-progress { font-size: 14px; color: var(--color-text-muted); }
+.loading { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 60px; color: var(--color-text-muted); }
 </style>

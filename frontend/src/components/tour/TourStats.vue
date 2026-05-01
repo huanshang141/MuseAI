@@ -36,6 +36,6 @@ const statTexts = {
 
 <style scoped>
 .tour-stats { margin-bottom: 32px; }
-.stat-item { padding: 16px; background: rgba(255,255,255,0.04); border-radius: 8px; margin-bottom: 12px; }
-.stat-text { font-size: 15px; line-height: 1.8; color: #f0e6d3; }
+.stat-item { padding: 16px; background: var(--color-bg-subtle); border-radius: 8px; margin-bottom: 12px; }
+.stat-text { font-size: 15px; line-height: 1.8; color: var(--color-text-primary); }
 </style>

@@ -34,13 +34,13 @@ async function onHallSelect(hallSlug) {
 <style scoped>
 .hall-select { display: flex; justify-content: center; align-items: center; min-height: 100%; padding: 40px 20px; }
 .hall-select-inner { max-width: 800px; width: 100%; text-align: center; }
-.title { font-size: 24px; color: #f0e6d3; margin-bottom: 8px; }
-.subtitle { font-size: 15px; color: rgba(255,255,255,0.5); margin-bottom: 40px; }
+.title { font-size: 24px; color: var(--color-text-primary); margin-bottom: 8px; }
+.subtitle { font-size: 15px; color: var(--color-text-muted); margin-bottom: 40px; }
 .hall-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
-.hall-card { padding: 32px 24px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; cursor: pointer; transition: all 0.2s; text-align: center; }
-.hall-card:hover { background: rgba(212,165,116,0.12); border-color: #d4a574; transform: translateY(-4px); }
+.hall-card { padding: 32px 24px; background: var(--color-bg-elevated); border: 1px solid var(--color-border); border-radius: 16px; cursor: pointer; transition: all 0.2s; text-align: center; }
+.hall-card:hover { background: var(--color-accent-muted); border-color: var(--color-accent); transform: translateY(-4px); }
 .hall-icon { font-size: 48px; margin-bottom: 16px; }
-.hall-name { font-size: 20px; color: #f0e6d3; margin-bottom: 12px; }
-.hall-desc { font-size: 14px; line-height: 1.8; color: rgba(255,255,255,0.6); margin-bottom: 16px; }
-.hall-meta { display: flex; justify-content: center; gap: 16px; font-size: 13px; color: #d4a574; }
+.hall-name { font-size: 20px; color: var(--color-text-primary); margin-bottom: 12px; }
+.hall-desc { font-size: 14px; line-height: 1.8; color: var(--color-text-secondary); margin-bottom: 16px; }
+.hall-meta { display: flex; justify-content: center; gap: 16px; font-size: 13px; color: var(--color-accent); }
 </style>

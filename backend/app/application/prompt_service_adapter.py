@@ -99,7 +99,9 @@ class PromptServiceAdapter(PromptGateway):
             async with get_session() as session:
                 repository = PostgresPromptRepository(session)
                 service = PromptService(repository, self._cache)
-                return await service.get_prompt(key)
+                result = await service.get_prompt(key)
+                logger.debug(f"get_entity('{key}') -> {'found' if result else 'None'}")
+                return result
         except RuntimeError as e:
             logger.debug(f"PromptService unavailable for key '{key}': {e}")
             return None

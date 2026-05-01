@@ -8,7 +8,7 @@ router = APIRouter(prefix="/tts", tags=["tts"])
 
 class SynthesizeRequest(BaseModel):
     text: str
-    voice: str = "冰糖"
+    voice: str | None = "冰糖"
     style: str | None = None
     persona: str | None = None
 
@@ -34,7 +34,7 @@ async def synthesize_tts(body: SynthesizeRequest, request: Request):
     if body.persona:
         config = await tts_service.get_tour_tts_config(body.persona)
     else:
-        config = TTSConfig(voice=body.voice, style=body.style)
+        config = TTSConfig(voice=body.voice or "冰糖", style=body.style)
     try:
         # Use synthesize_stream to get PCM16 chunks, collect all into one buffer
         chunks = []

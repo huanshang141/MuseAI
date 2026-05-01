@@ -20,7 +20,7 @@ def mock_cache():
     """Create mock cache."""
     cache = MagicMock()
     cache.get = AsyncMock()
-    cache.refresh = MagicMock()
+    cache.refresh = AsyncMock()
     return cache
 
 
@@ -58,6 +58,7 @@ async def test_get_prompt_from_cache(mock_repository, mock_cache, sample_prompt)
 async def test_get_prompt_not_found(mock_repository, mock_cache):
     """Test getting non-existent prompt."""
     mock_cache.get.return_value = None
+    mock_repository.get_by_key.return_value = None
 
     service = PromptService(mock_repository, mock_cache)
     result = await service.get_prompt("nonexistent")

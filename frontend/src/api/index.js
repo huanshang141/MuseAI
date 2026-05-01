@@ -425,7 +425,6 @@ export const api = {
       if (exhibitId) body.exhibit_id = exhibitId
       if (style) body.style = style
       if (ttsOptions.tts) body.tts = true
-      if (ttsOptions.tts_voice) body.tts_voice = ttsOptions.tts_voice
 
       const response = await fetch(`${BASE_URL}/tour/sessions/${id}/chat/stream`, {
         method: 'POST',

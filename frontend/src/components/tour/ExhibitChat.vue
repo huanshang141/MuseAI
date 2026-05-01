@@ -31,7 +31,7 @@ async function playMessageTTS(text) {
   manualTtsPlaying.value = true
   try {
     const persona = tourSession.value?.persona || 'A'
-    const result = await api.tts.synthesize(text, ttsPreferences.value.voice, null, persona)
+    const result = await api.tts.synthesize(text, null, null, persona)
     if (result.ok && result.data?.audio) {
       stopTTS()
       feedChunk(result.data.audio)

@@ -33,9 +33,7 @@ class PromptService:
         self._cache = cache
 
     async def get_prompt(self, key: str) -> Prompt | None:
-        """Get a prompt by key from cache.
-
-        The cache handles cache misses by loading from the repository.
+        """Get a prompt by key from cache, falling back to repository.
 
         Args:
             key: Unique prompt key
@@ -43,7 +41,16 @@ class PromptService:
         Returns:
             Prompt if found (and active), None otherwise
         """
-        return await self._cache.get(key)
+        prompt = await self._cache.get(key)
+        if prompt is not None:
+            return prompt
+
+        prompt = await self._repository.get_by_key(key)
+        if prompt is not None and prompt.is_active:
+            await self._cache.refresh(prompt)
+            return prompt
+
+        return None
 
     async def render_prompt(self, key: str, variables: dict[str, str]) -> str | None:
         """Get a prompt and render it with the provided variables.

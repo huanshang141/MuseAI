@@ -42,27 +42,18 @@ class PromptCache:
         logger.info(f"Loaded {len(self._cache)} prompts into cache")
 
     async def get(self, key: str) -> Prompt | None:
-        """Get a prompt from cache, loading from DB on miss.
+        """Get a prompt from cache (memory only).
 
         Args:
             key: Prompt key to look up
 
         Returns:
-            Prompt if found (and active), None otherwise
+            Prompt if found in cache, None otherwise
         """
         async with self._lock:
             if key in self._cache:
                 self._cache.move_to_end(key)
                 return self._cache[key]
-
-        if self._repository:
-            prompt = await self._repository.get_by_key(key)
-            if prompt and prompt.is_active:
-                async with self._lock:
-                    self._cache[key] = prompt
-                    self._cache.move_to_end(key)
-                    self._evict_if_needed()
-                return prompt
 
         return None
 

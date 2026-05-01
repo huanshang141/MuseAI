@@ -175,7 +175,6 @@ export function useTour() {
         style,
         {
           tts: ttsPreferences.value.enabled,
-          tts_voice: ttsPreferences.value.voice,
         },
       )) {
         if (event.event === 'chunk' && event.data?.content) {

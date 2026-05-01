@@ -70,33 +70,30 @@ async def test_get_from_cache(mock_repository, sample_prompt):
 
 
 @pytest.mark.asyncio
-async def test_get_cache_miss(mock_repository, sample_prompt):
-    """Test cache miss loads from repository."""
-    mock_repository.get_by_key.return_value = sample_prompt
-
+async def test_get_cache_miss(mock_repository):
+    """Test cache miss returns None (DB fallback is in PromptService)."""
     cache = PromptCache()
     cache.set_repository(mock_repository)
 
     result = await cache.get("test_prompt")
-    assert result == sample_prompt
-    mock_repository.get_by_key.assert_called_once_with("test_prompt")
+    assert result is None
+    mock_repository.get_by_key.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_get_cache_miss_not_found(mock_repository):
-    """Test cache miss when prompt doesn't exist."""
-    mock_repository.get_by_key.return_value = None
-
+    """Test cache miss returns None without querying repository."""
     cache = PromptCache()
     cache.set_repository(mock_repository)
 
     result = await cache.get("nonexistent")
     assert result is None
+    mock_repository.get_by_key.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_get_inactive_prompt(mock_repository):
-    """Test that inactive prompts are not cached on miss."""
+async def test_get_inactive_prompt():
+    """Test that inactive prompts are not returned from cache."""
     inactive_prompt = Prompt(
         id="test-id",
         key="inactive_prompt",
@@ -110,10 +107,10 @@ async def test_get_inactive_prompt(mock_repository):
         updated_at=datetime.now(UTC),
         current_version=1,
     )
-    mock_repository.get_by_key.return_value = inactive_prompt
 
     cache = PromptCache()
-    cache.set_repository(mock_repository)
+    # refresh with inactive prompt should not add to cache
+    await cache.refresh(inactive_prompt)
 
     result = await cache.get("inactive_prompt")
     assert result is None

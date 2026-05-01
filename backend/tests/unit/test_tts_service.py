@@ -60,7 +60,7 @@ class TestTTSService:
         gateway.get_entity = AsyncMock(return_value=prompt)
         service = self._make_service(prompt_gateway=gateway)
 
-        config = await service.get_tour_tts_config("a")
+        config = await service.get_tour_tts_config("A")
         assert config.voice == "白桦"
         assert config.style == "用沉稳专业的语气讲解"
         gateway.get_entity.assert_called_once_with("tour_tts_persona_a")
@@ -72,7 +72,7 @@ class TestTTSService:
         gateway.get_entity = AsyncMock(return_value=prompt)
         service = self._make_service(prompt_gateway=gateway)
 
-        config = await service.get_tour_tts_config("a")
+        config = await service.get_tour_tts_config("A")
         assert config.voice == "冰糖"
         assert config.style == "用沉稳专业的语气讲解"
 
@@ -82,16 +82,16 @@ class TestTTSService:
         gateway.get_entity = AsyncMock(return_value=None)
         service = self._make_service(prompt_gateway=gateway)
 
-        config = await service.get_tour_tts_config("b")
+        config = await service.get_tour_tts_config("B")
         assert config.voice == "冰糖"
         assert config.style == "用温和亲切的语气讲解，语速适中"
 
     @pytest.mark.asyncio
     async def test_get_tour_tts_config_all_personas(self):
-        for persona, voice in [("a", "白桦"), ("b", "苏打"), ("c", "茉莉")]:
+        for persona, voice in [("A", "白桦"), ("B", "苏打"), ("C", "茉莉")]:
             gateway = AsyncMock()
             prompt = _make_prompt(
-                f"tour_tts_persona_{persona}",
+                f"tour_tts_persona_{persona.lower()}",
                 f"Style for {persona}",
                 voice=voice,
             )

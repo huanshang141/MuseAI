@@ -65,18 +65,24 @@ The backend follows a strict layered architecture (API → Application → Domai
 backend/app/
 ├── api/                    # FastAPI routers and request/response models
 │   ├── deps.py            # Dependency injection (DB session, auth, rate limiting)
+│   ├── _shared_responses.py # Shared response models across routers
 │   ├── auth.py            # Authentication endpoints
 │   ├── chat.py            # Chat session and message endpoints
 │   ├── client_ip.py       # Client IP extraction from proxy headers
-│   ├── curator.py         # Curator AI agent endpoints
+│   ├── curator.py         # Curator AI agent endpoints (plan-tour, narrative, reflection)
 │   ├── documents.py       # Document upload API
 │   ├── exhibits.py        # Public exhibit browsing endpoints
 │   ├── health.py          # Health check endpoints
 │   ├── profile.py         # Visitor profile endpoints
-│   ├── tour.py            # Tour session and guided-visit endpoints
+│   ├── tour.py            # Tour session, events, report, and chat endpoints
+│   ├── tts.py             # TTS synthesis endpoint
 │   └── admin/             # Admin-only router namespace
-│       ├── exhibits.py    # Admin exhibit management
-│       └── prompts.py     # Admin prompt template management
+│       ├── documents.py   # Admin document management
+│       ├── exhibits.py    # Admin exhibit management (CRUD, reindex)
+│       ├── halls.py       # Admin hall management
+│       ├── llm_traces.py  # LLM trace viewing and analysis
+│       ├── prompts.py     # Admin prompt template management (versioning, rollback)
+│       └── tts_persona.py # Admin TTS persona management and voice preview
 ├── application/            # Business logic and services
 │   ├── auth_service.py    # User registration/login
 │   ├── chat_service.py    # Chat message handling, SSE streaming
@@ -84,6 +90,7 @@ backend/app/
 │   ├── chat_session_service.py  # Chat session CRUD
 │   ├── chat_stream_service.py   # RAG streaming orchestration
 │   ├── document_service.py # Document CRUD
+│   ├── document_filter.py # Dynamic retrieval document filtering
 │   ├── ingestion_service.py # Document chunking and embedding
 │   ├── unified_indexing_service.py # Unified ES indexing pipeline
 │   ├── exhibit_service.py  # Exhibit CRUD
@@ -97,11 +104,19 @@ backend/app/
 │   ├── tour_session_service.py # Tour session CRUD
 │   ├── tour_event_service.py  # Tour event recording
 │   ├── tour_report_service.py # Tour report generation
-│   ├── chunking.py        # Text chunking algorithms
+│   ├── tts_service.py     # TTS service with config resolution
+│   ├── tts_streaming.py   # Sentence-level TTS streaming and audio interleaving
+│   ├── chunking.py        # Text chunking algorithms (hierarchical parent-child)
 │   ├── context_manager.py # Context window management
 │   ├── error_handling.py  # Centralized error handling
 │   ├── sse_events.py      # SSE event type definitions
 │   ├── ports/             # Port interfaces (dependency inversion)
+│   ├── llm_trace/         # LLM call tracing and auditing
+│   │   ├── context.py     # Trace context management
+│   │   ├── formatter.py   # Trace data formatting
+│   │   ├── masking.py     # Sensitive data masking
+│   │   ├── recorder.py    # Trace recording
+│   │   └── repository.py  # Trace persistence
 │   └── workflows/         # Multi-turn conversation workflows
 │       ├── multi_turn.py  # State machine for retrieval evaluation
 │       ├── query_transform.py # Query transformation (HyDE, step-back)
@@ -111,24 +126,38 @@ backend/app/
 │   ├── value_objects.py   # Typed IDs (UserId, SessionId, ExhibitId, TourSessionId, etc.)
 │   ├── exceptions.py      # Domain-specific exceptions
 │   └── services/          # Domain services
-│       └── retrieval.py   # RRF fusion algorithm
+│       └── retrieval.py   # RRF fusion algorithm with source deduplication
 ├── infra/                  # Infrastructure layer
 │   ├── postgres/          # Database models and session management
 │   │   ├── models.py      # SQLAlchemy ORM models (13 classes)
 │   │   └── database.py    # Engine lifecycle, session factory
 │   ├── elasticsearch/     # ES client for vector/BM25 search
 │   ├── redis/             # Caching and token blacklist
+│   ├── cache/             # Application-level caching
+│   │   └── prompt_cache.py # Prompt template cache with Redis fallback
 │   ├── langchain/         # LangChain integrations
 │   │   ├── embeddings.py  # Custom Ollama embeddings
 │   │   ├── retrievers.py  # RRF retriever implementation
-│   │   ├── agents.py      # RAG agent with LangGraph state machine
+│   │   ├── agents.py      # RAG agent with LangGraph state machine (includes filter and merge nodes)
 │   │   ├── curator_agent.py # Curator agent with LangGraph
-│   │   ├── curator_tools.py # Curator tool definitions (path planning, narrative, etc.)
+│   │   ├── curator_tools/ # Curator tool definitions (path planning, narrative, etc.)
+│   │   ├── llm_trace_callback.py # LangChain callback for LLM tracing
 │   │   └── tools.py       # Shared tool utilities
 │   ├── providers/         # External service providers
 │   │   ├── llm.py         # OpenAI-compatible LLM provider
 │   │   ├── embedding.py   # Embedding provider abstraction
-│   │   └── rerank.py      # Rerank provider (Dashscope, Local, Noop)
+│   │   ├── rerank/        # Rerank providers
+│   │   │   ├── base.py    # Base rerank provider ABC
+│   │   │   ├── factory.py # Rerank provider factory
+│   │   │   ├── mock.py    # Mock rerank for testing
+│   │   │   ├── openai.py  # OpenAI-compatible rerank
+│   │   │   └── siliconflow.py # SiliconFlow rerank provider
+│   │   └── tts/           # TTS providers
+│   │       ├── base.py    # BaseTTSProvider ABC
+│   │       ├── cached.py  # Redis-cached TTS wrapper
+│   │       ├── factory.py # TTS provider factory
+│   │       ├── mock.py    # Mock TTS for testing
+│   │       └── xiaomi.py  # Xiaomi TTS provider
 │   └── security/          # JWT handling, password hashing
 ├── config/                 # Configuration management
 │   └── settings.py        # Pydantic settings with validation
@@ -141,11 +170,17 @@ backend/app/
 
 2. **Global Singletons**: `main.py` manages global instances (ES client, LLM, embeddings, retriever, RAG agent) with lazy initialization.
 
-3. **RRF Fusion Retrieval**: Combines dense (vector) and sparse (BM25) search using Reciprocal Rank Fusion. See `domain/services/retrieval.py` and `infra/langchain/retrievers.py`.
+3. **RRF Fusion Retrieval**: Combines dense (vector) and sparse (BM25) search using Reciprocal Rank Fusion with source-level deduplication. See `domain/services/retrieval.py` and `infra/langchain/retrievers.py`.
 
-4. **RAG Agent with LangGraph**: State machine that evaluates retrieval quality and can transform queries if scores are low. See `infra/langchain/agents.py`.
+4. **RAG Agent with LangGraph**: State machine that evaluates retrieval quality, applies dynamic document filtering, merges hierarchical chunks, and can transform queries if scores are low. See `infra/langchain/agents.py`.
 
-5. **SSE Streaming**: Chat responses stream via Server-Sent Events with structured event types (`thinking`, `chunk`, `done`, `error`).
+5. **SSE Streaming**: Chat and tour responses stream via Server-Sent Events with structured event types (`thinking`, `chunk`, `done`, `error`, `audio` for TTS).
+
+6. **TTS Integration**: Text-to-speech with provider abstraction (Xiaomi, Mock), sentence-level streaming, Redis caching, and persona management. Audio events are interleaved with text in SSE streams.
+
+7. **LLM Tracing**: Transparent call recording with sensitive data masking, stored in PostgreSQL for auditing. See `application/llm_trace/`.
+
+8. **Prompt Management**: Versioned prompt templates with cache layer, rollback support, and admin CRUD. See `infra/cache/prompt_cache.py`.
 
 ### Database Schema
 
@@ -155,6 +190,7 @@ PostgreSQL tables:
 - `ingestion_jobs`: id, document_id, status, chunk_count, error, created_at, updated_at
 - `chat_sessions`: id, user_id, title, created_at
 - `chat_messages`: id, session_id, role, content, trace_id, created_at
+- `halls`: id, name, slug, description, floor, sort_order, is_active, created_at, updated_at
 - `exhibits`: id, name, description, location_x/y, floor, hall, category, era, importance, estimated_visit_time, document_id, is_active, display_order, created_at, updated_at
 - `visitor_profiles`: id, user_id, interests, knowledge_level, narrative_preference, reflection_depth, visited_exhibit_ids, feedback_history, created_at, updated_at
 - `tour_paths`: id, name, description, theme, estimated_duration, exhibit_ids, is_active, created_by, created_at, updated_at
@@ -163,14 +199,16 @@ PostgreSQL tables:
 - `tour_reports`: id, tour_session_id, total_duration_minutes, most_viewed_exhibit_id, most_viewed_exhibit_duration, longest_hall, longest_hall_duration, total_questions, total_exhibits_viewed, ceramic_questions, identity_tags, radar_scores, one_liner, report_theme, created_at
 - `prompts`: id, key, name, description, category, content, variables, is_active, created_at, updated_at
 - `prompt_versions`: id, prompt_id, version, content, changed_by, change_reason, created_at
+- `llm_traces`: id, call_id, session_id, user_id, provider, model, prompt_tokens, completion_tokens, latency_ms, status, request/response masked data, created_at
 
 ### Elasticsearch Index
 
 Index `museai_chunks_v1` with:
-- `chunk_id` (keyword), `document_id` (keyword)
+- `chunk_id` (keyword), `document_id` (keyword), `parent_chunk_id` (keyword)
 - `content` (text with ik_max_word analyzer)
 - `content_vector` (dense_vector, configurable dims)
-- `chunk_level`, `source` fields
+- `chunk_level` (keyword), `source` (keyword)
+- Supports hierarchical chunking (parent-child relationships) and source-level deduplication
 
 ## Configuration
 
@@ -214,7 +252,13 @@ Environment variables (see `.env.example` for full reference):
 - `RERANK_BASE_URL`: str, default `""` — Rerank API base URL
 - `RERANK_API_KEY`: str, default `""` — **Required in production when RERANK_PROVIDER is set**
 - `RERANK_MODEL`: str, default `"rerank-v1"` — Rerank model identifier
-- `RERANK_TOP_N`: int, default `5` — Number of results to return
+- `RERANK_TOP_N`: int, default `10` — Number of results to return
+
+### TTS
+- `TTS_ENABLED`: bool, default `False` — Enable text-to-speech
+- `TTS_PROVIDER`: str, default `"xiaomi"` — TTS provider (xiaomi, mock)
+- `TTS_API_KEY`: str, default `""` — TTS API key
+- `TTS_DEFAULT_VOICE`: str, default `"冰糖"` — Default TTS voice/persona
 
 ### Logging
 - `LOG_LEVEL`: str, default `"INFO"` — One of: DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -238,11 +282,12 @@ Production requires `JWT_SECRET` (≥32 chars), `LLM_API_KEY`, and `RERANK_API_K
 
 ```
 backend/tests/
+├── conftest.py     # Global test fixtures (shared across all test types)
 ├── unit/           # Unit tests (fast, mocked dependencies)
+│   └── conftest.py # Unit-specific fixtures
 ├── contract/       # API contract tests (FastAPI TestClient)
 ├── e2e/            # End-to-end tests (requires running infra)
-├── integration/    # Integration tests
-└── fixtures/       # Test fixtures and mocks
+└── fixtures/       # Test fixtures and mocks (mock_factories replaces mock_providers)
 ```
 
 Test configuration in `pyproject.toml`: `asyncio_mode = "auto"`, `testpaths = ["backend/tests"]`.
@@ -272,9 +317,10 @@ Test configuration in `pyproject.toml`: `asyncio_mode = "auto"`, `testpaths = ["
 ### Working with the RAG pipeline
 
 1. Query enters through `chat_service.ask_question_stream_with_rag()`
-2. RAG agent retrieves documents, evaluates score
-3. If score < threshold, query transformation may occur
-4. Response generated with context, streamed via SSE
+2. RAG agent retrieves documents, reranks, then applies dynamic filter node (absolute/relative gap strategies)
+3. Hierarchical chunk merge node promotes parent chunks when child chunks are retrieved
+4. If score < threshold, query transformation may occur
+5. Response generated with context, streamed via SSE (with optional TTS audio events)
 
 ### Database migrations (Alembic)
 

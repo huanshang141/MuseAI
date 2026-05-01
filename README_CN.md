@@ -7,11 +7,17 @@
 ## 功能特性
 
 - **智能问答**：基于 RAG 的问答系统，从博物馆知识库中进行上下文检索
-- **混合检索**：使用倒数排名融合（RRF）算法结合稠密向量检索和 BM25 关键词检索
-- **多轮对话**：支持查询转换策略（HyDE、后退提问、多查询）的有状态对话
-- **文档摄入**：自动文档分块和嵌入，支持层级结构
-- **流式响应**：实时 SSE（服务器推送事件）流式输出，提升用户体验
+- **混合检索**：使用倒数排名融合（RRF）算法结合稠密向量检索和 BM25 关键词检索，支持来源去重
+- **多轮对话**：支持查询转换策略（HyDE、后退提问、多查询）和动态召回过滤的有状态对话
+- **文档摄入**：自动层级文档分块（父子关系）和嵌入，支持 Elasticsearch 索引
+- **流式响应**：实时 SSE（服务器推送事件）流式输出，支持可选的 TTS 音频事件
 - **用户认证**：基于 JWT 的身份认证，支持速率限制和令牌黑名单
+- **导览系统**：博物馆导览会话管理，展厅追踪，事件记录和参观报告
+- **策展人 AI 智能体**：基于 LangGraph 的 AI 导览规划、展品叙事生成和反思提示
+- **语音合成**：基于句子级别的 TTS 流式输出，支持人设管理、Redis 缓存和多提供商（小米、Mock）
+- **访客画像**：个性化访客画像，包含兴趣、知识水平和叙事偏好
+- **管理后台**：完整的管理界面，涵盖展品、展厅、文档、提示词、TTS 人设和 LLM 调用追踪审计
+- **设计系统**：基于 Element Plus 的博物馆主题设计令牌和组件
 - **健康监控**：内置健康检查端点，提供服务可观测性
 
 ## 系统架构
@@ -42,11 +48,14 @@ MuseAI 采用严格的分层架构：
 - **ORM**：SQLAlchemy 2.0（异步）
 - **验证**：Pydantic v2
 - **AI/ML**：LangChain、LangGraph、OpenAI 兼容 LLM
+- **数据库迁移**：Alembic
 
 ### 前端
 - **框架**：Vue 3 组合式 API
-- **UI 库**：Element Plus
+- **UI 库**：Element Plus（博物馆设计系统）
 - **构建工具**：Vite
+- **路由**：Vue Router
+- **组合式函数**：可复用的认证、聊天、导览、TTS、展品等 hooks
 
 ### 基础设施
 - **数据库**：PostgreSQL 16
@@ -54,6 +63,8 @@ MuseAI 采用严格的分层架构：
 - **缓存**：Redis 7
 - **LLM**：OpenAI 兼容提供商（GPT-4o-mini）
 - **嵌入模型**：Ollama（nomic-embed-text）
+- **重排序**：OpenAI 兼容或 SiliconFlow 重排序提供商
+- **语音合成**：小米 TTS 提供商（Redis 缓存）
 
 ## 环境要求
 
@@ -143,6 +154,22 @@ npm run dev
 | `/api/v1/chat/sessions` | GET/POST | 管理聊天会话 |
 | `/api/v1/chat/ask` | POST | 提问（非流式） |
 | `/api/v1/chat/ask/stream` | POST | 提问（SSE 流式） |
+| `/api/v1/chat/guest/message` | POST | 访客消息（SSE 流式） |
+| `/api/v1/exhibits` | GET | 浏览展品（公开） |
+| `/api/v1/exhibits/{id}` | GET | 获取展品详情 |
+| `/api/v1/profile` | GET/PUT | 获取/更新访客画像 |
+| `/api/v1/tour/sessions` | POST | 创建导览会话 |
+| `/api/v1/tour/sessions/{id}/chat/stream` | POST | 导览聊天流式输出（SSE） |
+| `/api/v1/tour/sessions/{id}/report` | GET/POST | 生成/获取导览报告 |
+| `/api/v1/curator/plan-tour` | POST | 规划博物馆导览（AI） |
+| `/api/v1/curator/narrative` | POST | 生成展品叙事（AI） |
+| `/api/v1/tts/synthesize` | POST | 文本转语音合成 |
+| `/api/v1/admin/exhibits` | GET/POST | 管理展品 |
+| `/api/v1/admin/halls` | GET/POST | 管理展厅 |
+| `/api/v1/admin/prompts` | GET | 管理提示词模板 |
+| `/api/v1/admin/documents` | GET/POST | 管理文档 |
+| `/api/v1/admin/llm-traces` | GET | 查看 LLM 调用追踪 |
+| `/api/v1/admin/tts/personas` | GET/PUT | 管理 TTS 人设 |
 | `/api/v1/health` | GET | 健康检查 |
 | `/api/v1/ready` | GET | 就绪检查 |
 
@@ -168,8 +195,20 @@ npm run dev
 | `EMBEDDING_OLLAMA_MODEL` | 嵌入模型 | `nomic-embed-text` |
 | `ELASTICSEARCH_INDEX` | ES 索引名称 | `museai_chunks_v1` |
 | `EMBEDDING_DIMS` | 嵌入维度 | `1536` |
+| `RERANK_PROVIDER` | 重排序提供商（openai, cohere, custom） | `openai` |
+| `RERANK_MODEL` | 重排序模型标识 | `rerank-v1` |
+| `RERANK_TOP_N` | 重排序结果数量 | `10` |
+| `TTS_ENABLED` | 启用语音合成 | `false` |
+| `TTS_PROVIDER` | TTS 提供商（xiaomi, mock） | `xiaomi` |
+| `TTS_DEFAULT_VOICE` | 默认 TTS 语音/人设 | `冰糖` |
 
 ## 开发指南
+
+### 一键本地验证
+
+```bash
+bash scripts/verify_local_quality.sh
+```
 
 ### 运行测试
 
@@ -215,25 +254,42 @@ museai/
 │   │   ├── api/                 # FastAPI 路由
 │   │   │   ├── auth.py         # 认证端点
 │   │   │   ├── chat.py         # 聊天端点
+│   │   │   ├── curator.py      # 策展人 AI 端点
 │   │   │   ├── documents.py    # 文档管理
-│   │   │   └── health.py       # 健康检查
+│   │   │   ├── exhibits.py     # 展品浏览
+│   │   │   ├── health.py       # 健康检查
+│   │   │   ├── profile.py      # 访客画像
+│   │   │   ├── tour.py         # 导览会话管理
+│   │   │   ├── tts.py          # 语音合成
+│   │   │   └── admin/          # 管理路由
+│   │   │       ├── documents.py
+│   │   │       ├── exhibits.py
+│   │   │       ├── halls.py
+│   │   │       ├── llm_traces.py
+│   │   │       ├── prompts.py
+│   │   │       └── tts_persona.py
 │   │   ├── application/         # 业务逻辑
 │   │   │   ├── auth_service.py
 │   │   │   ├── chat_service.py
+│   │   │   ├── curator_service.py
 │   │   │   ├── document_service.py
 │   │   │   ├── ingestion_service.py
-│   │   │   └── retrieval.py    # RRF 融合
-│   │   ├── domain/             # 领域实体
+│   │   │   ├── tour_*_service.py
+│   │   │   ├── tts_service.py
+│   │   │   ├── llm_trace/      # LLM 调用追踪
+│   │   │   └── workflows/      # 多轮状态机
+│   │   ├── domain/              # 领域实体
 │   │   │   ├── entities.py
-│   │   │   └── value_objects.py
+│   │   │   ├── value_objects.py
+│   │   │   └── services/       # RRF 融合
 │   │   ├── infra/              # 基础设施
 │   │   │   ├── postgres/
 │   │   │   ├── elasticsearch/
 │   │   │   ├── redis/
-│   │   │   ├── langchain/      # RAG Agent, 检索器
-│   │   │   ├── providers/      # LLM, 嵌入提供商
+│   │   │   ├── cache/          # 提示词缓存
+│   │   │   ├── langchain/      # RAG Agent, 检索器, 策展人智能体
+│   │   │   ├── providers/      # LLM, 嵌入, 重排序, TTS 提供商
 │   │   │   └── security/
-│   │   ├── workflows/          # 多轮状态机
 │   │   └── main.py
 │   └── tests/
 │       ├── unit/
@@ -242,10 +298,15 @@ museai/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/               # API 客户端
-│   │   ├── components/        # Vue 组件
-│   │   ├── composables/       # Vue 组合式函数
+│   │   ├── components/        # Vue 组件（聊天、导览、展品、管理等）
+│   │   ├── composables/       # Vue 组合式函数（useAuth, useChat, useTour, useTTSPlayer 等）
+│   │   ├── design-system/     # 博物馆设计令牌和组件
+│   │   ├── views/             # 页面视图（首页、导览、策展人、展品、管理等）
+│   │   ├── router/            # Vue Router 配置
+│   │   ├── styles/            # 全局样式
 │   │   └── main.js
 │   └── package.json
+├── scripts/                   # 工具脚本（种子数据、初始化、清理）
 ├── docker/
 ├── docs/
 ├── docker-compose.yml
@@ -257,11 +318,14 @@ museai/
 
 1. **查询处理**：用户查询通过聊天端点进入
 2. **检索**：并行执行稠密向量检索 + BM25 关键词检索
-3. **融合**：倒数排名融合（RRF）合并结果
-4. **评估**：检查检索质量分数阈值
-5. **查询转换**（如需要）：HyDE、后退提问或多查询策略
-6. **生成**：LLM 基于检索上下文生成答案
-7. **流式输出**：通过 SSE 流式返回响应
+3. **融合**：倒数排名融合（RRF）合并结果，支持来源去重
+4. **重排序**：重排序提供商对结果进行评分和过滤
+5. **动态过滤**：绝对/相对差距策略过滤低质量结果
+6. **分块合并**：检索到子分块时自动提升父分块（层级结构）
+7. **评估**：检查检索质量分数阈值
+8. **查询转换**（如需要）：HyDE、后退提问或多查询策略
+9. **生成**：LLM 基于检索上下文生成答案
+10. **流式输出**：通过 SSE 流式返回响应（支持可选的 TTS 音频事件）
 
 ## 许可证
 

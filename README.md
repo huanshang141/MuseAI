@@ -7,11 +7,17 @@ Museum AI Guide System - An intelligent museum content interaction platform powe
 ## Features
 
 - **Intelligent Q&A**: RAG-based question answering with contextual retrieval from museum knowledge base
-- **Hybrid Search**: Combines dense vector search and BM25 keyword search using Reciprocal Rank Fusion (RRF)
-- **Multi-turn Conversation**: Stateful conversations with query transformation strategies (HyDE, Step-back, Multi-query)
-- **Document Ingestion**: Automatic document chunking and embedding with hierarchical structure support
-- **Streaming Responses**: Real-time SSE (Server-Sent Events) streaming for better user experience
+- **Hybrid Search**: Combines dense vector search and BM25 keyword search using Reciprocal Rank Fusion (RRF) with source deduplication
+- **Multi-turn Conversation**: Stateful conversations with query transformation strategies (HyDE, Step-back, Multi-query) and dynamic document filtering
+- **Document Ingestion**: Automatic hierarchical document chunking (parent-child) and embedding with Elasticsearch indexing
+- **Streaming Responses**: Real-time SSE (Server-Sent Events) streaming with optional TTS audio events
 - **User Authentication**: JWT-based authentication with rate limiting and token blacklisting
+- **Tour System**: Guided museum tours with session management, hall tracking, event recording, and post-visit reports
+- **Curator AI Agent**: AI-powered tour planning, exhibit narrative generation, and reflection prompts via LangGraph
+- **Text-to-Speech**: Sentence-level TTS streaming with persona management, Redis caching, and multiple provider support (Xiaomi, Mock)
+- **Visitor Profiles**: Personalized visitor profiles with interests, knowledge level, and narrative preferences
+- **Admin Panel**: Full admin interface for exhibits, halls, documents, prompts, TTS personas, and LLM trace auditing
+- **Design System**: Museum-themed design tokens and components built on Element Plus
 - **Health Monitoring**: Built-in health check endpoints for service observability
 
 ## Architecture
@@ -42,11 +48,14 @@ MuseAI follows a strict layered architecture:
 - **ORM**: SQLAlchemy 2.0 (async)
 - **Validation**: Pydantic v2
 - **AI/ML**: LangChain, LangGraph, OpenAI-compatible LLMs
+- **Migrations**: Alembic
 
 ### Frontend
 - **Framework**: Vue 3 with Composition API
-- **UI Library**: Element Plus
+- **UI Library**: Element Plus (with museum design system)
 - **Build Tool**: Vite
+- **Routing**: Vue Router
+- **Composables**: Reusable hooks for auth, chat, tour, TTS, exhibits, etc.
 
 ### Infrastructure
 - **Database**: PostgreSQL 16
@@ -54,6 +63,8 @@ MuseAI follows a strict layered architecture:
 - **Cache**: Redis 7
 - **LLM**: OpenAI-compatible providers (GPT-4o-mini)
 - **Embeddings**: Ollama (nomic-embed-text)
+- **Rerank**: OpenAI-compatible or SiliconFlow rerank providers
+- **TTS**: Xiaomi TTS provider (with Redis caching)
 
 ## Prerequisites
 
@@ -143,6 +154,22 @@ Once the backend is running, access the interactive API documentation:
 | `/api/v1/chat/sessions` | GET/POST | Manage chat sessions |
 | `/api/v1/chat/ask` | POST | Ask question (non-streaming) |
 | `/api/v1/chat/ask/stream` | POST | Ask question (SSE streaming) |
+| `/api/v1/chat/guest/message` | POST | Send guest message (SSE) |
+| `/api/v1/exhibits` | GET | Browse exhibits (public) |
+| `/api/v1/exhibits/{id}` | GET | Get exhibit detail |
+| `/api/v1/profile` | GET/PUT | Get/update visitor profile |
+| `/api/v1/tour/sessions` | POST | Create tour session |
+| `/api/v1/tour/sessions/{id}/chat/stream` | POST | Stream tour chat (SSE) |
+| `/api/v1/tour/sessions/{id}/report` | GET/POST | Generate/get tour report |
+| `/api/v1/curator/plan-tour` | POST | Plan museum tour (AI) |
+| `/api/v1/curator/narrative` | POST | Generate exhibit narrative (AI) |
+| `/api/v1/tts/synthesize` | POST | Synthesize speech from text |
+| `/api/v1/admin/exhibits` | GET/POST | Admin exhibit management |
+| `/api/v1/admin/halls` | GET/POST | Admin hall management |
+| `/api/v1/admin/prompts` | GET | Admin prompt management |
+| `/api/v1/admin/documents` | GET/POST | Admin document management |
+| `/api/v1/admin/llm-traces` | GET | View LLM call traces |
+| `/api/v1/admin/tts/personas` | GET/PUT | Manage TTS personas |
 | `/api/v1/health` | GET | Health check |
 | `/api/v1/ready` | GET | Readiness check |
 
@@ -168,6 +195,12 @@ Environment variables (see `.env.example`):
 | `EMBEDDING_OLLAMA_MODEL` | Embedding model | `nomic-embed-text` |
 | `ELASTICSEARCH_INDEX` | ES index name | `museai_chunks_v1` |
 | `EMBEDDING_DIMS` | Embedding dimensions | `1536` |
+| `RERANK_PROVIDER` | Rerank provider (openai, cohere, custom) | `openai` |
+| `RERANK_MODEL` | Rerank model identifier | `rerank-v1` |
+| `RERANK_TOP_N` | Number of rerank results | `10` |
+| `TTS_ENABLED` | Enable text-to-speech | `false` |
+| `TTS_PROVIDER` | TTS provider (xiaomi, mock) | `xiaomi` |
+| `TTS_DEFAULT_VOICE` | Default TTS voice/persona | `冰糖` |
 
 ## Development
 
@@ -221,25 +254,42 @@ museai/
 │   │   ├── api/                 # FastAPI routers
 │   │   │   ├── auth.py         # Authentication endpoints
 │   │   │   ├── chat.py         # Chat endpoints
+│   │   │   ├── curator.py      # Curator AI agent endpoints
 │   │   │   ├── documents.py    # Document management
-│   │   │   └── health.py       # Health checks
+│   │   │   ├── exhibits.py     # Exhibit browsing
+│   │   │   ├── health.py       # Health checks
+│   │   │   ├── profile.py      # Visitor profile
+│   │   │   ├── tour.py         # Tour session management
+│   │   │   ├── tts.py          # TTS synthesis
+│   │   │   └── admin/          # Admin routers
+│   │   │       ├── documents.py
+│   │   │       ├── exhibits.py
+│   │   │       ├── halls.py
+│   │   │       ├── llm_traces.py
+│   │   │       ├── prompts.py
+│   │   │       └── tts_persona.py
 │   │   ├── application/         # Business logic
 │   │   │   ├── auth_service.py
 │   │   │   ├── chat_service.py
+│   │   │   ├── curator_service.py
 │   │   │   ├── document_service.py
 │   │   │   ├── ingestion_service.py
-│   │   │   └── retrieval.py    # RRF fusion
-│   │   ├── domain/             # Domain entities
+│   │   │   ├── tour_*_service.py
+│   │   │   ├── tts_service.py
+│   │   │   ├── llm_trace/      # LLM call tracing
+│   │   │   └── workflows/      # Multi-turn state machine
+│   │   ├── domain/              # Domain entities
 │   │   │   ├── entities.py
-│   │   │   └── value_objects.py
+│   │   │   ├── value_objects.py
+│   │   │   └── services/       # RRF fusion
 │   │   ├── infra/              # Infrastructure
 │   │   │   ├── postgres/
 │   │   │   ├── elasticsearch/
 │   │   │   ├── redis/
-│   │   │   ├── langchain/      # RAG agent, retrievers
-│   │   │   ├── providers/      # LLM, embedding providers
+│   │   │   ├── cache/          # Prompt cache
+│   │   │   ├── langchain/      # RAG agent, retrievers, curator agent
+│   │   │   ├── providers/      # LLM, embedding, rerank, TTS providers
 │   │   │   └── security/
-│   │   ├── workflows/          # Multi-turn state machine
 │   │   └── main.py
 │   └── tests/
 │       ├── unit/
@@ -248,10 +298,15 @@ museai/
 ├── frontend/
 │   ├── src/
 │   │   ├── api/               # API client
-│   │   ├── components/        # Vue components
-│   │   ├── composables/       # Vue composables
+│   │   ├── components/        # Vue components (chat, tour, exhibits, admin, etc.)
+│   │   ├── composables/       # Vue composables (useAuth, useChat, useTour, useTTSPlayer, etc.)
+│   │   ├── design-system/     # Museum design tokens and components
+│   │   ├── views/             # Page views (Home, Tour, Curator, Exhibits, Admin, etc.)
+│   │   ├── router/            # Vue Router configuration
+│   │   ├── styles/            # Global styles
 │   │   └── main.js
 │   └── package.json
+├── scripts/                   # Utility scripts (seed, init, cleanup)
 ├── docker/
 ├── docs/
 ├── docker-compose.yml
@@ -263,11 +318,14 @@ museai/
 
 1. **Query Processing**: User query enters through chat endpoint
 2. **Retrieval**: Dense vector search + BM25 keyword search in parallel
-3. **Fusion**: Reciprocal Rank Fusion (RRF) combines results
-4. **Evaluation**: Score threshold check for retrieval quality
-5. **Query Transformation** (if needed): HyDE, Step-back, or Multi-query
-6. **Generation**: LLM generates answer with retrieved context
-7. **Streaming**: Response streamed via SSE
+3. **Fusion**: Reciprocal Rank Fusion (RRF) combines results with source deduplication
+4. **Rerank**: Rerank provider scores and filters results
+5. **Dynamic Filtering**: Absolute/relative gap strategies filter low-quality results
+6. **Chunk Merge**: Parent chunks promoted when child chunks are retrieved (hierarchical)
+7. **Evaluation**: Score threshold check for retrieval quality
+8. **Query Transformation** (if needed): HyDE, Step-back, or Multi-query
+9. **Generation**: LLM generates answer with retrieved context
+10. **Streaming**: Response streamed via SSE (with optional TTS audio events)
 
 ## License
 

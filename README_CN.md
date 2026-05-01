@@ -112,7 +112,19 @@ JWT_SECRET=your-secure-jwt-secret-key-here
 uv sync
 ```
 
-### 5. 运行后端服务
+### 5. 初始化数据库
+
+```bash
+# 运行数据库迁移（创建表结构）
+python scripts/init_db.py
+
+# 创建管理员用户
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
+```
+
+> 详细说明请参见下方 [数据库初始化](#数据库初始化) 章节。
+
+### 6. 运行后端服务
 
 ```bash
 uv run uvicorn backend.app.main:app --reload
@@ -120,14 +132,14 @@ uv run uvicorn backend.app.main:app --reload
 
 API 将在 `http://localhost:8000` 可用。
 
-### 6. 安装前端依赖
+### 7. 安装前端依赖
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 7. 运行前端开发服务器
+### 8. 运行前端开发服务器
 
 ```bash
 npm run dev
@@ -201,6 +213,105 @@ npm run dev
 | `TTS_ENABLED` | 启用语音合成 | `false` |
 | `TTS_PROVIDER` | TTS 提供商（xiaomi, mock） | `xiaomi` |
 | `TTS_DEFAULT_VOICE` | 默认 TTS 语音/人设 | `冰糖` |
+
+## 数据库初始化
+
+项目使用 Alembic 管理数据库 schema 迁移。应用启动时也会自动创建缺失的表，但推荐使用迁移脚本来保证 schema 版本正确。
+
+### 初始化脚本
+
+`scripts/init_db.py` 是统一的服务初始化入口，覆盖 PostgreSQL 迁移、Elasticsearch 索引创建和服务连通性检查：
+
+```bash
+# 运行迁移 + ES 索引创建 + 服务连通性检查
+python scripts/init_db.py
+
+# 运行迁移 + 创建管理员
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
+
+# 完整初始化：迁移 + ES 索引 + 管理员 + 开发测试数据
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123 --seed-dev
+
+# 仅运行 PostgreSQL 迁移
+python scripts/init_db.py --schema-only
+
+# 仅创建 ES 索引（幂等，已存在则跳过）
+python scripts/init_db.py --init-es
+```
+
+### 生产环境部署流程
+
+```bash
+# 1. 启动基础设施
+docker-compose up -d
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，设置 JWT_SECRET、LLM_API_KEY 等
+
+# 3. 安装依赖
+uv sync
+
+# 4. 初始化所有服务（数据库迁移 + ES 索引 + 管理员）
+python scripts/init_db.py --init-es --admin-email admin@museum.cn --admin-password 'YourStr0ngPass!'
+
+# 5. 启动服务
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 本地开发流程
+
+```bash
+# 1. 启动基础设施
+docker-compose up -d
+
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，确保 DATABASE_URL 指向本地 PostgreSQL
+
+# 3. 安装依赖
+uv sync
+
+# 4. 完整初始化：数据库迁移 + ES 索引 + 管理员 + 测试数据
+python scripts/init_db.py --admin-email admin@museai.local --admin-password dev12345678 --seed-dev
+
+# 5. 启动后端
+uv run uvicorn backend.app.main:app --reload
+
+# 6. 启动前端
+cd frontend && npm install && npm run dev
+```
+
+### 手动操作 Alembic
+
+如需手动管理迁移：
+
+```bash
+# 查看当前迁移状态
+uv run alembic current
+
+# 升级到最新版本
+uv run alembic upgrade head
+
+# 回滚一个版本
+uv run alembic downgrade -1
+
+# 查看迁移历史
+uv run alembic history
+```
+
+### 种子数据脚本
+
+项目提供以下独立的种子数据脚本（`scripts/` 目录）：
+
+| 脚本 | 用途 | 依赖服务 |
+|------|------|----------|
+| `seed_dev_user.py` | 创建开发测试用户 | PostgreSQL |
+| `bootstrap_admin.py` | 创建/提升管理员用户 | PostgreSQL |
+| `init_exhibits.py` | 导入 70+ 展品数据（青铜器、陶瓷、书画等） | PostgreSQL, Elasticsearch, Ollama |
+| `init_test_data.py` | 综合测试数据（用户、文档、聊天记录） | PostgreSQL, Elasticsearch, Ollama |
+| `import_real_exhibits_via_api.py` | 通过 REST API 导入展品数据 | 完整后端服务 |
+| `cleanup_llm_traces.py` | 清理过期 LLM 调用追踪记录 | PostgreSQL |
 
 ## 开发指南
 

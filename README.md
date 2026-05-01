@@ -112,7 +112,19 @@ JWT_SECRET=your-secure-jwt-secret-key-here
 uv sync
 ```
 
-### 5. Run Backend Server
+### 5. Initialize Database
+
+```bash
+# Run database migrations (creates table schema)
+python scripts/init_db.py
+
+# Create an admin user
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
+```
+
+> See [Database Initialization](#database-initialization) below for detailed instructions.
+
+### 6. Run Backend Server
 
 ```bash
 uv run uvicorn backend.app.main:app --reload
@@ -120,14 +132,14 @@ uv run uvicorn backend.app.main:app --reload
 
 The API will be available at `http://localhost:8000`.
 
-### 6. Install Frontend Dependencies
+### 7. Install Frontend Dependencies
 
 ```bash
 cd frontend
 npm install
 ```
 
-### 7. Run Frontend Development Server
+### 8. Run Frontend Development Server
 
 ```bash
 npm run dev
@@ -201,6 +213,103 @@ Environment variables (see `.env.example`):
 | `TTS_ENABLED` | Enable text-to-speech | `false` |
 | `TTS_PROVIDER` | TTS provider (xiaomi, mock) | `xiaomi` |
 | `TTS_DEFAULT_VOICE` | Default TTS voice/persona | `冰糖` |
+
+## Database Initialization
+
+The project uses Alembic for database schema migrations. The app also auto-creates missing tables on startup, but using migrations is recommended to ensure correct schema versioning.
+
+### Initialization Script
+
+`scripts/init_db.py` is the unified initialization entry point covering PostgreSQL migrations, Elasticsearch index creation, and service connectivity checks:
+
+```bash
+# Run migrations + ES index creation + service checks
+python scripts/init_db.py
+
+# Run migrations + create admin user
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
+
+# Full init: migrations + ES index + admin + dev test data
+python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123 --seed-dev
+
+# Only run PostgreSQL migrations
+python scripts/init_db.py --schema-only
+
+# Only create ES index (idempotent, skips if exists)
+python scripts/init_db.py --init-es
+```
+
+### Production Deployment
+
+```bash
+# 1. Start infrastructure
+docker-compose up -d
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env: set JWT_SECRET, LLM_API_KEY, etc.
+
+# 3. Install dependencies
+uv sync
+
+# 4. Initialize all services (DB migrations + ES index + admin)
+python scripts/init_db.py --init-es --admin-email admin@museum.cn --admin-password 'YourStr0ngPass!'
+
+# 5. Start the service
+uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+```
+
+### Local Development
+
+```bash
+# 1. Start infrastructure
+docker-compose up -d
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env: ensure DATABASE_URL points to local PostgreSQL
+
+# 3. Install dependencies
+uv sync
+
+# 4. Full init: DB migrations + ES index + admin + test data
+python scripts/init_db.py --admin-email admin@museai.local --admin-password dev12345678 --seed-dev
+
+# 5. Start backend
+uv run uvicorn backend.app.main:app --reload
+
+# 6. Start frontend
+cd frontend && npm install && npm run dev
+```
+
+### Manual Alembic Commands
+
+```bash
+# Check current migration status
+uv run alembic current
+
+# Upgrade to latest
+uv run alembic upgrade head
+
+# Rollback one version
+uv run alembic downgrade -1
+
+# View migration history
+uv run alembic history
+```
+
+### Seed Data Scripts
+
+The following standalone seed scripts are available in `scripts/`:
+
+| Script | Purpose | Required Services |
+|--------|---------|-------------------|
+| `seed_dev_user.py` | Create a dev test user | PostgreSQL |
+| `bootstrap_admin.py` | Create/promote admin user | PostgreSQL |
+| `init_exhibits.py` | Seed 70+ exhibits (bronze, ceramics, calligraphy, etc.) | PostgreSQL, Elasticsearch, Ollama |
+| `init_test_data.py` | Full test data (users, documents, chat sessions) | PostgreSQL, Elasticsearch, Ollama |
+| `import_real_exhibits_via_api.py` | Import exhibits via REST API | Full backend running |
+| `cleanup_llm_traces.py` | Clean up expired LLM trace records | PostgreSQL |
 
 ## Development
 

@@ -365,7 +365,7 @@ onMounted(async () => {
 .tts-toggle-btn.active {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-text-inverse, white);
 }
 
 .message-actions {

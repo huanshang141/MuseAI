@@ -69,15 +69,14 @@ function isCurrentExhibit(exhibit) {
 
 .exhibit-card {
   padding: 12px 16px;
-  border: 1px solid var(--color-border, #d9c9a8);
+  border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-bg-elevated, #fdfaf2);
+  background: var(--color-bg-elevated);
   transition: border-color 0.15s;
 }
 
 .exhibit-card.current {
-  border-color: var(--color-accent, #a94c2c);
-  box-shadow: 0 0 0 1px var(--color-accent, #a94c2c);
+  border-color: var(--color-accent);
 }
 
 .exhibit-card-header {
@@ -90,13 +89,13 @@ function isCurrentExhibit(exhibit) {
 .exhibit-card-name {
   font-size: 15px;
   font-weight: 600;
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
 }
 
 .exhibit-card-category {
   font-size: 12px;
-  color: var(--color-text-muted, #8a8074);
-  background: var(--color-bg-subtle, #efe5cc);
+  color: var(--color-text-muted);
+  background: var(--color-bg-subtle);
   padding: 2px 8px;
   border-radius: 4px;
 }
@@ -108,9 +107,9 @@ function isCurrentExhibit(exhibit) {
 
 .template-btn {
   padding: 4px 12px;
-  border: 1px solid var(--color-accent-soft, #c47a52);
+  border: 1px solid var(--color-accent-soft);
   background: transparent;
-  color: var(--color-accent, #a94c2c);
+  color: var(--color-accent);
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
@@ -118,14 +117,14 @@ function isCurrentExhibit(exhibit) {
 }
 
 .template-btn:hover {
-  background: var(--color-accent, #a94c2c);
-  color: var(--color-text-inverse, #f5eedc);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 
 .empty-hint {
   text-align: center;
   padding: 32px 16px;
-  color: var(--color-text-muted, #8a8074);
+  color: var(--color-text-muted);
   font-size: 14px;
 }
 </style>

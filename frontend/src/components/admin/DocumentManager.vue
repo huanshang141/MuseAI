@@ -37,17 +37,17 @@ import DocumentList from '../knowledge/DocumentList.vue'
 .header h2 {
   margin: 0;
   font-size: 20px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .header p {
   margin: 8px 0 0;
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 14px;
 }
 
 .upload-card,
 .list-card {
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--el-border-color-lighter);
 }
 </style>

@@ -30,7 +30,7 @@ defineEmits(['update:activeTab'])
   display: flex;
   gap: 4px;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--color-border, #d9c9a8);
+  border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
 }
 
@@ -38,7 +38,7 @@ defineEmits(['update:activeTab'])
   padding: 6px 16px;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary, #5a5248);
+  color: var(--color-text-secondary);
   font-size: 14px;
   cursor: pointer;
   border-radius: 6px;
@@ -47,11 +47,11 @@ defineEmits(['update:activeTab'])
 }
 
 .tab-btn:hover {
-  background: var(--color-bg-subtle, #efe5cc);
+  background: var(--color-bg-subtle);
 }
 
 .tab-btn.active {
-  background: var(--color-accent, #a94c2c);
-  color: var(--color-text-inverse, #f5eedc);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 </style>

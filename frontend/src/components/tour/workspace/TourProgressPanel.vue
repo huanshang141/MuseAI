@@ -80,7 +80,7 @@ const currentHallName = computed(() => hallNames[currentHall.value] || currentHa
 .progress-heading {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
   margin-bottom: 4px;
 }
 
@@ -92,24 +92,24 @@ const currentHallName = computed(() => hallNames[currentHall.value] || currentHa
 }
 
 .progress-label {
-  color: var(--color-text-muted, #8a8074);
+  color: var(--color-text-muted);
 }
 
 .progress-value {
   font-weight: 500;
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
 }
 
 .progress-bar-track {
   height: 6px;
-  background: var(--color-bg-subtle, #efe5cc);
+  background: var(--color-bg-subtle);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .progress-bar-fill {
   height: 100%;
-  background: var(--color-accent, #a94c2c);
+  background: var(--color-accent);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -125,16 +125,16 @@ const currentHallName = computed(() => hallNames[currentHall.value] || currentHa
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
 }
 
 .visited-check {
-  color: var(--color-accent, #a94c2c);
+  color: var(--color-accent);
   font-weight: 600;
 }
 
 .empty-hint {
-  color: var(--color-text-muted, #8a8074);
+  color: var(--color-text-muted);
   font-size: 13px;
 }
 </style>

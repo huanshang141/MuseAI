@@ -73,14 +73,14 @@ onMounted(scrollToBottom)
 
 .session-exhibit-bar {
   padding: 8px 16px;
-  border-bottom: 1px solid var(--color-border, #d9c9a8);
-  background: var(--color-bg-elevated, #fdfaf2);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
 }
 
 .exhibit-name {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-accent, #a94c2c);
+  color: var(--color-accent);
 }
 
 .messages-area {
@@ -90,7 +90,7 @@ onMounted(scrollToBottom)
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--color-bg-base, #f5eedc);
+  background: var(--color-bg-base);
 }
 
 .message {
@@ -105,13 +105,13 @@ onMounted(scrollToBottom)
 .message.user {
   align-self: flex-end;
   background: var(--color-accent-muted, rgba(212, 165, 116, 0.2));
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
 }
 
 .message.assistant {
   align-self: flex-start;
-  background: var(--color-surface-card, #fbf5e6);
-  color: var(--color-text-primary, #2a2420);
+  background: var(--color-surface-card);
+  color: var(--color-text-primary);
 }
 
 .loading-hint {
@@ -130,7 +130,7 @@ onMounted(scrollToBottom)
 
 .cursor {
   animation: blink 0.8s infinite;
-  color: var(--color-accent, #a94c2c);
+  color: var(--color-accent);
 }
 
 @keyframes blink {
@@ -145,11 +145,11 @@ onMounted(scrollToBottom)
 .quick-prompt-chip {
   padding: 8px 14px;
   background: var(--color-accent-muted, rgba(212, 165, 116, 0.15));
-  border: 1px solid var(--color-accent-soft, #c47a52);
+  border: 1px solid var(--color-accent-soft);
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
-  color: var(--color-accent, #a94c2c);
+  color: var(--color-accent);
   transition: background 0.15s;
 }
 
@@ -159,7 +159,7 @@ onMounted(scrollToBottom)
 
 .input-area {
   padding: 12px 16px;
-  border-top: 1px solid var(--color-border, #d9c9a8);
-  background: var(--color-bg-elevated, #fdfaf2);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-elevated);
 }
 </style>

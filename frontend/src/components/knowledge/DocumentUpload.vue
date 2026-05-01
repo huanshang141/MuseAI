@@ -34,19 +34,19 @@ function handleExceed() {
       accept=".txt,.md,.markdown"
       drag
     >
-      <el-icon style="font-size: 48px; color: #909399;"><UploadFilled /></el-icon>
-      <div style="margin-top: 8px; color: #606266;">
-        拖拽文件到此处或 <em style="color: #409EFF;">点击上传</em>
+      <el-icon style="font-size: 48px; color: var(--el-text-color-secondary);"><UploadFilled /></el-icon>
+      <div style="margin-top: 8px; color: var(--el-text-color-regular);">
+        拖拽文件到此处或 <em style="color: var(--el-color-primary);">点击上传</em>
       </div>
       <template #tip>
-        <div style="color: #909399; font-size: 12px; margin-top: 8px;">
+        <div style="color: var(--el-text-color-secondary); font-size: 12px; margin-top: 8px;">
           支持 .txt, .md, .markdown 文件，最大 50MB
         </div>
       </template>
     </el-upload>
 
     <!-- Non-admin message -->
-    <div v-else style="text-align: center; padding: 32px; color: #909399;">
+    <div v-else style="text-align: center; padding: 32px; color: var(--el-text-color-secondary);">
       <el-icon style="font-size: 32px; margin-bottom: 8px;"><Lock /></el-icon>
       <div>仅管理员可上传文档</div>
       <div v-if="!isAuthenticated" style="font-size: 12px; margin-top: 8px;">

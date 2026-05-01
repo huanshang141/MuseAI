@@ -65,7 +65,7 @@ function getImportanceType(importance) {
 }
 
 .exhibit-item:hover {
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
 }
 
 .exhibit-header {
@@ -81,7 +81,7 @@ function getImportanceType(importance) {
 
 .exhibit-meta {
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   display: flex;
   gap: 12px;
 }

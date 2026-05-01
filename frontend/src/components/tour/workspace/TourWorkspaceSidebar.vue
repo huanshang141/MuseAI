@@ -54,8 +54,8 @@ defineEmits(['switch-tab'])
 .tour-workspace-sidebar {
   width: 240px;
   min-width: 240px;
-  border-right: 1px solid var(--color-border, #d9c9a8);
-  background: var(--color-bg-subtle, #efe5cc);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-subtle);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -72,7 +72,7 @@ defineEmits(['switch-tab'])
 .sidebar-heading {
   font-size: 12px;
   font-weight: 600;
-  color: var(--color-text-muted, #8a8074);
+  color: var(--color-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
@@ -82,7 +82,7 @@ defineEmits(['switch-tab'])
   padding: 8px 12px;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary, #5a5248);
+  color: var(--color-text-secondary);
   font-size: 14px;
   cursor: pointer;
   border-radius: 6px;
@@ -95,8 +95,8 @@ defineEmits(['switch-tab'])
 }
 
 .sidebar-tab-btn.active {
-  background: var(--color-accent, #a94c2c);
-  color: var(--color-text-inverse, #f5eedc);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
 }
 
 .sidebar-info {
@@ -113,11 +113,11 @@ defineEmits(['switch-tab'])
 }
 
 .info-label {
-  color: var(--color-text-muted, #8a8074);
+  color: var(--color-text-muted);
 }
 
 .info-value {
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
   font-weight: 500;
 }
 </style>

@@ -375,7 +375,7 @@ onMounted(fetchPrompts)
 .reason-section h4 {
   margin-bottom: 10px;
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .variables-section h4 {
@@ -394,7 +394,7 @@ onMounted(fetchPrompts)
 }
 
 .variable-desc {
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 
@@ -407,7 +407,7 @@ onMounted(fetchPrompts)
 }
 
 .required {
-  color: #f56c6c;
+  color: var(--el-color-danger);
 }
 
 .drawer-footer {
@@ -416,15 +416,15 @@ onMounted(fetchPrompts)
   left: 0;
   right: 0;
   padding: 20px;
-  background: #fff;
-  border-top: 1px solid #e4e7ed;
+  background: var(--el-bg-color);
+  border-top: 1px solid var(--el-border-color-light);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
 }
 
 .current-label {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

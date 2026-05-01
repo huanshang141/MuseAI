@@ -38,8 +38,8 @@ function onSwitchTab(tab) {
   width: 100%;
   height: 100%;
   display: flex;
-  background: var(--color-bg-base, #f5eedc);
-  color: var(--color-text-primary, #2a2420);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
 }
 
 .tour-workspace-main {

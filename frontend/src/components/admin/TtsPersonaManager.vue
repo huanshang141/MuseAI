@@ -474,17 +474,17 @@ onMounted(fetchPersonas)
 .editor-section h4 {
   margin-bottom: 4px;
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .field-hint {
   margin: 0 0 8px;
   font-size: 12px;
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .required {
-  color: #f56c6c;
+  color: var(--el-color-danger);
 }
 
 .drawer-footer {
@@ -493,8 +493,8 @@ onMounted(fetchPersonas)
   left: 0;
   right: 0;
   padding: 20px;
-  background: #fff;
-  border-top: 1px solid #e4e7ed;
+  background: var(--el-bg-color);
+  border-top: 1px solid var(--el-border-color-light);
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -503,12 +503,12 @@ onMounted(fetchPersonas)
 .audio-player {
   margin-top: 16px;
   padding: 12px;
-  background: #f5f7fa;
+  background: var(--el-fill-color-light);
   border-radius: 8px;
 }
 
 .current-label {
-  color: #909399;
+  color: var(--el-text-color-secondary);
   font-size: 12px;
 }
 </style>

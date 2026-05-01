@@ -408,7 +408,7 @@ onMounted(fetchTraces)
 }
 
 .text-muted {
-  color: #909399;
+  color: var(--el-text-color-secondary);
 }
 
 .detail-content {
@@ -422,7 +422,7 @@ onMounted(fetchTraces)
 .section h4 {
   margin-bottom: 10px;
   font-size: 14px;
-  color: #303133;
+  color: var(--el-text-color-primary);
 }
 
 .section-header {

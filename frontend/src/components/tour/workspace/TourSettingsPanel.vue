@@ -148,9 +148,9 @@ const terminologyOptions = [
 .settings-heading {
   font-size: 14px;
   font-weight: 600;
-  color: var(--color-text-primary, #2a2420);
+  color: var(--color-text-primary);
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--color-border, #d9c9a8);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .settings-row {
@@ -161,6 +161,6 @@ const terminologyOptions = [
 }
 
 .settings-label {
-  color: var(--color-text-secondary, #5a5248);
+  color: var(--color-text-secondary);
 }
 </style>

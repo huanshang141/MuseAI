@@ -42,8 +42,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--color-bg-base, #f5eedc);
-  color: var(--color-text-primary, #2a2420);
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
 }
 
 .tour-container--immersive {

@@ -161,7 +161,7 @@ onMounted(fetchDocuments)
 }
 
 .selection-meta {
-  color: #606266;
+  color: var(--el-text-color-regular);
   font-size: 13px;
 }
 
@@ -181,7 +181,7 @@ onMounted(fetchDocuments)
 
 .table-state {
   text-align: center;
-  color: #909399;
+  color: var(--el-text-color-secondary);
   padding: 20px 0;
 }
 </style>

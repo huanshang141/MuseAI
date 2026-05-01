@@ -22,8 +22,8 @@ function formatTime(isoString) {
       maxWidth: '80%',
       padding: '12px 16px',
       borderRadius: '12px',
-      background: message.role === 'user' ? '#409EFF' : '#F4F4F5',
-      color: message.role === 'user' ? '#fff' : '#303133',
+      background: message.role === 'user' ? 'var(--el-color-primary)' : 'var(--el-fill-color-light)',
+      color: message.role === 'user' ? '#fff' : 'var(--el-text-color-primary)',
     }">
       <div style="white-space: pre-wrap; word-break: break-word;">
         {{ message.content }}

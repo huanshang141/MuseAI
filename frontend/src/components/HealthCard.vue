@@ -20,21 +20,21 @@ async function checkReady() {
 </script>
 
 <template>
-  <div style="border: 1px solid #ddd; border-radius: 8px; padding: 16px;">
+  <div style="border: 1px solid var(--el-border-color); border-radius: 8px; padding: 16px;">
     <h3 style="margin: 0 0 12px 0;">健康检查</h3>
-    
+
     <div style="margin-bottom: 12px;">
       <button @click="checkHealth" :disabled="loading.health" style="padding: 8px 16px; cursor: pointer;">
         {{ loading.health ? '检查中...' : '/health' }}
       </button>
-      <pre v-if="healthResult" style="background: #f5f5f5; padding: 8px; border-radius: 4px; margin-top: 8px; overflow: auto;">{{ JSON.stringify(healthResult, null, 2) }}</pre>
+      <pre v-if="healthResult" style="background: var(--el-fill-color-lighter); padding: 8px; border-radius: 4px; margin-top: 8px; overflow: auto;">{{ JSON.stringify(healthResult, null, 2) }}</pre>
     </div>
-    
+
     <div>
       <button @click="checkReady" :disabled="loading.ready" style="padding: 8px 16px; cursor: pointer;">
         {{ loading.ready ? '检查中...' : '/ready' }}
       </button>
-      <pre v-if="readyResult" style="background: #f5f5f5; padding: 8px; border-radius: 4px; margin-top: 8px; overflow: auto;">{{ JSON.stringify(readyResult, null, 2) }}</pre>
+      <pre v-if="readyResult" style="background: var(--el-fill-color-lighter); padding: 8px; border-radius: 4px; margin-top: 8px; overflow: auto;">{{ JSON.stringify(readyResult, null, 2) }}</pre>
     </div>
   </div>
 </template>

@@ -23,6 +23,6 @@ const emit = defineEmits(['update:open'])
 <style scoped>
 .app-drawer :deep(.el-drawer__body) {
   padding: 0;
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-elevated);
 }
 </style>

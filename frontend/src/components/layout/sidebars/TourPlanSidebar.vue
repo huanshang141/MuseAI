@@ -27,30 +27,30 @@ function startTour() {
 
 <style scoped>
 .sidebar-section {
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-h4);
 }
 
 .sidebar-header p {
-  margin: 6px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
   line-height: 1.6;
 }
 
 .tips {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-4);
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
   display: grid;
-  gap: 8px;
+  gap: var(--space-2);
 }
 </style>

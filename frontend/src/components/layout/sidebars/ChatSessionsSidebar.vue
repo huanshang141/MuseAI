@@ -80,8 +80,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 16px;
-  gap: 12px;
+  padding: var(--space-4);
+  gap: var(--space-3);
 }
 
 .sidebar-header {
@@ -92,12 +92,12 @@ onMounted(async () => {
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-h4);
 }
 
 .sidebar-empty {
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
   line-height: 1.6;
 }
 
@@ -107,13 +107,13 @@ onMounted(async () => {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   overflow-y: auto;
 }
 
 .session-item {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -122,7 +122,6 @@ onMounted(async () => {
 
 .session-item.is-active {
   border-color: var(--color-accent);
-  box-shadow: var(--shadow-xs);
 }
 
 .session-main {
@@ -131,11 +130,11 @@ onMounted(async () => {
   color: inherit;
   flex: 1;
   min-width: 0;
-  padding: 10px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-1);
   cursor: pointer;
 }
 
@@ -144,20 +143,20 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
 }
 
 .session-time {
   color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
 }
 
 .session-delete {
-  margin-right: 10px;
+  margin-right: var(--space-2);
   border: 0;
   background: transparent;
   color: var(--color-danger);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   cursor: pointer;
 }
 </style>

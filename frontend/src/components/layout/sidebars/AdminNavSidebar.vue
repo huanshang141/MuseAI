@@ -39,13 +39,13 @@ const adminItems = [
 }
 
 .sidebar-header {
-  padding: 16px;
+  padding: var(--space-4);
   border-bottom: 1px solid var(--color-border);
 }
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-h4);
 }
 
 .admin-menu {

@@ -130,13 +130,13 @@ onMounted(checkHealth)
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .nav-menu {
@@ -151,10 +151,11 @@ onMounted(checkHealth)
 
 .logo-title {
   font-family: var(--font-family-base);
+  font-weight: var(--font-weight-semibold);
 }
 
 .nav-menu .el-menu-item {
-  font-size: 14px;
+  font-size: var(--font-size-body);
 }
 
 .nav-menu .el-menu-item.is-disabled {
@@ -164,18 +165,18 @@ onMounted(checkHealth)
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .user-trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
 }
 
 .user-text {
-  font-size: 14px;
+  font-size: var(--font-size-body);
 }
 
 .sidebar-toggle {
@@ -184,7 +185,7 @@ onMounted(checkHealth)
 
 @media (max-width: 767px) {
   .app-header {
-    gap: 8px;
+    gap: var(--space-2);
   }
 
   .nav-menu {
@@ -192,7 +193,7 @@ onMounted(checkHealth)
   }
 
   .logo-title {
-    font-size: 14px;
+    font-size: var(--font-size-body);
   }
 
   .header-actions .el-tag {

@@ -22,44 +22,44 @@ const quickFilters = ['彩陶', '骨器', '陶俑', '聚落遗址']
 
 <style scoped>
 .sidebar-section {
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-h4);
 }
 
 .sidebar-header p {
-  margin: 6px 0 0;
+  margin: var(--space-2) 0 0;
   color: var(--color-text-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
   line-height: 1.6;
 }
 
 .filter-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .filter-label {
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
 .filter-tags {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
   line-height: 1.6;
 }

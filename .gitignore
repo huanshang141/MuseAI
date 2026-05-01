@@ -1,4 +1,4 @@
-docs/reference
+docs/reference/**
 .env
 
 # Python
@@ -71,3 +71,5 @@ frontend/node_modules/
 # claude
 .claude/
 .superpowers/
+
+!docs/reference/展品.md

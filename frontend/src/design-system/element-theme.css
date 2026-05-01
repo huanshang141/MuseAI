@@ -5,23 +5,32 @@
   --el-color-primary-dark-2: var(--color-accent-hover);
 
   --el-color-success: var(--color-jade);
-  --el-color-warning: var(--color-gold-line);
+  --el-color-warning: var(--color-gold);
   --el-color-danger: var(--color-danger);
   --el-color-info: var(--color-text-muted);
 
   --el-text-color-primary: var(--color-text-primary);
-  --el-text-color-regular: var(--color-text-primary);
-  --el-text-color-secondary: var(--color-text-secondary);
-  --el-text-color-placeholder: var(--color-text-muted);
+  --el-text-color-regular: var(--color-text-secondary);
+  --el-text-color-secondary: var(--color-text-muted);
+  --el-text-color-placeholder: var(--color-text-faint);
 
   --el-bg-color: var(--color-bg-base);
   --el-bg-color-page: var(--color-bg-base);
+  --el-bg-color-overlay: var(--color-bg-base);
   --el-fill-color: var(--color-bg-subtle);
-  --el-fill-color-light: var(--color-surface-card);
+  --el-fill-color-light: var(--color-bg-elevated);
+  --el-fill-color-lighter: var(--color-bg-subtle);
+  --el-fill-color-blank: var(--color-bg-base);
 
   --el-border-color: var(--color-border);
   --el-border-color-light: var(--color-border);
+  --el-border-color-lighter: var(--color-border);
   --el-border-radius-base: var(--radius-sm);
 
-  --el-font-family: var(--font-family-body);
+  --el-font-family: var(--font-family-base);
+  --el-font-size-base: var(--font-size-body);
+
+  --el-box-shadow: none;
+  --el-box-shadow-light: none;
+  --el-box-shadow-lighter: none;
 }

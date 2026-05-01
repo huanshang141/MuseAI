@@ -74,8 +74,8 @@ function reloadPage() {
 
 .app-main {
   overflow: auto;
-  padding: 20px;
-  background: #f5f7fa;
+  padding: var(--space-fluid-md);
+  background: var(--color-bg-base);
 }
 
 .app-main--no-padding {
@@ -84,7 +84,7 @@ function reloadPage() {
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity var(--duration-slow) var(--ease-default);
 }
 
 .fade-enter-from,
@@ -94,7 +94,7 @@ function reloadPage() {
 
 @media (max-width: 767px) {
   .app-main {
-    padding: 12px;
+    padding: var(--space-3);
   }
 }
 </style>

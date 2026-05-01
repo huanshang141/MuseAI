@@ -245,7 +245,14 @@ async def create_tour_session(
                     assumption=body.assumption,
                 )
                 return _format_session(updated)
-            return _format_session(existing)
+            updated = await update_session(
+                session,
+                existing.id.value,
+                interest_type=body.interest_type,
+                persona=body.persona,
+                assumption=body.assumption,
+            )
+            return _format_session(updated)
 
     tour_session = await create_session(
         session,

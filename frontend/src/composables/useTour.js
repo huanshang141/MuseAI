@@ -69,8 +69,11 @@ export function useTour() {
     tourSession.value = result.data
     sessionToken.value = result.data.session_token
     _persistSession()
-    await api.tour.updateSession(result.data.id, { status: 'opening', interest_type: interestType, persona, assumption }, sessionToken.value)
-    return result.data
+    const updateResult = await api.tour.updateSession(result.data.id, { status: 'opening', interest_type: interestType, persona, assumption }, sessionToken.value)
+    if (updateResult.ok) {
+      tourSession.value = updateResult.data
+    }
+    return tourSession.value
   }
 
   async function restoreSession() {

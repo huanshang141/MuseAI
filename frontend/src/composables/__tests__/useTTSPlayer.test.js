@@ -35,7 +35,7 @@ class MockAudioContext {
 describe('useTTSPlayer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    global.AudioContext = MockAudioContext
+    globalThis.AudioContext = MockAudioContext
   })
 
   it('initializes with isPlaying false', () => {

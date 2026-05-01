@@ -32,6 +32,7 @@ vi.mock('../../../../api/index.js', () => ({
 const mediaQueryHolder = vi.hoisted(() => ({ ref: null }))
 
 vi.mock('../../../../composables/useMediaQuery.js', () => {
+  // eslint-disable-next-line no-undef
   const { ref } = require('vue')
   mediaQueryHolder.ref = ref(true)
   return {

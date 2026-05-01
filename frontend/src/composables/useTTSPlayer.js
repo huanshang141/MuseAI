@@ -54,7 +54,7 @@ export function useTTSPlayer() {
     for (const source of currentSources) {
       try {
         source.stop()
-      } catch {}
+      } catch { /* source may already be stopped */ }
     }
     currentSources = []
     isPlaying.value = false

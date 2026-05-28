@@ -4,6 +4,7 @@
 使用LangGraph实现多轮RAG检索状态机。
 """
 
+import time
 from typing import Any, TypedDict
 
 from langchain_core.documents import Document
@@ -102,7 +103,23 @@ class RAGAgent:
         self.merge_max_level = merge_max_level
         self.merge_max_parents = merge_max_parents
         self.document_filter = DynamicDocumentFilter(filter_config)
+        self._perf_trace_id: str | None = None  # set by run() for node-level perf logging
         self._graph = self._build_graph()
+
+    def set_trace_id(self, trace_id: str | None) -> None:
+        """Propagate a trace_id so each RAG node can emit [perf] log lines."""
+        self._perf_trace_id = trace_id
+
+    def _perf(self, stage: str, duration_ms: int, ok: bool = True, **extra: Any) -> None:
+        """Emit a single structured [perf] log line from any node."""
+        logger.bind(
+            trace_id=self._perf_trace_id or "",
+            stage=stage,
+            duration_ms=duration_ms,
+            ok=ok,
+            perf=True,
+            **extra,
+        ).info("[perf] {}  duration_ms={}ms  ok={}", stage, duration_ms, ok)
 
     def _build_graph(self) -> Any:
         """构建LangGraph状态机。"""
@@ -166,26 +183,34 @@ class RAGAgent:
 
     async def rewrite_query(self, state: RAGState) -> dict[str, Any]:
         """重写查询（基于多轮对话历史）。"""
-        query = state["query"]
-        history = state.get("conversation_history", [])
+        _t = time.perf_counter()
+        try:
+            query = state["query"]
+            history = state.get("conversation_history", [])
 
-        # 如果有查询重写器且有对话历史，则进行上下文感知的重写
-        if self.query_rewriter and history:
-            try:
-                rewritten = await self.query_rewriter.rewrite_with_context(query, history)
-                logger.info(f"Query rewritten: '{query}' -> '{rewritten}'")
-                return {"rewritten_query": rewritten}
-            except Exception as e:
-                logger.warning(f"Query rewrite failed: {e}, using original query")
+            # 如果有查询重写器且有对话历史，则进行上下文感知的重写
+            if self.query_rewriter and history:
+                try:
+                    rewritten = await self.query_rewriter.rewrite_with_context(query, history)
+                    logger.info(f"Query rewritten: '{query}' -> '{rewritten}'")
+                    return {"rewritten_query": rewritten}
+                except Exception as e:
+                    logger.warning(f"Query rewrite failed: {e}, using original query")
 
-        return {"rewritten_query": query}
+            return {"rewritten_query": query}
+        finally:
+            self._perf("rewrite", int((time.perf_counter() - _t) * 1000))
 
     async def retrieve(self, state: RAGState) -> dict[str, Any]:
         """检索相关文档。"""
-        query = state.get("rewritten_query") or state["query"]
-        documents = await self.retriever.ainvoke(query)
-        logger.debug(f"Retrieved {len(documents)} documents for query: {query[:50]}...")
-        return {"documents": documents}
+        _t = time.perf_counter()
+        try:
+            query = state.get("rewritten_query") or state["query"]
+            documents = await self.retriever.ainvoke(query)
+            logger.debug(f"Retrieved {len(documents)} documents for query: {query[:50]}...")
+            return {"documents": documents}
+        finally:
+            self._perf("retrieve", int((time.perf_counter() - _t) * 1000))
 
     async def merge_chunks(self, state: RAGState) -> dict[str, Any]:
         """层级合并：将细粒度 chunk 替换为其父级粗粒度 chunk。
@@ -193,9 +218,11 @@ class RAGAgent:
         对于 chunk_level > merge_max_level 的文档，查找其 parent_chunk_id
         对应的父文档并替换，去重后返回合并结果。
         """
+        _t = time.perf_counter()
         documents = state["documents"]
 
         if not self.merge_enabled or not documents:
+            self._perf("merge", int((time.perf_counter() - _t) * 1000), skipped=True)
             return {"merged_documents": documents}
 
         es_client = getattr(self.retriever, "es_client", None)
@@ -255,177 +282,202 @@ class RAGAgent:
             f"merge_chunks: {len(documents)} docs -> {len(merged)} docs "
             f"({parents_replaced} parents replaced)"
         )
+        self._perf("merge", int((time.perf_counter() - _t) * 1000), parents_replaced=parents_replaced)
         return {"merged_documents": merged}
 
     async def rerank(self, state: RAGState) -> dict[str, Any]:
         """对检索结果进行重排序。"""
-        documents = state.get("merged_documents") or state["documents"]
-        query = state.get("rewritten_query") or state["query"]
-
-        logger.debug(f"Rerank node called: documents_count={len(documents)}, rerank_provider={self.rerank_provider is not None}")
-
-        # 如果没有Rerank服务或没有文档，直接返回原结果
-        if not self.rerank_provider or not documents:
-            logger.info(f"Rerank skipped: rerank_provider={'configured' if self.rerank_provider else 'None'}, docs_count={len(documents)}")
-            return {"reranked_documents": documents}
-
+        _t = time.perf_counter()
         try:
-            # 提取文档内容用于rerank
-            doc_contents = [doc.page_content for doc in documents]
+            documents = state.get("merged_documents") or state["documents"]
+            query = state.get("rewritten_query") or state["query"]
 
-            logger.info(f"Calling rerank service: query='{query[:50]}...', docs_count={len(documents)}")
+            logger.debug(f"Rerank node called: documents_count={len(documents)}, rerank_provider={self.rerank_provider is not None}")
 
-            # 调用rerank服务
-            rerank_results: list[RerankResult] = await self.rerank_provider.rerank(
-                query=query,
-                documents=doc_contents,
-                top_n=min(self.rerank_top_n, len(documents)),
-            )
+            # 如果没有Rerank服务或没有文档，直接返回原结果
+            if not self.rerank_provider or not documents:
+                logger.info(f"Rerank skipped: rerank_provider={'configured' if self.rerank_provider else 'None'}, docs_count={len(documents)}")
+                return {"reranked_documents": documents}
 
-            # 根据rerank结果重新排序文档
-            reranked_docs = []
-            for result in rerank_results:
-                original_doc = documents[result.index]
-                # 更新文档的metadata，添加rerank分数
-                updated_metadata = {**original_doc.metadata, "rerank_score": result.relevance_score}
-                reranked_doc = Document(
-                    page_content=original_doc.page_content,
-                    metadata=updated_metadata,
+            try:
+                # 提取文档内容用于rerank
+                doc_contents = [doc.page_content for doc in documents]
+
+                logger.info(f"Calling rerank service: query='{query[:50]}...', docs_count={len(documents)}")
+
+                # 调用rerank服务
+                rerank_results: list[RerankResult] = await self.rerank_provider.rerank(
+                    query=query,
+                    documents=doc_contents,
+                    top_n=min(self.rerank_top_n, len(documents)),
                 )
-                reranked_docs.append(reranked_doc)
 
-            logger.info(f"Reranked {len(reranked_docs)} documents successfully")
-            return {"reranked_documents": reranked_docs}
+                # 根据rerank结果重新排序文档
+                reranked_docs = []
+                for result in rerank_results:
+                    original_doc = documents[result.index]
+                    # 更新文档的metadata，添加rerank分数
+                    updated_metadata = {**original_doc.metadata, "rerank_score": result.relevance_score}
+                    reranked_doc = Document(
+                        page_content=original_doc.page_content,
+                        metadata=updated_metadata,
+                    )
+                    reranked_docs.append(reranked_doc)
 
-        except Exception as e:
-            logger.warning(f"Rerank failed: {e}, using original order")
-            return {"reranked_documents": documents}
+                logger.info(f"Reranked {len(reranked_docs)} documents successfully")
+                return {"reranked_documents": reranked_docs}
+
+            except Exception as e:
+                logger.warning(f"Rerank failed: {e}, using original order")
+                return {"reranked_documents": documents}
+        finally:
+            self._perf("rerank", int((time.perf_counter() - _t) * 1000))
 
     def filter_documents(self, state: RAGState) -> dict[str, Any]:
         """对重排序后的文档进行动态过滤。"""
-        docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
+        _t = time.perf_counter()
+        try:
+            docs = state.get("reranked_documents") or state.get("merged_documents") or state["documents"]
 
-        if not docs:
-            logger.debug("filter_documents: no documents to filter")
-            return {"filtered_documents": []}
+            if not docs:
+                logger.debug("filter_documents: no documents to filter")
+                return {"filtered_documents": []}
 
-        filtered = self.document_filter.filter(docs)
-        logger.info(
-            f"filter_documents: {len(docs)} docs -> {len(filtered)} docs "
-            f"(config: min={self.document_filter.config.min_docs}, "
-            f"max={self.document_filter.config.max_docs}, "
-            f"absolute_threshold={self.document_filter.config.absolute_threshold}, "
-            f"relative_gap={self.document_filter.config.relative_gap})"
-        )
-        return {"filtered_documents": filtered}
+            filtered = self.document_filter.filter(docs)
+            logger.info(
+                f"filter_documents: {len(docs)} docs -> {len(filtered)} docs "
+                f"(config: min={self.document_filter.config.min_docs}, "
+                f"max={self.document_filter.config.max_docs}, "
+                f"absolute_threshold={self.document_filter.config.absolute_threshold}, "
+                f"relative_gap={self.document_filter.config.relative_gap})"
+            )
+            return {"filtered_documents": filtered}
+        finally:
+            self._perf("filter", int((time.perf_counter() - _t) * 1000))
 
     def evaluate(self, state: RAGState) -> dict[str, Any]:
         """评估检索质量。"""
-        docs = (
-            state.get("filtered_documents")
-            or state.get("reranked_documents")
-            or state.get("merged_documents")
-            or state["documents"]
-        )
+        _t = time.perf_counter()
+        try:
+            docs = (
+                state.get("filtered_documents")
+                or state.get("reranked_documents")
+                or state.get("merged_documents")
+                or state["documents"]
+            )
 
-        if not docs:
-            return {"retrieval_score": 0.0}
+            if not docs:
+                return {"retrieval_score": 0.0}
 
-        scores = []
-        for doc in docs:
-            score = doc.metadata.get("rerank_score", doc.metadata.get("rrf_score", 0.5))
-            scores.append(score)
+            scores = []
+            for doc in docs:
+                score = doc.metadata.get("rerank_score", doc.metadata.get("rrf_score", 0.5))
+                scores.append(score)
 
-        max_score = max(scores) if scores else 0.0
-        valid_count = sum(1 for s in scores if s >= 0.3)
+            max_score = max(scores) if scores else 0.0
+            valid_count = sum(1 for s in scores if s >= 0.3)
 
-        retrieval_score = max_score * (1.0 + 0.05 * min(valid_count, 5))
-        retrieval_score = min(retrieval_score, 1.0)
+            retrieval_score = max_score * (1.0 + 0.05 * min(valid_count, 5))
+            retrieval_score = min(retrieval_score, 1.0)
 
-        logger.debug(
-            f"Evaluation score: {retrieval_score:.3f} (max={max_score:.3f}, "
-            f"valid_docs={valid_count}, total={len(docs)})"
-        )
-        return {"retrieval_score": retrieval_score}
+            logger.debug(
+                f"Evaluation score: {retrieval_score:.3f} (max={max_score:.3f}, "
+                f"valid_docs={valid_count}, total={len(docs)})"
+            )
+            return {"retrieval_score": retrieval_score}
+        finally:
+            self._perf("evaluate", int((time.perf_counter() - _t) * 1000))
 
     async def transform(self, state: RAGState) -> dict[str, Any]:
         """查询转换（当检索质量不佳时）。"""
-        new_attempts = state["attempts"] + 1
-        new_transformations = state["transformations"] + ["query_transform"]
-
-        query = state.get("rewritten_query") or state["query"]
-        retrieval_score = state["retrieval_score"]
-
-        strategy = select_strategy(query, retrieval_score, new_attempts)
-        logger.info(
-            f"Query transform: attempt={new_attempts}, strategy={strategy.value}, "
-            f"score={retrieval_score:.3f}, query='{query[:50]}...'"
-        )
-
-        if strategy == QueryTransformStrategy.NONE or self.llm_provider is None:
-            return {"attempts": new_attempts, "transformations": new_transformations}
-
+        _t = time.perf_counter()
         try:
-            transformer = QueryTransformer(self.llm_provider, prompt_gateway=self.prompt_gateway)
+            new_attempts = state["attempts"] + 1
+            new_transformations = state["transformations"] + ["query_transform"]
 
-            if strategy == QueryTransformStrategy.STEP_BACK:
-                transformed = await transformer.transform_step_back(query)
-                new_transformations[-1] = f"step_back: {transformed[:80]}"
-            elif strategy == QueryTransformStrategy.HYDE:
-                transformed = await transformer.transform_hyde(query)
-                new_transformations[-1] = f"hyde: {transformed[:80]}"
-            elif strategy == QueryTransformStrategy.MULTI_QUERY:
-                queries = await transformer.transform_multi_query(query)
-                transformed = queries[0] if queries else query
-                new_transformations[-1] = f"multi_query: {', '.join(queries)[:80]}"
-            else:
-                transformed = query
+            query = state.get("rewritten_query") or state["query"]
+            retrieval_score = state["retrieval_score"]
 
-            logger.info(f"Query transformed: '{query[:50]}' -> '{transformed[:50]}'")
-            return {
-                "attempts": new_attempts,
-                "transformations": new_transformations,
-                "rewritten_query": transformed,
-            }
-        except Exception as e:
-            logger.warning(f"Query transform failed: {e}, keeping original query")
-            return {"attempts": new_attempts, "transformations": new_transformations}
+            strategy = select_strategy(query, retrieval_score, new_attempts)
+            logger.info(
+                f"Query transform: attempt={new_attempts}, strategy={strategy.value}, "
+                f"score={retrieval_score:.3f}, query='{query[:50]}...'"
+            )
+
+            if strategy == QueryTransformStrategy.NONE or self.llm_provider is None:
+                return {"attempts": new_attempts, "transformations": new_transformations}
+
+            try:
+                transformer = QueryTransformer(self.llm_provider, prompt_gateway=self.prompt_gateway)
+
+                if strategy == QueryTransformStrategy.STEP_BACK:
+                    transformed = await transformer.transform_step_back(query)
+                    new_transformations[-1] = f"step_back: {transformed[:80]}"
+                elif strategy == QueryTransformStrategy.HYDE:
+                    transformed = await transformer.transform_hyde(query)
+                    new_transformations[-1] = f"hyde: {transformed[:80]}"
+                elif strategy == QueryTransformStrategy.MULTI_QUERY:
+                    queries = await transformer.transform_multi_query(query)
+                    transformed = queries[0] if queries else query
+                    new_transformations[-1] = f"multi_query: {', '.join(queries)[:80]}"
+                else:
+                    transformed = query
+
+                logger.info(f"Query transformed: '{query[:50]}' -> '{transformed[:50]}'")
+                return {
+                    "attempts": new_attempts,
+                    "transformations": new_transformations,
+                    "rewritten_query": transformed,
+                }
+            except Exception as e:
+                logger.warning(f"Query transform failed: {e}, keeping original query")
+                return {"attempts": new_attempts, "transformations": new_transformations}
+        finally:
+            self._perf("transform", int((time.perf_counter() - _t) * 1000))
 
     async def generate(self, state: RAGState) -> dict[str, Any]:
-        """生成答案。"""
-        docs = (
-            state.get("filtered_documents")
-            or state.get("reranked_documents")
-            or state.get("merged_documents")
-            or state["documents"]
-        )
-        context = "\n\n".join(doc.page_content for doc in docs)
+        """生成答案。
+        NOTE: In the tour chat flow this LLM call's result is NOT used — _stream_rag
+        makes a second generate_stream() call. See ai_latency_diagnostics.md §4.
+        """
+        _t = time.perf_counter()
+        try:
+            docs = (
+                state.get("filtered_documents")
+                or state.get("reranked_documents")
+                or state.get("merged_documents")
+                or state["documents"]
+            )
+            context = "\n\n".join(doc.page_content for doc in docs)
 
-        custom_system_prompt = state.get("system_prompt", "")
+            custom_system_prompt = state.get("system_prompt", "")
 
-        if custom_system_prompt:
-            prompt = f"{custom_system_prompt}\n\n参考上下文：\n{context}\n\n用户问题：{state['query']}\n\n请基于以上信息回答："
-        else:
-            prompt = None
-            if self.prompt_gateway:
-                prompt = await self.prompt_gateway.render(
-                    "rag_answer_generation",
-                    {"context": context, "query": state["query"]}
-                )
-            if prompt is None:
-                prompt = self.FALLBACK_PROMPT.format(
-                    context=context,
-                    query=state["query"],
-                )
+            if custom_system_prompt:
+                prompt = f"{custom_system_prompt}\n\n参考上下文：\n{context}\n\n用户问题：{state['query']}\n\n请基于以上信息回答："
+            else:
+                prompt = None
+                if self.prompt_gateway:
+                    prompt = await self.prompt_gateway.render(
+                        "rag_answer_generation",
+                        {"context": context, "query": state["query"]}
+                    )
+                if prompt is None:
+                    prompt = self.FALLBACK_PROMPT.format(
+                        context=context,
+                        query=state["query"],
+                    )
 
-        response = await self.llm.ainvoke(prompt)
-        return {"answer": response.content}
+            response = await self.llm.ainvoke(prompt)
+            return {"answer": response.content}
+        finally:
+            self._perf("generate_node", int((time.perf_counter() - _t) * 1000))
 
     async def run(
         self,
         query: str,
         conversation_history: list[dict[str, str]] | None = None,
         system_prompt: str | None = None,
+        trace_id: str | None = None,
     ) -> RAGState:
         """运行RAG流程。
 
@@ -433,10 +485,13 @@ class RAGAgent:
             query: 用户查询
             conversation_history: 对话历史（可选）
             system_prompt: 自定义系统提示词（可选，用于导览等场景）
+            trace_id: 请求链路追踪 ID，用于节点级 [perf] 日志关联
 
         Returns:
             最终状态
         """
+        self._perf_trace_id = trace_id  # propagate to all node _perf() calls
+        _t = time.perf_counter()
         initial_state: RAGState = {
             "query": query,
             "rewritten_query": "",
@@ -452,4 +507,5 @@ class RAGAgent:
             "system_prompt": system_prompt or "",
         }
         result = await self._graph.ainvoke(initial_state)
+        self._perf("rag_run_total", int((time.perf_counter() - _t) * 1000))
         return result  # type: ignore[no-any-return]

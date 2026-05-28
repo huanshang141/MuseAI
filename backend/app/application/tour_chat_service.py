@@ -1,3 +1,4 @@
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -106,7 +107,14 @@ async def ask_stream_tour(
     tts_service: Any = None,
     persona: str | None = None,
 ) -> AsyncGenerator[str, None]:
+    # ── Perf: request entry ────────────────────────────────────────────────────
+    t_total = time.perf_counter()
+    trace_id = str(uuid.uuid4())  # moved before get_session so log can bind it early
+
+    # ── Session load ───────────────────────────────────────────────────────────
+    _t = time.perf_counter()
     tour_session = await get_session(db_session, tour_session_id)
+    _session_ms = int((time.perf_counter() - _t) * 1000)
 
     if degraded_services and "elasticsearch" in degraded_services:
         yield sse_tour_event(
@@ -115,6 +123,7 @@ async def ask_stream_tour(
         )
         return
 
+    # ── System prompt / style (sync, negligible) ───────────────────────────────
     visited_ids = tour_session.visited_exhibit_ids or []
     system_prompt = build_system_prompt(
         persona=tour_session.persona,
@@ -123,12 +132,11 @@ async def ask_stream_tour(
         exhibit_context=exhibit_context,
         visited_exhibits=visited_ids,
     )
-
     style_prompt = _build_style_prompt(style)
     if style_prompt:
         system_prompt = f"[风格约束]\n{style_prompt}\n\n{system_prompt}"
 
-    trace_id = str(uuid.uuid4())
+    # ── Bound logger (trace_id available from line 1 now) ──────────────────────
     log = logger.bind(
         trace_id=trace_id,
         request_id=request_id_var.get(),
@@ -137,35 +145,73 @@ async def ask_stream_tour(
     )
     is_ceramic = detect_ceramic_question(message)
 
-    # Resolve TTS config before streaming so we can interleave audio events
+    # Emit buffered perf marks
+    log.bind(stage="session_loaded", duration_ms=_session_ms, ok=True, perf=True).info(
+        "[perf] session_loaded  duration_ms={}ms", _session_ms
+    )
+    log.bind(stage="style_parsed", ok=True, perf=True).info("[perf] style_parsed")
+
+    # ── TTS config ─────────────────────────────────────────────────────────────
     tts_config = None
     if tts_provider is not None and tts_service is not None:
         effective_persona = persona or tour_session.persona or "A"
+        _t = time.perf_counter()
         try:
             tts_config = await tts_service.get_tour_tts_config(effective_persona)
+            _tts_ms = int((time.perf_counter() - _t) * 1000)
             log.debug("TTS config resolved: voice={}, persona={}", tts_config.voice if tts_config else None, effective_persona)
+            log.bind(stage="tts_config", duration_ms=_tts_ms, ok=True, perf=True).info(
+                "[perf] tts_config  duration_ms={}ms", _tts_ms
+            )
         except Exception as e:
+            _tts_ms = int((time.perf_counter() - _t) * 1000)
             log.warning("Failed to resolve TTS config for persona {}: {}", effective_persona, e)
+            log.bind(stage="tts_config", duration_ms=_tts_ms, ok=False, perf=True).warning(
+                "[perf] tts_config  duration_ms={}ms  ok=False", _tts_ms
+            )
     else:
         log.debug("TTS not configured: provider={}, service={}", tts_provider is not None, tts_service is not None)
+        log.bind(stage="tts_config", skipped=True, perf=True).debug("[perf] tts_config  skipped=True")
     tts_mgr = TTSStreamManager(tts_provider, tts_config, schema="tour")
     log.debug("TTSStreamManager enabled={}", tts_mgr.enabled)
 
+    # ── RAG + LLM streaming ────────────────────────────────────────────────────
+    t_rag = time.perf_counter()
+    _first_token = False
     full_content_parts: list[str] = []
     try:
-        async for event, chunk in _stream_rag(rag_agent, llm_provider, message, system_prompt):
+        async for event, chunk in _stream_rag(
+            rag_agent, llm_provider, message, system_prompt,
+            perf_log=log, trace_id=trace_id,
+        ):
             if chunk is not None:
+                # First chunk = first token delivered to client
+                if not _first_token:
+                    _first_token = True
+                    _ftl_ms = int((time.perf_counter() - t_rag) * 1000)
+                    log.bind(stage="first_token", elapsed_ms=_ftl_ms, perf=True).info(
+                        "[perf] first_token  elapsed_ms={}ms", _ftl_ms
+                    )
                 full_content_parts.append(chunk)
                 async for audio_event in tts_mgr.feed(chunk):
                     yield audio_event
             yield event
     except Exception as e:
+        _err_ms = int((time.perf_counter() - t_rag) * 1000)
+        log.bind(stage="stream_error", elapsed_ms=_err_ms, ok=False, perf=True).error(
+            "[perf] stream_error  elapsed_ms={}ms  error={}", _err_ms, e
+        )
         log.error("Tour chat RAG error: {}", e)
         yield sse_tour_event(
             "error",
             data={"code": "llm_error", "message": "AI导览暂时不可用，请稍后再试"},
         )
         return
+
+    _stream_ms = int((time.perf_counter() - t_rag) * 1000)
+    log.bind(stage="stream_done", duration_ms=_stream_ms, ok=True, perf=True).info(
+        "[perf] stream_done  duration_ms={}ms", _stream_ms
+    )
 
     # Flush remaining TTS audio
     async for audio_event in tts_mgr.flush():
@@ -175,6 +221,11 @@ async def ask_stream_tour(
         "done",
         trace_id=trace_id,
         is_ceramic_question=is_ceramic,
+    )
+
+    _total_ms = int((time.perf_counter() - t_total) * 1000)
+    log.bind(stage="total", duration_ms=_total_ms, ok=True, perf=True).info(
+        "[perf] total  duration_ms={}ms", _total_ms
     )
 
     try:
@@ -192,9 +243,21 @@ async def ask_stream_tour(
 
 
 async def _stream_rag(
-    rag_agent: Any, llm_provider: Any, message: str, system_prompt: str
+    rag_agent: Any,
+    llm_provider: Any,
+    message: str,
+    system_prompt: str,
+    perf_log: Any = None,
+    trace_id: str | None = None,
 ) -> AsyncGenerator[tuple[str, str | None], None]:
-    result = await rag_agent.run(message, system_prompt=system_prompt)
+    # ── RAG pipeline (rewrite → retrieve → merge → rerank → filter → evaluate → generate) ──
+    _t = time.perf_counter()
+    result = await rag_agent.run(message, system_prompt=system_prompt, trace_id=trace_id)
+    _rag_ms = int((time.perf_counter() - _t) * 1000)
+    if perf_log is not None:
+        perf_log.bind(stage="rag_pipeline", duration_ms=_rag_ms, ok=True, perf=True).info(
+            "[perf] rag_pipeline  duration_ms={}ms", _rag_ms
+        )
 
     docs = (
         result.get("filtered_documents")
@@ -203,19 +266,34 @@ async def _stream_rag(
     )
     context = "\n\n".join(doc.page_content for doc in docs)
 
+    # ── Prompt assembly ────────────────────────────────────────────────────────
+    _t = time.perf_counter()
     prompt = None
     if hasattr(rag_agent, "prompt_gateway") and rag_agent.prompt_gateway:
         prompt = await rag_agent.prompt_gateway.render(
             "rag_answer_generation",
             {"context": context, "query": message},
         )
-
     if prompt is None:
         prompt = (
             f"{system_prompt}\n\n参考上下文：\n{context}\n\n"
             f"用户问题：{message}\n\n请基于以上信息回答："
         )
+    _prompt_ms = int((time.perf_counter() - _t) * 1000)
+    if perf_log is not None:
+        perf_log.bind(stage="prompt_build", duration_ms=_prompt_ms, ok=True, perf=True).info(
+            "[perf] prompt_build  duration_ms={}ms", _prompt_ms
+        )
 
+    # ── LLM streaming (2nd LLM call — see ai_latency_diagnostics.md §4) ───────
     messages = [{"role": "user", "content": prompt}]
+    if perf_log is not None:
+        perf_log.bind(stage="llm_stream_start", perf=True).info("[perf] llm_stream_start")
+    _t = time.perf_counter()
     async for chunk in llm_provider.generate_stream(messages):
         yield sse_tour_event("chunk", data={"content": chunk}), chunk
+    _llm_ms = int((time.perf_counter() - _t) * 1000)
+    if perf_log is not None:
+        perf_log.bind(stage="llm_stream", duration_ms=_llm_ms, ok=True, perf=True).info(
+            "[perf] llm_stream  duration_ms={}ms", _llm_ms
+        )

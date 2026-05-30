@@ -46,6 +46,14 @@ HALL_DESCRIPTIONS = {
     "site-hall": "遗址保护大厅：保留半坡遗址的居住区、制陶区和墓葬区原貌，展示圆形和方形半地穴式房屋结构。",
 }
 
+# Injected into every tour system prompt regardless of persona
+GLOBAL_DIALOGUE_RULE = (
+    """【对话规则】这是手机端一对一博物馆导览对话，用户通过微信小程序与你交流。
+    严禁使用"各位观众"、"大家请看"、"各位游客"、"同学们"、"朋友们"等面向群体的广播式称呼。
+    始终使用"你"、"我们可以看"、"这件展品"等自然的一对一口吻。
+    回答简洁，适合手机小屏幕阅读，不要做展厅广播式讲解。"""
+)
+
 
 def build_system_prompt(
     persona: str,
@@ -56,6 +64,7 @@ def build_system_prompt(
 ) -> str:
     parts = [PERSONA_PROMPTS.get(persona, PERSONA_PROMPTS["A"])]
     parts.append(ASSUMPTION_CONTEXTS.get(assumption, ASSUMPTION_CONTEXTS["A"]))
+    parts.append(GLOBAL_DIALOGUE_RULE)
 
     if hall and hall in HALL_DESCRIPTIONS:
         parts.append(f"当前展厅：{HALL_DESCRIPTIONS[hall]}")

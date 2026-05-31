@@ -209,6 +209,7 @@ async def ask_question_stream_with_rag(
         if prompt is None:
             prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
 如果上下文中没有相关信息，请礼貌地说明无法回答，并建议用户咨询工作人员。
+如需使用编号列表，请使用连续递增的序号（1. 2. 3.），不得所有项目都用"1."开头。
 
 上下文：
 {context}
@@ -321,7 +322,7 @@ async def ask_question_stream_guest(
         yield sse_chat_event("error", code="RAG_UNAVAILABLE", message="检索服务暂时不可用，请稍后再试")
         return
 
-    yield sse_chat_event("thinking", stage="retrieve", content="正在检索...")
+    yield sse_chat_event("rag_step", step="retrieve", status="running", message="正在检索相关文档...")
 
     try:
         result = await rag_agent.run(message)
@@ -329,11 +330,8 @@ async def ask_question_stream_guest(
         doc_count = len(result.get("documents", []))
         retrieval_score = result.get("retrieval_score", 0)
 
-        retrieve_msg = f"检索完成，找到 {doc_count} 个相关文档"
-        yield sse_chat_event("thinking", stage="retrieve", content=retrieve_msg)
-
-        eval_msg = f"检索评分: {retrieval_score:.2f}"
-        yield sse_chat_event("thinking", stage="evaluate", content=eval_msg)
+        yield sse_chat_event("rag_step", step="retrieve", status="completed", message=f"检索完成，找到 {doc_count} 个相关文档")
+        yield sse_chat_event("rag_step", step="evaluate", status="completed", message=f"检索评分: {retrieval_score:.2f}")
 
         docs = (
             result.get("filtered_documents")
@@ -352,6 +350,7 @@ async def ask_question_stream_guest(
         if prompt is None:
             prompt = f"""你是一个博物馆导览助手。请基于以下上下文回答用户的问题。
 如果上下文中没有相关信息，请礼貌地说明无法回答，并建议用户咨询工作人员。
+如需使用编号列表，请使用连续递增的序号（1. 2. 3.），不得所有项目都用"1."开头。
 
 上下文：
 {context}
@@ -362,6 +361,7 @@ async def ask_question_stream_guest(
 
         messages = [{"role": "user", "content": prompt}]
 
+        yield sse_chat_event("rag_step", step="generate", status="running", message="正在生成回答...")
         chunks: list[str] = []
         tts_mgr = TTSStreamManager(tts_provider, tts_config, schema="chat")
         async for chunk in llm_provider.generate_stream(messages):

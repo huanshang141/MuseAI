@@ -533,9 +533,10 @@ async def test_ask_question_stream_guest():
     ):
         messages.append(event)
 
-    # Should have thinking and done events
+    # Current stream schema emits RAG progress before chunks, then done.
     event_types = [json.loads(m.split("data: ")[1])["type"] for m in messages if m.startswith("data:")]
-    assert "thinking" in event_types
+    assert "rag_step" in event_types
+    assert "chunk" in event_types
     assert "done" in event_types
 
     # Should store session in Redis

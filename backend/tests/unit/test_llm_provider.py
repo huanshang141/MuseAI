@@ -149,6 +149,9 @@ class TestOpenAICompatibleProvider:
         mock_settings.LLM_API_KEY = "test-api-key"
         mock_settings.LLM_MODEL = "gemini-2.5-flash"
         mock_settings.LLM_HEADERS = ""
+        mock_settings.LLM_TEMPERATURE = 0.6
+        mock_settings.LLM_MAX_TOKENS = 800
+        mock_settings.LLM_ENABLE_THINKING = False
 
         with patch("app.infra.providers.llm.AsyncOpenAI") as mock_client_class:
             provider = OpenAICompatibleProvider.from_settings(mock_settings)

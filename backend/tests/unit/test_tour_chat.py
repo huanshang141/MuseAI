@@ -66,6 +66,13 @@ def _make_mock_tour_session():
     return session
 
 
+def _make_async_session_maker():
+    session_ctx = MagicMock()
+    session_ctx.__aenter__ = AsyncMock(return_value=AsyncMock())
+    session_ctx.__aexit__ = AsyncMock(return_value=False)
+    return MagicMock(return_value=session_ctx)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures: Tour Chat Stream
 # ---------------------------------------------------------------------------
@@ -82,11 +89,7 @@ def fake_tour_session():
 
 @pytest.fixture
 def fake_session_maker():
-    session_ctx = AsyncMock()
-    session_ctx.__aenter__.return_value = AsyncMock()
-    session_ctx.__aexit__.return_value = None
-    maker = MagicMock(return_value=session_ctx)
-    return maker
+    return _make_async_session_maker()
 
 
 @pytest.fixture
@@ -346,9 +349,7 @@ class TestTourStreamTTSEvents:
         )
 
         db_session = AsyncMock()
-        session_maker = AsyncMock()
-        session_maker.__aenter__ = AsyncMock(return_value=AsyncMock())
-        session_maker.__aexit__ = AsyncMock(return_value=False)
+        session_maker = _make_async_session_maker()
 
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),
@@ -392,9 +393,7 @@ class TestTourStreamTTSEvents:
         mock_rag.prompt_gateway = None
 
         db_session = AsyncMock()
-        session_maker = AsyncMock()
-        session_maker.__aenter__ = AsyncMock(return_value=AsyncMock())
-        session_maker.__aexit__ = AsyncMock(return_value=False)
+        session_maker = _make_async_session_maker()
 
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),
@@ -442,9 +441,7 @@ class TestTourStreamTTSEvents:
         )
 
         db_session = AsyncMock()
-        session_maker = AsyncMock()
-        session_maker.__aenter__ = AsyncMock(return_value=AsyncMock())
-        session_maker.__aexit__ = AsyncMock(return_value=False)
+        session_maker = _make_async_session_maker()
 
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),

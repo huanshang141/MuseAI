@@ -145,7 +145,7 @@ def test_settings_warns_admin_emails_deprecated_in_production(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("JWT_SECRET", "a" * 32)
     monkeypatch.setenv("LLM_API_KEY", "test-key")
-    monkeypatch.setenv("RERANK_PROVIDER", "")
+    monkeypatch.setenv("RERANK_PROVIDER", "mock")
     monkeypatch.setenv("TTS_ENABLED", "false")
     monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
 
@@ -161,7 +161,7 @@ def test_settings_rejects_wildcard_cors_in_production(monkeypatch):
     monkeypatch.setenv("JWT_SECRET", "a" * 32)
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("CORS_ORIGINS", "*")
-    monkeypatch.setenv("RERANK_PROVIDER", "")
+    monkeypatch.setenv("RERANK_PROVIDER", "mock")
     monkeypatch.setenv("TTS_ENABLED", "false")
 
     from app.config.settings import Settings

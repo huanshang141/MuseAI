@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from app.config.settings import Settings
+from pydantic import ValidationError
 from app.infra.providers.rerank import (
     MockRerankProvider,
     OpenAICompatibleRerankProvider,
@@ -230,31 +231,23 @@ class TestCreateRerankProvider:
         assert provider is not None
         assert isinstance(provider, MockRerankProvider)
 
-    def test_create_provider_no_config_returns_none(self):
-        """测试无配置时返回None。"""
-        from app.infra.providers.rerank import create_rerank_provider
+    def test_openai_provider_requires_base_url(self):
+        """OpenAI-compatible rerank requires base URL at settings validation."""
+        with pytest.raises(ValidationError, match="RERANK_BASE_URL must be set"):
+            Settings(
+                RERANK_PROVIDER="openai",
+                RERANK_BASE_URL="",
+                RERANK_API_KEY="",
+            )
 
-        settings = Settings(
-            RERANK_PROVIDER="openai",
-            RERANK_BASE_URL="",
-            RERANK_API_KEY="",
-        )
-        provider = create_rerank_provider(settings)
-
-        assert provider is None
-
-    def test_create_unknown_provider_returns_none(self):
-        """测试未知provider返回None。"""
-        from app.infra.providers.rerank import create_rerank_provider
-
-        settings = Settings(
-            RERANK_PROVIDER="unknown_provider",
-            RERANK_BASE_URL="https://example.com",
-            RERANK_API_KEY="test-key",
-        )
-        provider = create_rerank_provider(settings)
-
-        assert provider is None
+    def test_unknown_provider_rejected_by_settings(self):
+        """Unknown rerank providers are rejected at settings validation."""
+        with pytest.raises(ValidationError, match="RERANK_PROVIDER must be one of"):
+            Settings(
+                RERANK_PROVIDER="unknown_provider",
+                RERANK_BASE_URL="https://example.com",
+                RERANK_API_KEY="test-key",
+            )
 
     def test_create_provider_case_insensitive(self):
         """测试provider名称大小写不敏感。"""

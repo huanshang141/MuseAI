@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 
 from app.application.tts_service import TTSService
 from app.config.settings import Settings
@@ -239,9 +240,8 @@ class TestCreateTTSProvider:
         assert provider is None
 
     def test_returns_none_for_unknown_provider(self):
-        settings = self._make_settings(TTS_PROVIDER="unknown")
-        provider = create_tts_provider(settings)
-        assert provider is None
+        with pytest.raises(ValidationError, match="TTS_PROVIDER must be one of"):
+            self._make_settings(TTS_PROVIDER="unknown")
 
     def test_mock_does_not_require_api_key(self):
         settings = self._make_settings(TTS_PROVIDER="mock", TTS_API_KEY="")

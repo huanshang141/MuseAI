@@ -22,7 +22,11 @@ async def redis_cache():
     cache = RedisCache(redis_url)
 
     # Clear test database before tests
-    await cache.client.flushdb()
+    try:
+        await cache.client.flushdb()
+    except Exception as exc:
+        await cache.close()
+        pytest.skip(f"Redis is not available for integration tests: {exc}")
 
     yield cache
 
@@ -35,7 +39,11 @@ async def redis_cache():
 async def redis_client():
     """Direct Redis client for low-level operations."""
     client = Redis.from_url("redis://localhost:6379/15")
-    await client.flushdb()
+    try:
+        await client.flushdb()
+    except Exception as exc:
+        await client.close()
+        pytest.skip(f"Redis is not available for integration tests: {exc}")
     yield client
     await client.flushdb()
     await client.close()

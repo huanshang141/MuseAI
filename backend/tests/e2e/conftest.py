@@ -58,6 +58,11 @@ async def es_client(test_settings: Settings) -> ElasticsearchClient:
         hosts=[test_settings.ELASTICSEARCH_URL],
         index_name=f"{test_settings.ELASTICSEARCH_INDEX}_e2e_test",
     ) as client:
+        try:
+            if not await client.health_check():
+                pytest.skip("Elasticsearch is not available for e2e tests")
+        except Exception as exc:
+            pytest.skip(f"Elasticsearch is not available for e2e tests: {exc}")
         yield client
 
 
@@ -68,6 +73,10 @@ async def embedding_provider(test_settings: Settings) -> OllamaEmbeddingProvider
         model=test_settings.EMBEDDING_OLLAMA_MODEL,
         dims=test_settings.EMBEDDING_DIMS,
     ) as provider:
+        try:
+            await provider.embed("healthcheck")
+        except Exception as exc:
+            pytest.skip(f"Ollama embedding service is not available for e2e tests: {exc}")
         yield provider
 
 

@@ -40,11 +40,17 @@ class OpenAICompatibleProvider:
         retry_delay: float = 1.0,
         default_headers: dict[str, str] | None = None,
         trace_recorder: Any | None = None,
+        temperature: float = 0.5,
+        max_tokens: int = 2048,
+        enable_thinking: bool = False,
     ):
         self.base_url = base_url
         self.model = model
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.enable_thinking = enable_thinking
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -67,6 +73,9 @@ class OpenAICompatibleProvider:
             model=settings.LLM_MODEL,
             default_headers=default_headers,
             trace_recorder=trace_recorder,
+            temperature=settings.LLM_TEMPERATURE,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            enable_thinking=settings.LLM_ENABLE_THINKING,
         )
 
     async def __aenter__(self) -> Self:
@@ -114,9 +123,19 @@ class OpenAICompatibleProvider:
         call_id = f"llm-{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
 
+        extra_body: dict[str, Any] = {}
+        if not self.enable_thinking:
+            extra_body["thinking"] = {"type": "disabled"}
+
         for attempt in range(self.max_retries):
             try:
-                response = await self.client.chat.completions.create(model=self.model, messages=messages)  # type: ignore[arg-type]
+                response = await self.client.chat.completions.create(  # type: ignore[arg-type]
+                    model=self.model,
+                    messages=messages,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens if self.max_tokens > 0 else None,
+                    extra_body=extra_body or None,
+                )
                 duration_ms = int((time.time() - start_time) * 1000)
                 ended_at = datetime.now(UTC)
 
@@ -182,8 +201,18 @@ class OpenAICompatibleProvider:
         call_id = f"llm-{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
         chunks: list[str] = []
+        extra_body: dict[str, Any] = {}
+        if not self.enable_thinking:
+            extra_body["thinking"] = {"type": "disabled"}
         try:
-            stream = await self.client.chat.completions.create(model=self.model, messages=messages, stream=True)  # type: ignore[arg-type]
+            stream = await self.client.chat.completions.create(  # type: ignore[arg-type]
+                model=self.model,
+                messages=messages,
+                stream=True,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens if self.max_tokens > 0 else None,
+                extra_body=extra_body or None,
+            )
             async for chunk in stream:  # type: ignore[union-attr]
                 if not chunk.choices:
                     continue

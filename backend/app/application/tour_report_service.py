@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.tour_event_service import get_events_by_session
+from app.application.hall_normalizer import normalize_hall
 from app.application.tour_session_service import get_session
 from app.domain.entities import TourReport
 from app.infra.postgres.models import TourReportModel
@@ -128,7 +129,8 @@ def aggregate_stats(events: list, tour_session) -> dict:
             exhibit_durations[eid] = exhibit_durations.get(eid, 0) + event.duration_seconds
             viewed_exhibits.add(eid)
         elif event.event_type == "hall_leave" and event.hall and event.duration_seconds:
-            hall_durations[event.hall] = hall_durations.get(event.hall, 0) + event.duration_seconds
+            hall = normalize_hall(event.hall) or event.hall
+            hall_durations[hall] = hall_durations.get(hall, 0) + event.duration_seconds
         elif event.event_type == "exhibit_question":
             total_questions += 1
             meta = event.metadata or {}
@@ -149,7 +151,7 @@ def aggregate_stats(events: list, tour_session) -> dict:
         longest_hall = top_hall
         longest_hall_duration = hall_durations[top_hall]
 
-    site_hall_minutes = hall_durations.get("site-hall", 0) / 60.0
+    site_hall_minutes = hall_durations.get("site-protection-hall", 0) / 60.0
 
     return {
         "total_duration_minutes": round(total_duration, 1),

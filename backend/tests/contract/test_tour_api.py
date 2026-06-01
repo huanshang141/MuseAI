@@ -334,7 +334,7 @@ async def test_patch_tour_session(override_dependencies):
 
     assert patch_resp.status_code == 200
     data = patch_resp.json()
-    assert data["current_hall"] == "relic-hall"
+    assert data["current_hall"] == "basic-exhibition-hall"
     assert data["status"] == "touring"
 
 
@@ -433,7 +433,7 @@ async def test_list_tour_events(override_dependencies):
     assert "events" in data
     assert len(data["events"]) == 1
     assert data["events"][0]["event_type"] == "hall_enter"
-    assert data["events"][0]["hall"] == "relic-hall"
+    assert data["events"][0]["hall"] == "basic-exhibition-hall"
 
 
 @pytest.mark.asyncio
@@ -466,7 +466,7 @@ async def test_complete_hall(override_dependencies):
 
     assert complete_resp.status_code == 200
     data = complete_resp.json()
-    assert "relic-hall" in data["visited_halls"]
+    assert "basic-exhibition-hall" in data["visited_halls"]
     assert data["all_halls_visited"] is False
     assert data["status"] == "touring"
 

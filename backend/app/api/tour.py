@@ -15,6 +15,7 @@ from app.api.deps import (
 )
 from app.application.tour_chat_service import ask_stream_tour
 from app.application.tour_event_service import get_events_by_session, record_events
+from app.application.hall_normalizer import normalize_hall, normalize_halls
 from app.application.tour_report_service import generate_report, get_report
 from app.application.tour_session_service import (
     create_session,
@@ -190,18 +191,42 @@ def _format_session(tour_session) -> dict:
         "persona": tour_session.persona,
         "assumption": tour_session.assumption,
         "status": tour_session.status,
-        "current_hall": tour_session.current_hall,
+        "current_hall": normalize_hall(tour_session.current_hall),
         "current_exhibit_id": (
             str(eid.value) if eid and hasattr(eid, "value") else eid
         ),
-        "visited_halls": tour_session.visited_halls,
+        "visited_halls": normalize_halls(tour_session.visited_halls),
         "visited_exhibit_ids": tour_session.visited_exhibit_ids,
         "started_at": tour_session.started_at.isoformat(),
     }
 
 
-def _format_report(report) -> dict:
+def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
+    candidates: list[str] = []
+    if tour_session is not None:
+        candidates.extend(tour_session.visited_halls or [])
+        if tour_session.current_hall:
+            candidates.append(tour_session.current_hall)
+    for event in events or []:
+        if getattr(event, "hall", None):
+            candidates.append(event.hall)
+    return normalize_halls(candidates)
+
+
+def _build_report_highlights(report, halls_visited: list[str]) -> list[str]:
+    highlights: list[str] = []
+    if halls_visited:
+        highlights.append(f"本次共到访 {len(halls_visited)} 个展厅")
+    if report.total_questions:
+        highlights.append(f"共提出 {report.total_questions} 个导览问题")
+    if report.total_exhibits_viewed:
+        highlights.append(f"重点查看 {report.total_exhibits_viewed} 件展品")
+    return highlights
+
+
+def _format_report(report, tour_session=None, events=None) -> dict:
     eid = report.most_viewed_exhibit_id
+    halls_visited = _collect_visited_halls(tour_session, events)
     return {
         "id": (
             report.id.value if hasattr(report.id, "value") else report.id
@@ -216,15 +241,17 @@ def _format_report(report) -> dict:
             str(eid.value) if eid and hasattr(eid, "value") else eid
         ),
         "most_viewed_exhibit_duration": report.most_viewed_exhibit_duration,
-        "longest_hall": report.longest_hall,
+        "longest_hall": normalize_hall(report.longest_hall),
         "longest_hall_duration": report.longest_hall_duration,
         "total_questions": report.total_questions,
         "total_exhibits_viewed": report.total_exhibits_viewed,
         "ceramic_questions": report.ceramic_questions,
+        "halls_visited": halls_visited,
         "identity_tags": report.identity_tags,
         "radar_scores": report.radar_scores,
         "one_liner": report.one_liner,
         "report_theme": report.report_theme,
+        "highlights": _build_report_highlights(report, halls_visited),
         "created_at": report.created_at.isoformat(),
     }
 
@@ -303,6 +330,8 @@ async def patch_tour_session(
         raise HTTPException(status_code=422, detail="Invalid JSON body") from None
     body = TourSessionUpdate.model_validate(data)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "current_hall" in updates:
+        updates["current_hall"] = normalize_hall(updates["current_hall"])
     try:
         tour_session = await update_session(session, session_id, **updates)
     except TourSessionNotFound:
@@ -321,9 +350,13 @@ async def post_tour_events(
     x_session_token: str | None = Header(None),
 ):
     await _verify_ownership(session_id, user, x_session_token, session)
+    payload_events = [e.model_dump() for e in body.events]
+    for event in payload_events:
+        if event.get("hall"):
+            event["hall"] = normalize_hall(event["hall"])
     try:
         events = await record_events(
-            session, session_id, [e.model_dump() for e in body.events]
+            session, session_id, payload_events
         )
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
@@ -354,7 +387,7 @@ async def list_tour_events(
                     if e.exhibit_id and hasattr(e.exhibit_id, "value")
                     else e.exhibit_id
                 ),
-                "hall": e.hall,
+                "hall": normalize_hall(e.hall),
                 "duration_seconds": e.duration_seconds,
                 "metadata": e.metadata,
                 "created_at": e.created_at.isoformat(),
@@ -377,12 +410,13 @@ async def complete_hall(
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
 
-    visited_halls = list(tour_session.visited_halls or [])
-    if tour_session.current_hall and tour_session.current_hall not in visited_halls:
-        visited_halls.append(tour_session.current_hall)
+    visited_halls = normalize_halls(tour_session.visited_halls)
+    current_hall = normalize_hall(tour_session.current_hall)
+    if current_hall and current_hall not in visited_halls:
+        visited_halls.append(current_hall)
 
     hall_configs = await _load_tour_halls(session)
-    all_halls = [h.slug for h in hall_configs]
+    all_halls = [normalize_hall(h.slug) for h in hall_configs if normalize_hall(h.slug)]
     all_visited = all(h in visited_halls for h in all_halls)
 
     new_status = "completed" if all_visited else "touring"
@@ -422,7 +456,8 @@ async def create_tour_report(
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
 
-    return _format_report(report)
+    events = await get_events_by_session(session, session_id)
+    return _format_report(report, tour_session=tour_session, events=events)
 
 
 @router.get("/sessions/{session_id}/report", summary="Get tour report")
@@ -436,7 +471,13 @@ async def get_tour_report(
     report = await get_report(session, session_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found") from None
-    return _format_report(report)
+    try:
+        tour_session = await get_session(session, session_id)
+        events = await get_events_by_session(session, session_id)
+    except TourSessionNotFound:
+        tour_session = None
+        events = []
+    return _format_report(report, tour_session=tour_session, events=events)
 
 
 @router.post("/sessions/{session_id}/chat/stream", summary="Stream tour chat (SSE)")
@@ -499,7 +540,7 @@ async def list_tour_halls(
     session: SessionDep,
 ):
     hall_configs = await _load_tour_halls(session)
-    hall_slugs = [h.slug for h in hall_configs]
+    hall_slugs = [normalize_hall(h.slug) for h in hall_configs if normalize_hall(h.slug)]
     stmt = (
         select(Exhibit.hall, func.count(Exhibit.id))
         .where(Exhibit.hall.in_(hall_slugs), Exhibit.is_active.is_(True))
@@ -512,7 +553,7 @@ async def list_tour_halls(
     for h in hall_configs:
         halls.append(
             TourHallItem(
-                slug=h.slug,
+                slug=normalize_hall(h.slug) or h.slug,
                 name=h.name,
                 description=h.description,
                 exhibit_count=counts.get(h.slug, 0),

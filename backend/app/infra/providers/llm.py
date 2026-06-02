@@ -24,9 +24,13 @@ class LLMResponse(BaseModel):
 
 
 class LLMProvider(Protocol):
-    async def generate(self, messages: list[dict[str, Any]]) -> LLMResponse: ...
+    async def generate(self, messages: list[dict[str, Any]], model: str | None = None) -> LLMResponse: ...
 
-    def generate_stream(self, messages: list[dict[str, Any]]) -> AsyncGenerator[str, None]: ...
+    def generate_stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str | None = None,
+    ) -> AsyncGenerator[str, None]: ...
 
 
 class OpenAICompatibleProvider:
@@ -51,6 +55,9 @@ class OpenAICompatibleProvider:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.enable_thinking = enable_thinking
+        self.supports_model_override = True
+        self.tour_model = model
+        self.report_model = model
         self.client = AsyncOpenAI(
             base_url=base_url,
             api_key=api_key,
@@ -70,13 +77,21 @@ class OpenAICompatibleProvider:
         return cls(
             base_url=settings.LLM_BASE_URL,
             api_key=settings.LLM_API_KEY,
-            model=settings.LLM_MODEL,
+            model=getattr(settings, "LLM_TOUR_MODEL", None) or settings.LLM_MODEL,
             default_headers=default_headers,
             trace_recorder=trace_recorder,
             temperature=settings.LLM_TEMPERATURE,
             max_tokens=settings.LLM_MAX_TOKENS,
             enable_thinking=settings.LLM_ENABLE_THINKING,
+        )._with_purpose_models(
+            tour_model=getattr(settings, "LLM_TOUR_MODEL", None) or settings.LLM_MODEL,
+            report_model=getattr(settings, "LLM_REPORT_MODEL", None) or settings.LLM_MODEL,
         )
+
+    def _with_purpose_models(self, tour_model: str, report_model: str) -> Self:
+        self.tour_model = tour_model
+        self.report_model = report_model
+        return self
 
     async def __aenter__(self) -> Self:
         return self
@@ -117,11 +132,12 @@ class OpenAICompatibleProvider:
                 body=getattr(error, "body", None),
             )
 
-    async def generate(self, messages: list[dict[str, Any]]) -> LLMResponse:
+    async def generate(self, messages: list[dict[str, Any]], model: str | None = None) -> LLMResponse:
         start_time = time.time()
         last_error: APIError | None = None
         call_id = f"llm-{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
+        request_model = model or self.model
 
         extra_body: dict[str, Any] = {}
         if not self.enable_thinking:
@@ -130,7 +146,7 @@ class OpenAICompatibleProvider:
         for attempt in range(self.max_retries):
             try:
                 response = await self.client.chat.completions.create(  # type: ignore[arg-type]
-                    model=self.model,
+                    model=request_model,
                     messages=messages,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens if self.max_tokens > 0 else None,
@@ -151,11 +167,11 @@ class OpenAICompatibleProvider:
                     await self.trace_recorder.record_call_once(
                         call_id=call_id,
                         provider="openai-compatible",
-                        model=self.model,
+                        model=request_model,
                         status="success",
                         source="openai-compatible",
                         base_url=self.base_url,
-                        request_payload={"model": self.model, "messages": messages},
+                        request_payload={"model": request_model, "messages": messages},
                         response_payload={
                             "model": response.model,
                             "choices": [{"message": {"content": content}}],
@@ -197,16 +213,21 @@ class OpenAICompatibleProvider:
             )
         raise LLMError(str(last_error)) from last_error
 
-    async def generate_stream(self, messages: list[dict[str, Any]]) -> AsyncGenerator[str, None]:
+    async def generate_stream(
+        self,
+        messages: list[dict[str, Any]],
+        model: str | None = None,
+    ) -> AsyncGenerator[str, None]:
         call_id = f"llm-{uuid.uuid4().hex[:12]}"
         started_at = datetime.now(UTC)
         chunks: list[str] = []
+        request_model = model or self.model
         extra_body: dict[str, Any] = {}
         if not self.enable_thinking:
             extra_body["thinking"] = {"type": "disabled"}
         try:
             stream = await self.client.chat.completions.create(  # type: ignore[arg-type]
-                model=self.model,
+                model=request_model,
                 messages=messages,
                 stream=True,
                 temperature=self.temperature,
@@ -225,11 +246,11 @@ class OpenAICompatibleProvider:
                 await self.trace_recorder.record_call_once(
                     call_id=call_id,
                     provider="openai-compatible",
-                    model=self.model,
+                    model=request_model,
                     status="success",
                     source="openai-compatible",
                     base_url=self.base_url,
-                    request_payload={"model": self.model, "messages": messages},
+                    request_payload={"model": request_model, "messages": messages},
                     response_payload={"content": "".join(chunks)},
                     started_at=started_at,
                     ended_at=ended_at,

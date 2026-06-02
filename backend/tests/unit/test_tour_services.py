@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.application.tour_report_service import (
+    _generate_one_liner_llm,
     calculate_radar_scores,
     detect_ceramic_question,
     get_report_theme,
@@ -11,6 +12,7 @@ from app.application.tour_report_service import (
 from app.domain.entities import TourSession
 from app.domain.exceptions import TourSessionExpired, TourSessionNotFound, TourSessionTokenMismatch
 from app.domain.value_objects import TourSessionId
+from app.infra.providers.llm import LLMResponse
 from app.infra.postgres.models import TourEventModel, TourSessionModel
 
 
@@ -577,6 +579,37 @@ def test_get_report_theme():
     assert get_report_theme("B") == "field_study"
     assert get_report_theme("C") == "history_inquiry"
     assert get_report_theme("D") == "artifact_study"
+
+
+@pytest.mark.asyncio
+async def test_generate_one_liner_uses_report_model_override():
+    llm_provider = AsyncMock()
+    llm_provider.supports_model_override = True
+    llm_provider.report_model = "deepseek-v4-pro"
+    llm_provider.generate.return_value = LLMResponse(
+        content="从器物细节看见半坡生活",
+        model="deepseek-v4-pro",
+        prompt_tokens=10,
+        completion_tokens=8,
+        duration_ms=100,
+    )
+
+    result = await _generate_one_liner_llm(
+        llm_provider,
+        "D",
+        {
+            "total_duration_minutes": 30,
+            "total_questions": 2,
+            "total_exhibits_viewed": 1,
+        },
+    )
+
+    assert result == "从器物细节看见半坡生活"
+    _, kwargs = llm_provider.generate.call_args
+    assert kwargs["model"] == "deepseek-v4-pro"
+    messages = llm_provider.generate.call_args.args[0]
+    assert isinstance(messages, list)
+    assert messages[0]["role"] == "user"
 
 
 # ===================================================================

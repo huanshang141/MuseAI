@@ -147,7 +147,9 @@ class TestOpenAICompatibleProvider:
         mock_settings = MagicMock(spec=Settings)
         mock_settings.LLM_BASE_URL = "https://api.example.com/v1"
         mock_settings.LLM_API_KEY = "test-api-key"
-        mock_settings.LLM_MODEL = "gemini-2.5-flash"
+        mock_settings.LLM_MODEL = "deepseek-v4-pro"
+        mock_settings.LLM_TOUR_MODEL = "deepseek-v4-flash"
+        mock_settings.LLM_REPORT_MODEL = "deepseek-v4-pro"
         mock_settings.LLM_HEADERS = ""
         mock_settings.LLM_TEMPERATURE = 0.6
         mock_settings.LLM_MAX_TOKENS = 800
@@ -156,13 +158,69 @@ class TestOpenAICompatibleProvider:
         with patch("app.infra.providers.llm.AsyncOpenAI") as mock_client_class:
             provider = OpenAICompatibleProvider.from_settings(mock_settings)
 
-            assert provider.model == "gemini-2.5-flash"
+            assert provider.model == "deepseek-v4-flash"
+            assert provider.tour_model == "deepseek-v4-flash"
+            assert provider.report_model == "deepseek-v4-pro"
             mock_client_class.assert_called_once_with(
                 base_url="https://api.example.com/v1",
                 api_key="test-api-key",
                 timeout=60.0,
                 default_headers=None,
             )
+
+    @pytest.mark.asyncio
+    async def test_generate_accepts_model_override(self):
+        mock_client = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "Report line"
+        mock_response.model = "deepseek-v4-pro"
+        mock_response.usage.prompt_tokens = 8
+        mock_response.usage.completion_tokens = 4
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
+            provider = OpenAICompatibleProvider(
+                base_url="https://api.example.com/v1",
+                api_key="test-key",
+                model="deepseek-v4-flash",
+                max_retries=1,
+            )
+            result = await provider.generate(
+                [{"role": "user", "content": "Generate report"}],
+                model="deepseek-v4-pro",
+            )
+
+        assert result.content == "Report line"
+        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "deepseek-v4-pro"
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_accepts_model_override(self):
+        mock_client = AsyncMock()
+
+        async def mock_stream():
+            chunks = [MagicMock(choices=[MagicMock(delta=MagicMock(content="chunk"))])]
+            for chunk in chunks:
+                yield chunk
+
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+
+        with patch("app.infra.providers.llm.AsyncOpenAI", return_value=mock_client):
+            provider = OpenAICompatibleProvider(
+                base_url="https://api.example.com/v1",
+                api_key="test-key",
+                model="deepseek-v4-pro",
+                max_retries=1,
+            )
+            chunks = []
+            async for chunk in provider.generate_stream(
+                [{"role": "user", "content": "Tour question"}],
+                model="deepseek-v4-flash",
+            ):
+                chunks.append(chunk)
+
+        assert chunks == ["chunk"]
+        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "deepseek-v4-flash"
 
     @pytest.mark.asyncio
     async def test_generate_retries_on_error(self):

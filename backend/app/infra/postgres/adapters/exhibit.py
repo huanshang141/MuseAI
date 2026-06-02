@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities import Exhibit
@@ -194,6 +194,49 @@ class PostgresExhibitRepository:
         sql_query = sql_query.offset(skip).limit(limit)
         result = await self._session.execute(sql_query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
+
+    async def count_with_filters(
+        self,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int:
+        query = select(func.count()).select_from(ExhibitORM).where(ExhibitORM.is_active.is_(True))
+
+        if category is not None:
+            query = query.where(ExhibitORM.category == category)
+        if hall is not None:
+            query = query.where(ExhibitORM.hall == hall)
+        if floor is not None:
+            query = query.where(ExhibitORM.floor == floor)
+
+        result = await self._session.execute(query)
+        return int(result.scalar_one() or 0)
+
+    async def count_search_by_name(
+        self,
+        query: str,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int:
+        escaped_query = query.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+        sql_query = (
+            select(func.count())
+            .select_from(ExhibitORM)
+            .where(ExhibitORM.is_active.is_(True))
+            .where(ExhibitORM.name.ilike(f"%{escaped_query}%"))
+        )
+
+        if category is not None:
+            sql_query = sql_query.where(ExhibitORM.category == category)
+        if hall is not None:
+            sql_query = sql_query.where(ExhibitORM.hall == hall)
+        if floor is not None:
+            sql_query = sql_query.where(ExhibitORM.floor == floor)
+
+        result = await self._session.execute(sql_query)
+        return int(result.scalar_one() or 0)
 
     async def get_distinct_categories(self) -> list[str]:
         query = (

@@ -205,11 +205,11 @@ def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
     candidates: list[str] = []
     if tour_session is not None:
         candidates.extend(tour_session.visited_halls or [])
-        if tour_session.current_hall:
-            candidates.append(tour_session.current_hall)
     for event in events or []:
-        if getattr(event, "hall", None):
+        if getattr(event, "event_type", None) in {"hall_enter", "hall_leave"} and getattr(event, "hall", None):
             candidates.append(event.hall)
+    if not candidates and tour_session is not None and tour_session.current_hall:
+        candidates.append(tour_session.current_hall)
     return normalize_halls(candidates)
 
 

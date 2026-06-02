@@ -53,21 +53,21 @@ HALL_SPECS: dict[str, HallSpec] = {
         name="陶窑展厅",
         floor=1,
         description="以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺。",
-        display_order=90,
+        display_order=40,
     ),
     "temporary_1": HallSpec(
         slug="temporary-hall-1",
         name="临展厅一",
         floor=1,
         description="承载策划性的短期或阶段性展览，具体主题和展品视当期安排而定。",
-        display_order=40,
+        display_order=90,
     ),
     "temporary_2": HallSpec(
         slug="temporary-hall-2",
         name="临展厅二",
         floor=1,
         description="与临展厅一共同负责轮换展出，具体内容需由馆方按当期展览更新。",
-        display_order=50,
+        display_order=100,
     ),
     "banpo_girl": HallSpec(
         slug="banpo-girl-sculpture",
@@ -81,7 +81,7 @@ HALL_SPECS: dict[str, HallSpec] = {
         name="史前工坊",
         floor=1,
         description="以工坊形式让观众参与史前生活相关体验，把考古知识转化为可参与的学习过程。",
-        display_order=70,
+        display_order=50,
     ),
     "education": HallSpec(
         slug="education-center",

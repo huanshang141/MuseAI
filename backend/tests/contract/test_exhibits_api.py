@@ -37,6 +37,8 @@ def patch_exhibit_service(monkeypatch):
     mock.list_exhibits = AsyncMock(return_value=[_make_exhibit()])
     mock.list_all_active = AsyncMock(return_value=[_make_exhibit()])
     mock.search_exhibits = AsyncMock(return_value=[_make_exhibit()])
+    mock.count_exhibits = AsyncMock(return_value=1)
+    mock.count_search_exhibits = AsyncMock(return_value=1)
     mock.get_exhibit = AsyncMock(return_value=_make_exhibit())
     mock.get_all_categories = AsyncMock(return_value=["bronze", "jade"])
     mock.get_all_halls = AsyncMock(return_value=["east", "main"])
@@ -90,6 +92,21 @@ def test_list_exhibits_applies_filter_query_params(override_db, patch_exhibit_se
     assert call.kwargs.get("category") == "bronze"
     assert call.kwargs.get("hall") == "east"
     assert call.kwargs.get("floor") == 1
+    count_call = patch_exhibit_service.count_exhibits.call_args
+    assert count_call.kwargs.get("category") == "bronze"
+    assert count_call.kwargs.get("hall") == "east"
+    assert count_call.kwargs.get("floor") == 1
+
+
+def test_search_exhibits_uses_lightweight_count(override_db, patch_exhibit_service):
+    client = TestClient(app)
+    response = client.get("/api/v1/exhibits?search=pottery&limit=10")
+
+    assert response.status_code == 200
+    patch_exhibit_service.search_exhibits.assert_called_once()
+    patch_exhibit_service.count_search_exhibits.assert_called_once()
+    assert patch_exhibit_service.count_search_exhibits.call_args.kwargs.get("query") == "pottery"
+    assert response.json()["total"] == 1
 
 
 def test_get_exhibit_detail_returns_200(override_db, patch_exhibit_service):

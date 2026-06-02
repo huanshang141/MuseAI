@@ -377,7 +377,12 @@ async def _stream_rag(
     if perf_log is not None:
         perf_log.bind(stage="llm_stream_start", perf=True).info("[perf] llm_stream_start")
     _t = time.perf_counter()
-    async for chunk in llm_provider.generate_stream(messages):
+    model = getattr(llm_provider, "tour_model", None)
+    if getattr(llm_provider, "supports_model_override", False) is True and model:
+        stream = llm_provider.generate_stream(messages, model=model)
+    else:
+        stream = llm_provider.generate_stream(messages)
+    async for chunk in stream:
         yield sse_tour_event("chunk", data={"content": chunk}), chunk
     _llm_ms = int((time.perf_counter() - _t) * 1000)
     if perf_log is not None:

@@ -15,7 +15,7 @@ _PERSONA_ALIASES = {
     "B": "B",
     "C": "C",
     "D": "D",
-    "default": "B",
+    "default": "default",
     "student": "B",
     "historian": "C",
     "artifact": "D",
@@ -162,26 +162,63 @@ _ROUTE_PROFILES = {
         ],
     },
 }
-_ROUTE_PROFILES["default"] = _ROUTE_PROFILES["B"]
+_ROUTE_PROFILES["default"] = {
+    "theme": "AI 默认参观路线",
+    "summary": "按普通游客第一次参观的节奏，先建立半坡遗址的整体印象，再进入遗址空间和陶器生产线索。",
+    "steps": [
+        {
+            "hall_slug": "basic-exhibition-hall",
+            "title": "先建立整体印象",
+            "reason": "基本陈列展厅集中呈现半坡文化的核心展品和生活图景，适合作为首次参观入口。",
+            "focus": "先看半坡人的生活、生产工具和代表性陶器，形成整体框架。",
+            "questions": ["半坡遗址最重要的看点是什么？", "这些展品能说明怎样的生活？"],
+        },
+        {
+            "hall_slug": "site-protection-hall",
+            "title": "再走进遗址空间",
+            "reason": "遗址保护大厅能把刚才看到的器物放回房屋、墓葬、壕沟和作坊的真实空间中。",
+            "focus": "观察居住区、墓葬和公共设施的位置关系。",
+            "questions": ["半坡人的村落怎样组织？", "遗址和展品怎样互相印证？"],
+        },
+        {
+            "hall_slug": "kiln-hall",
+            "title": "补上制陶线索",
+            "reason": "陶窑展厅能解释陶器从泥料到成品的过程，让代表性陶器不只是孤立展品。",
+            "focus": "理解制坯、干燥、入窑和烧成的基本流程。",
+            "questions": ["陶器是怎样制作出来的？", "火候和窑炉结构有什么作用？"],
+        },
+        {
+            "hall_slug": "prehistoric-workshop",
+            "title": "用体验收束参观",
+            "reason": "史前工坊适合把看到的工具、材料和工艺转化成可感知的体验。",
+            "focus": "把手作体验和前面看到的器物、工具联系起来。",
+            "questions": ["亲手体验能帮助理解什么？", "哪些技术最难掌握？"],
+        },
+    ],
+}
 
 
 def _normalize_persona(interests: list[str] | None) -> str:
     if not interests:
-        return "B"
+        return "default"
 
     for raw in interests:
         text = str(raw or "").strip()
         if not text:
             continue
-        match = re.search(r"(?:persona|personaId)\s*[:=]\s*([A-Da-d]|student|historian|artifact|artisan|default)", text)
+        match = re.search(
+            r"(?:persona|personaId)\s*[:=]\s*(default|student|historian|artifact|artisan|resident|community|[A-Da-d])\b",
+            text,
+        )
         if match:
-            return _PERSONA_ALIASES.get(match.group(1), match.group(1).upper())
+            token = match.group(1)
+            return _PERSONA_ALIASES.get(token, _PERSONA_ALIASES.get(token.lower(), token.upper()))
 
     joined = " ".join(str(item) for item in interests)
     for alias, code in _PERSONA_ALIASES.items():
         if alias != "default" and alias in joined:
             return code
-    return "B"
+    return "default"
 
 
 def _step_count_for_time(available_time: int) -> int:

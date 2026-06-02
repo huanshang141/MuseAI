@@ -305,20 +305,40 @@ LLM_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 
 | 项目 | 说明 |
 |------|------|
-| **含义** | 使用的 LLM 模型标识符 |
+| **含义** | 兼容兜底 LLM 模型标识符；普通导览优先使用 `LLM_TOUR_MODEL`，报告优先使用 `LLM_REPORT_MODEL` |
 | **类型** | 字符串 |
-| **默认值** | `gpt-4o-mini` |
+| **默认值** | `deepseek-v4-flash` |
 
 ```env
-# OpenAI
-LLM_MODEL=gpt-4o-mini
-LLM_MODEL=gpt-4o
-
 # DeepSeek
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 
 # 本地 Ollama
 LLM_MODEL=qwen2.5:7b
+```
+
+### `LLM_TOUR_MODEL`
+
+| 项目 | 说明 |
+|------|------|
+| **含义** | 普通导览、RAG 查询改写和流式讲解默认使用的快速模型 |
+| **类型** | 字符串 |
+| **默认值** | `deepseek-v4-flash` |
+
+```env
+LLM_TOUR_MODEL=deepseek-v4-flash
+```
+
+### `LLM_REPORT_MODEL`
+
+| 项目 | 说明 |
+|------|------|
+| **含义** | 报告生成、总结型/研究型生成任务使用的更强模型 |
+| **类型** | 字符串 |
+| **默认值** | `deepseek-v4-pro` |
+
+```env
+LLM_REPORT_MODEL=deepseek-v4-pro
 ```
 
 ### `LLM_HEADERS`

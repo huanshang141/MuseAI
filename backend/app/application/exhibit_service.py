@@ -252,6 +252,34 @@ class ExhibitService:
             limit=limit,
         )
 
+    async def count_exhibits(
+        self,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int:
+        """Count active exhibits matching optional filters."""
+        return await self._repository.count_with_filters(
+            category=category,
+            hall=hall,
+            floor=floor,
+        )
+
+    async def count_search_exhibits(
+        self,
+        query: str,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int:
+        """Count active exhibits matching a search query and optional filters."""
+        return await self._repository.count_search_by_name(
+            query=query,
+            category=category,
+            hall=hall,
+            floor=floor,
+        )
+
     async def get_all_categories(self) -> list[str]:
         """获取所有类别。
 

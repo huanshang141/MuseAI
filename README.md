@@ -1,441 +1,243 @@
-# MuseAI
+# MuseAI Backend
 
-Museum AI Guide System - An intelligent museum content interaction platform powered by RAG (Retrieval-Augmented Generation).
+MuseAI backend is the FastAPI service for the Banpo Museum WeChat mini-program. It provides tour sessions, SSE guide chat, exhibit browsing, report generation, curator route planning, admin content management, RAG retrieval, LLM tracing, and optional TTS.
 
-[中文文档](README_CN.md)
+Current product stage: Stage 10C. The mini-program is the primary delivery target. The production server target is Tencent Cloud 2 CPU cores / 4 GB RAM, so backend changes should avoid unnecessary model calls and heavy background services.
 
-## Features
+## Current Status
 
-- **Intelligent Q&A**: RAG-based question answering with contextual retrieval from museum knowledge base
-- **Hybrid Search**: Combines dense vector search and BM25 keyword search using Reciprocal Rank Fusion (RRF) with source deduplication
-- **Multi-turn Conversation**: Stateful conversations with query transformation strategies (HyDE, Step-back, Multi-query) and dynamic document filtering
-- **Document Ingestion**: Automatic hierarchical document chunking (parent-child) and embedding with Elasticsearch indexing
-- **Streaming Responses**: Real-time SSE (Server-Sent Events) streaming with optional TTS audio events
-- **User Authentication**: JWT-based authentication with rate limiting and token blacklisting
-- **Tour System**: Guided museum tours with session management, hall tracking, event recording, and post-visit reports
-- **Curator AI Agent**: AI-powered tour planning, exhibit narrative generation, and reflection prompts via LangGraph
-- **Text-to-Speech**: Sentence-level TTS streaming with persona management, Redis caching, and multiple provider support (Xiaomi, Mock)
-- **Visitor Profiles**: Personalized visitor profiles with interests, knowledge level, and narrative preferences
-- **Admin Panel**: Full admin interface for exhibits, halls, documents, prompts, TTS personas, and LLM trace auditing
-- **Design System**: Museum-themed design tokens and components built on Element Plus
-- **Health Monitoring**: Built-in health check endpoints for service observability
+Implemented and active:
 
-## Architecture
+- WeChat mini-program visitor tour flow.
+- Guest tour sessions with session token support.
+- SSE streaming guide answers for `/api/v1/tour/sessions/{id}/chat/stream`.
+- Tour events, hall visits, and report generation.
+- Four guide personas:
+  - `A` Archaeology Researcher
+  - `B` Study Tour Recorder
+  - `C` History Inquirer
+  - `D` Artifact Researcher
+- Banpo hall slug normalization and compatibility aliases.
+- Public exhibit browsing and search.
+- Admin APIs for exhibits, halls, documents, prompts, LLM traces, and TTS personas.
+- RAG pipeline with query rewrite, Elasticsearch retrieval, rerank, document filtering, and streaming generation.
+- DeepSeek thinking disabled by default through `LLM_ENABLE_THINKING=false`.
+- LLM model tiering:
+  - `LLM_TOUR_MODEL=deepseek-v4-flash` for guide chat and normal tour work.
+  - `LLM_REPORT_MODEL=deepseek-v4-pro` for report summaries.
+  - `LLM_MODEL` retained as fallback compatibility.
+- Lightweight count queries for exhibit list/search totals.
+- Degraded startup mode for Redis or Elasticsearch failure.
 
-MuseAI follows a strict layered architecture:
+Retained but not currently emphasized in the mini-program UX:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend (Vue 3)                      │
-├─────────────────────────────────────────────────────────┤
-│                    API Layer (FastAPI)                   │
-├─────────────────────────────────────────────────────────┤
-│                  Application Layer                       │
-│         (Auth, Chat, Document, Ingestion Services)       │
-├─────────────────────────────────────────────────────────┤
-│                    Domain Layer                          │
-│              (Entities, Value Objects)                   │
-├─────────────────────────────────────────────────────────┤
-│                 Infrastructure Layer                     │
-│      (PostgreSQL, Elasticsearch, Redis, LLM)            │
-└─────────────────────────────────────────────────────────┘
-```
+- `/api/v1/curator/plan-tour` structured route API.
+- General chat APIs.
+- Document upload and ingestion APIs.
+- TTS synthesis API.
+
+Not production-complete yet:
+
+- Camera-based exhibit recognition.
+- Voice input.
+- End-to-end TTS playback in the mini-program.
+- Official museum map and exhibit-position data.
+- Full authorized exhibit images and complete museum-owned exhibit catalogue.
 
 ## Tech Stack
 
-### Backend
-- **Framework**: FastAPI with async support
-- **ORM**: SQLAlchemy 2.0 (async)
-- **Validation**: Pydantic v2
-- **AI/ML**: LangChain, LangGraph, OpenAI-compatible LLMs
-- **Migrations**: Alembic
+| Layer | Technology |
+| --- | --- |
+| API | FastAPI, Pydantic v2 |
+| Runtime | Python 3.11+, uv, Uvicorn |
+| Database | PostgreSQL 16 via SQLAlchemy async |
+| Cache | Redis 7 |
+| Search | Elasticsearch 8 with IK analyzer image |
+| RAG | LangChain, LangGraph, custom retriever/filtering |
+| LLM | OpenAI-compatible provider, currently DeepSeek-compatible config |
+| Rerank | SiliconFlow/OpenAI/Cohere/custom/mock |
+| TTS | Xiaomi MiMo or mock provider, optional |
+| Tests | pytest, pytest-asyncio |
 
-### Frontend
-- **Framework**: Vue 3 with Composition API
-- **UI Library**: Element Plus (with museum design system)
-- **Build Tool**: Vite
-- **Routing**: Vue Router
-- **Composables**: Reusable hooks for auth, chat, tour, TTS, exhibits, etc.
+## Directory Layout
 
-### Infrastructure
-- **Database**: PostgreSQL 16
-- **Search Engine**: Elasticsearch 8.x with IK analyzer
-- **Cache**: Redis 7
-- **LLM**: OpenAI-compatible providers (GPT-4o-mini)
-- **Embeddings**: Ollama (nomic-embed-text)
-- **Rerank**: OpenAI-compatible or SiliconFlow rerank providers
-- **TTS**: Xiaomi TTS provider (with Redis caching)
-
-## Prerequisites
-
-- Python 3.11+
-- Node.js 18+
-- Docker and Docker Compose
-- uv (Python package manager)
-
-## Quick Start
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/yourusername/museai.git
-cd museai
+```text
+backend/
+├── backend/
+│   ├── app/
+│   │   ├── api/                    # FastAPI routers
+│   │   │   ├── admin/              # Admin content, prompt, trace, TTS APIs
+│   │   │   ├── auth.py
+│   │   │   ├── chat.py
+│   │   │   ├── curator.py
+│   │   │   ├── documents.py
+│   │   │   ├── exhibits.py
+│   │   │   ├── health.py
+│   │   │   ├── profile.py
+│   │   │   ├── tour.py
+│   │   │   └── tts.py
+│   │   ├── application/            # Use cases and service layer
+│   │   ├── config/                 # Settings and environment validation
+│   │   ├── domain/                 # Domain entities and errors
+│   │   ├── infra/                  # PostgreSQL, Redis, ES, providers, LangChain
+│   │   ├── observability/          # Logging and request middleware
+│   │   └── main.py                 # FastAPI app entrypoint
+│   ├── alembic/                    # Database migrations
+│   └── tests/                      # Unit, contract, e2e tests
+├── deploy/
+│   └── nginx.conf                  # HTTPS/SSE reverse proxy template
+├── docker/
+│   └── elasticsearch/              # ES image with analyzer support
+├── docs/
+│   ├── reference/展品.md            # Banpo exhibit import source
+│   └── *.md                        # Audit, latency, and handoff docs
+├── scripts/
+│   ├── init_db.py
+│   ├── seed_prompts_and_personas.py
+│   ├── import_real_exhibits_via_api.py
+│   └── ...
+├── .env.example
+├── CONFIGURATION.md
+├── docker-compose.yml              # PostgreSQL, Redis, Elasticsearch only
+├── pyproject.toml
+└── uv.lock
 ```
 
-### 2. Start Infrastructure Services
+## API Surface
 
-```bash
-docker-compose up -d
-```
+All application routes are mounted under `/api/v1`.
 
-This starts PostgreSQL, Elasticsearch, and Redis.
-
-### 3. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your configuration. Required settings:
-
-```env
-# LLM Configuration (required in production)
-LLM_API_KEY=your-openai-api-key
-
-# JWT Secret (must be ≥32 characters in production)
-JWT_SECRET=your-secure-jwt-secret-key-here
-```
-
-### 4. Install Backend Dependencies
-
-```bash
-uv sync
-```
-
-### 5. Initialize Database
-
-```bash
-# Run database migrations (creates table schema)
-python scripts/init_db.py
-
-# Create an admin user
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
-```
-
-> See [Database Initialization](#database-initialization) below for detailed instructions.
-
-### 6. Run Backend Server
-
-```bash
-uv run uvicorn backend.app.main:app --reload
-```
-
-The API will be available at `http://localhost:8000`.
-
-### 7. Install Frontend Dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-### 8. Run Frontend Development Server
-
-```bash
-npm run dev
-```
-
-The frontend will be available at `http://localhost:5173`.
-
-## API Documentation
-
-Once the backend is running, access the interactive API documentation:
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### Key Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/auth/register` | POST | Register new user |
-| `/api/v1/auth/login` | POST | Login and get JWT token |
-| `/api/v1/auth/logout` | POST | Logout (blacklist token) |
-| `/api/v1/documents/upload` | POST | Upload document for ingestion |
-| `/api/v1/documents` | GET | List user's documents |
-| `/api/v1/chat/sessions` | GET/POST | Manage chat sessions |
-| `/api/v1/chat/ask` | POST | Ask question (non-streaming) |
-| `/api/v1/chat/ask/stream` | POST | Ask question (SSE streaming) |
-| `/api/v1/chat/guest/message` | POST | Send guest message (SSE) |
-| `/api/v1/exhibits` | GET | Browse exhibits (public) |
-| `/api/v1/exhibits/{id}` | GET | Get exhibit detail |
-| `/api/v1/profile` | GET/PUT | Get/update visitor profile |
-| `/api/v1/tour/sessions` | POST | Create tour session |
-| `/api/v1/tour/sessions/{id}/chat/stream` | POST | Stream tour chat (SSE) |
-| `/api/v1/tour/sessions/{id}/report` | GET/POST | Generate/get tour report |
-| `/api/v1/curator/plan-tour` | POST | Plan museum tour (AI) |
-| `/api/v1/curator/narrative` | POST | Generate exhibit narrative (AI) |
-| `/api/v1/tts/synthesize` | POST | Synthesize speech from text |
-| `/api/v1/admin/exhibits` | GET/POST | Admin exhibit management |
-| `/api/v1/admin/halls` | GET/POST | Admin hall management |
-| `/api/v1/admin/prompts` | GET | Admin prompt management |
-| `/api/v1/admin/documents` | GET/POST | Admin document management |
-| `/api/v1/admin/llm-traces` | GET | View LLM call traces |
-| `/api/v1/admin/tts/personas` | GET/PUT | Manage TTS personas |
-| `/api/v1/health` | GET | Health check |
-| `/api/v1/ready` | GET | Readiness check |
+| Area | Endpoint Examples | Purpose |
+| --- | --- | --- |
+| Health | `GET /health`, `GET /ready` | Service and dependency checks |
+| Auth | `POST /auth/register`, `POST /auth/login` | User/admin authentication |
+| Tour | `POST /tour/sessions`, `POST /tour/sessions/{id}/chat/stream` | Mini-program tour session and SSE guide chat |
+| Tour report | `POST /tour/sessions/{id}/report`, `GET /tour/sessions/{id}/report` | Generate or fetch visit report |
+| Exhibits | `GET /exhibits`, `GET /exhibits/{id}` | Public exhibit browsing/search |
+| Curator | `POST /curator/plan-tour`, `/narrative`, `/reflection` | Structured route and exhibit-level AI helpers |
+| TTS | `POST /tts/synthesize` | Optional TTS synthesis |
+| Admin | `/admin/exhibits`, `/admin/halls`, `/admin/prompts`, `/admin/documents`, `/admin/llm-traces`, `/admin/tts/personas` | Content and operations management |
 
 ## Configuration
 
-Environment variables (see `.env.example`):
+Runtime config is loaded from `backend/.env` by `backend/app/config/settings.py`. Do not commit real `.env` files.
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `APP_ENV` | Environment (development/production) | `development` |
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `REDIS_URL` | Redis connection string | Required |
-| `ELASTICSEARCH_URL` | Elasticsearch endpoint | Required |
-| `JWT_SECRET` | JWT signing secret (≥32 chars in prod) | Required |
-| `JWT_ALGORITHM` | JWT algorithm | `HS256` |
-| `JWT_EXPIRE_MINUTES` | Token expiration time | `1440` |
-| `LLM_PROVIDER` | LLM provider | `openai` |
-| `LLM_BASE_URL` | LLM API base URL | `https://api.openai.com/v1` |
-| `LLM_API_KEY` | LLM API key | Required |
-| `LLM_MODEL` | Model name | `gpt-4o-mini` |
-| `EMBEDDING_PROVIDER` | Embedding provider | `ollama` |
-| `EMBEDDING_OLLAMA_BASE_URL` | Ollama base URL | `http://localhost:11434` |
-| `EMBEDDING_OLLAMA_MODEL` | Embedding model | `nomic-embed-text` |
-| `ELASTICSEARCH_INDEX` | ES index name | `museai_chunks_v1` |
-| `EMBEDDING_DIMS` | Embedding dimensions | `1536` |
-| `RERANK_PROVIDER` | Rerank provider (openai, cohere, custom) | `openai` |
-| `RERANK_MODEL` | Rerank model identifier | `rerank-v1` |
-| `RERANK_TOP_N` | Number of rerank results | `10` |
-| `TTS_ENABLED` | Enable text-to-speech | `false` |
-| `TTS_PROVIDER` | TTS provider (xiaomi, mock) | `xiaomi` |
-| `TTS_DEFAULT_VOICE` | Default TTS voice/persona | `冰糖` |
+Important fields:
 
-## Database Initialization
+| Field | Current Meaning |
+| --- | --- |
+| `APP_ENV` | `development`, `test`, `local`, or `production` |
+| `DEBUG` | Keep `false` in production |
+| `ALLOW_INSECURE_DEV_DEFAULTS` | Local-only escape hatch; keep `false` in production |
+| `DATABASE_URL` | PostgreSQL async URL |
+| `REDIS_URL` | Redis URL |
+| `ELASTICSEARCH_URL` | Elasticsearch endpoint |
+| `JWT_SECRET` | Required and at least 32 chars in production |
+| `LLM_BASE_URL` | OpenAI-compatible LLM base URL |
+| `LLM_API_KEY` | Required unless explicitly using insecure local defaults |
+| `LLM_MODEL` | Backward-compatible fallback model |
+| `LLM_TOUR_MODEL` | Default model for guide chat and normal tour generation |
+| `LLM_REPORT_MODEL` | Stronger model for report summaries |
+| `LLM_ENABLE_THINKING` | `false` sends `thinking.disabled` to supported models |
+| `LLM_HEADERS` | Optional JSON string for extra upstream headers |
+| `RERANK_PROVIDER` | `siliconflow`, `openai`, `cohere`, `custom`, or `mock` |
+| `TTS_ENABLED` | Optional; leave `false` until mini-program voice playback is complete |
+| `CORS_ORIGINS` | Must not be wildcard in production |
+| `TRUSTED_PROXIES` | Set only to trusted reverse proxy IPs, e.g. `127.0.0.1` behind local Nginx |
 
-The project uses Alembic for database schema migrations. The app also auto-creates missing tables on startup, but using migrations is recommended to ensure correct schema versioning.
+See `CONFIGURATION.md` and the root `后端配置文档.md` for operational procedures.
 
-### Initialization Script
-
-`scripts/init_db.py` is the unified initialization entry point covering PostgreSQL migrations, Elasticsearch index creation, and service connectivity checks:
+## Local Setup
 
 ```bash
-# Run migrations + ES index creation + service checks
-python scripts/init_db.py
+cd backend
 
-# Run migrations + create admin user
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
-
-# Full init: migrations + ES index + admin + dev test data
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123 --seed-dev
-
-# Only run PostgreSQL migrations
-python scripts/init_db.py --schema-only
-
-# Only create ES index (idempotent, skips if exists)
-python scripts/init_db.py --init-es
-```
-
-### Production Deployment
-
-```bash
-# 1. Start infrastructure
-docker-compose up -d
-
-# 2. Configure environment
+# 1. Create local config
 cp .env.example .env
-# Edit .env: set JWT_SECRET, LLM_API_KEY, etc.
 
-# 3. Install dependencies
+# 2. Install Python dependencies
 uv sync
 
-# 4. Initialize all services (DB migrations + ES index + admin)
-python scripts/init_db.py --init-es --admin-email admin@museum.cn --admin-password 'YourStr0ngPass!'
+# 3. Start infrastructure
+docker compose up -d
 
-# 5. Start the service
-uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+# 4. Initialize database schema and ES index
+uv run python scripts/init_db.py --init-es
+
+# 5. Seed prompts, personas, and halls
+uv run python scripts/seed_prompts_and_personas.py
+
+# 6. Start API in development mode
+uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### Local Development
+Health checks:
 
 ```bash
-# 1. Start infrastructure
-docker-compose up -d
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env: ensure DATABASE_URL points to local PostgreSQL
-
-# 3. Install dependencies
-uv sync
-
-# 4. Full init: DB migrations + ES index + admin + test data
-python scripts/init_db.py --admin-email admin@museai.local --admin-password dev12345678 --seed-dev
-
-# 5. Start backend
-uv run uvicorn backend.app.main:app --reload
-
-# 6. Start frontend
-cd frontend && npm install && npm run dev
+curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/ready
 ```
 
-### Manual Alembic Commands
+## Data Import
+
+The current Banpo exhibit import path is:
 
 ```bash
-# Check current migration status
-uv run alembic current
-
-# Upgrade to latest
-uv run alembic upgrade head
-
-# Rollback one version
-uv run alembic downgrade -1
-
-# View migration history
-uv run alembic history
+cd backend
+uv run python scripts/import_real_exhibits_via_api.py \
+  --base-url http://127.0.0.1:8000/api/v1 \
+  --email <admin-email> \
+  --password '<admin-password>'
 ```
 
-### Seed Data Scripts
+Important: this script clears existing exhibits/documents/halls before importing from `docs/reference/展品.md`. Use it only when you intentionally want to reset imported content.
 
-The following standalone seed scripts are available in `scripts/`:
+## Tests
 
-| Script | Purpose | Required Services |
-|--------|---------|-------------------|
-| `seed_dev_user.py` | Create a dev test user | PostgreSQL |
-| `bootstrap_admin.py` | Create/promote admin user | PostgreSQL |
-| `init_exhibits.py` | Seed 70+ exhibits (bronze, ceramics, calligraphy, etc.) | PostgreSQL, Elasticsearch, Ollama |
-| `init_test_data.py` | Full test data (users, documents, chat sessions) | PostgreSQL, Elasticsearch, Ollama |
-| `import_real_exhibits_via_api.py` | Import exhibits via REST API | Full backend running |
-| `cleanup_llm_traces.py` | Clean up expired LLM trace records | PostgreSQL |
-
-## Development
-
-### One-command local verification
+Common checks:
 
 ```bash
-bash scripts/verify_local_quality.sh
+cd backend
+
+py -3 -m compileall -q backend scripts backend/tests
+uv run --extra dev pytest -q
 ```
 
-### Run Tests
+Focused checks:
 
 ```bash
-# Unit and contract tests
-uv run pytest backend/tests/unit backend/tests/contract -v
-
-# Single test file
-uv run pytest backend/tests/unit/test_domain_entities.py -v
-
-# E2E tests (requires running infrastructure)
-uv run pytest backend/tests/e2e -v
+uv run --extra dev pytest backend/tests/contract/test_tour_api.py -q
+uv run --extra dev pytest backend/tests/contract/test_exhibits_api.py -q
+uv run --extra dev pytest backend/tests/unit/test_tour_chat.py -q
+uv run --extra dev pytest backend/tests/unit/test_llm_provider.py backend/tests/unit/test_config.py -q
 ```
 
-### Code Quality
+Recent verified baseline from the change summary:
 
-```bash
-# Linting
-uv run ruff check backend/
-
-# Type checking
-uv run mypy backend/
+```text
+996 passed, 23 skipped, 12 warnings
 ```
 
-### Frontend Development
+If Windows local pytest hits a temp-directory permission error, set `TMP` and `TEMP` to a project-local temporary directory before running pytest.
 
-```bash
-cd frontend
+## Production Deployment Notes
 
-# Development server
-npm run dev
+The current `docker-compose.yml` starts PostgreSQL, Redis, and Elasticsearch only. It does not run the FastAPI service. Recommended production shape for the current 2C/4G server:
 
-# Production build
-npm run build
-```
+1. `docker compose up -d` for infrastructure.
+2. Run migrations and seed scripts.
+3. Start FastAPI through `systemd` with `uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1`.
+4. Use Nginx or BT reverse proxy on HTTPS domain, forwarding `/api/` to `127.0.0.1:8000`.
+5. Disable public exposure of PostgreSQL, Redis, Elasticsearch, and port 8000.
+6. Configure WeChat mini-program request domain to the HTTPS API domain.
 
-## Project Structure
+For SSE, proxy buffering must be off and read timeouts should be long enough for streaming responses.
 
-```
-museai/
-├── backend/
-│   ├── app/
-│   │   ├── api/                 # FastAPI routers
-│   │   │   ├── auth.py         # Authentication endpoints
-│   │   │   ├── chat.py         # Chat endpoints
-│   │   │   ├── curator.py      # Curator AI agent endpoints
-│   │   │   ├── documents.py    # Document management
-│   │   │   ├── exhibits.py     # Exhibit browsing
-│   │   │   ├── health.py       # Health checks
-│   │   │   ├── profile.py      # Visitor profile
-│   │   │   ├── tour.py         # Tour session management
-│   │   │   ├── tts.py          # TTS synthesis
-│   │   │   └── admin/          # Admin routers
-│   │   │       ├── documents.py
-│   │   │       ├── exhibits.py
-│   │   │       ├── halls.py
-│   │   │       ├── llm_traces.py
-│   │   │       ├── prompts.py
-│   │   │       └── tts_persona.py
-│   │   ├── application/         # Business logic
-│   │   │   ├── auth_service.py
-│   │   │   ├── chat_service.py
-│   │   │   ├── curator_service.py
-│   │   │   ├── document_service.py
-│   │   │   ├── ingestion_service.py
-│   │   │   ├── tour_*_service.py
-│   │   │   ├── tts_service.py
-│   │   │   ├── llm_trace/      # LLM call tracing
-│   │   │   └── workflows/      # Multi-turn state machine
-│   │   ├── domain/              # Domain entities
-│   │   │   ├── entities.py
-│   │   │   ├── value_objects.py
-│   │   │   └── services/       # RRF fusion
-│   │   ├── infra/              # Infrastructure
-│   │   │   ├── postgres/
-│   │   │   ├── elasticsearch/
-│   │   │   ├── redis/
-│   │   │   ├── cache/          # Prompt cache
-│   │   │   ├── langchain/      # RAG agent, retrievers, curator agent
-│   │   │   ├── providers/      # LLM, embedding, rerank, TTS providers
-│   │   │   └── security/
-│   │   └── main.py
-│   └── tests/
-│       ├── unit/
-│       ├── contract/
-│       └── e2e/
-├── frontend/
-│   ├── src/
-│   │   ├── api/               # API client
-│   │   ├── components/        # Vue components (chat, tour, exhibits, admin, etc.)
-│   │   ├── composables/       # Vue composables (useAuth, useChat, useTour, useTTSPlayer, etc.)
-│   │   ├── design-system/     # Museum design tokens and components
-│   │   ├── views/             # Page views (Home, Tour, Curator, Exhibits, Admin, etc.)
-│   │   ├── router/            # Vue Router configuration
-│   │   ├── styles/            # Global styles
-│   │   └── main.js
-│   └── package.json
-├── scripts/                   # Utility scripts (seed, init, cleanup)
-├── docker/
-├── docs/
-├── docker-compose.yml
-├── pyproject.toml
-└── .env.example
-```
+## Operational Rules
 
-## RAG Pipeline
-
-1. **Query Processing**: User query enters through chat endpoint
-2. **Retrieval**: Dense vector search + BM25 keyword search in parallel
-3. **Fusion**: Reciprocal Rank Fusion (RRF) combines results with source deduplication
-4. **Rerank**: Rerank provider scores and filters results
-5. **Dynamic Filtering**: Absolute/relative gap strategies filter low-quality results
-6. **Chunk Merge**: Parent chunks promoted when child chunks are retrieved (hierarchical)
-7. **Evaluation**: Score threshold check for retrieval quality
-8. **Query Transformation** (if needed): HyDE, Step-back, or Multi-query
-9. **Generation**: LLM generates answer with retrieved context
-10. **Streaming**: Response streamed via SSE (with optional TTS audio events)
-
-## License
-
-MIT License
+- Never commit `backend/.env`.
+- Keep `.env.example`, `settings.py`, `CONFIGURATION.md`, `README.md`, `README_CN.md`, and root `后端配置文档.md` synchronized when config changes.
+- Keep ordinary guide chat on `LLM_TOUR_MODEL`; reserve `LLM_REPORT_MODEL` for report/research-like generation.
+- Do not reintroduce duplicate LLM calls into tour chat.
+- Keep new backend features within the 2C/4G production budget.
+- Hide or disable unfinished camera/OCR/voice features until backend, frontend, privacy, and WeChat review requirements are complete.

@@ -443,13 +443,13 @@ PROMPTS: list[dict] = [
 HALLS: list[dict] = [
     {"slug": "basic-exhibition-hall", "name": "基本陈列展厅", "description": "以半坡遗址相关考古发现与研究成果为主线，系统展示半坡文化的生活形态、生产方式与社会结构。", "floor": 1, "estimated_duration_minutes": 40, "display_order": 1},
     {"slug": "site-protection-hall", "name": "遗址保护大厅", "description": "强调边保护边展示，呈现墓葬、地面圆形房屋、烧制作坊、灶具灶台等关键遗存。", "floor": 1, "estimated_duration_minutes": 35, "display_order": 2},
-    {"slug": "temporary-hall-1", "name": "临展厅一", "description": "承载策划性的短期或阶段性展览，具体主题和展品视当期安排而定。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 3},
-    {"slug": "temporary-hall-2", "name": "临展厅二", "description": "与临展厅一共同负责轮换展出，具体内容需由馆方按当期展览更新。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 4},
+    {"slug": "temporary-hall-1", "name": "临展厅一", "description": "承载策划性的短期或阶段性展览，具体主题和展品视当期安排而定。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 8},
+    {"slug": "temporary-hall-2", "name": "临展厅二", "description": "与临展厅一共同负责轮换展出，具体内容需由馆方按当期展览更新。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 9},
     {"slug": "banpo-girl-sculpture", "name": "半坡姑娘雕塑", "description": "以半坡姑娘为代表性形象进行艺术化再现，是观众合影点与文化符号。", "floor": 1, "estimated_duration_minutes": 8, "display_order": 5},
-    {"slug": "prehistoric-workshop", "name": "史前工坊", "description": "以工坊形式让观众参与史前生活相关体验，把考古知识转化为可参与的学习过程。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 6},
-    {"slug": "education-center", "name": "教研中心", "description": "面向青少年和公众教育活动，组织课堂、研学和主题研究型活动。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 7},
-    {"slug": "peony-garden", "name": "牡丹园", "description": "以牡丹为核心的园林景观区域，兼具观赏与休闲功能。", "floor": 1, "estimated_duration_minutes": 15, "display_order": 8},
-    {"slug": "kiln-hall", "name": "陶窑展厅", "description": "以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 9},
+    {"slug": "prehistoric-workshop", "name": "史前工坊", "description": "以工坊形式让观众参与史前生活相关体验，把考古知识转化为可参与的学习过程。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 4},
+    {"slug": "education-center", "name": "教研中心", "description": "面向青少年和公众教育活动，组织课堂、研学和主题研究型活动。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 6},
+    {"slug": "peony-garden", "name": "牡丹园", "description": "以牡丹为核心的园林景观区域，兼具观赏与休闲功能。", "floor": 1, "estimated_duration_minutes": 15, "display_order": 7},
+    {"slug": "kiln-hall", "name": "陶窑展厅", "description": "以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 3},
 ]
 
 

@@ -245,5 +245,11 @@ async def _generate_one_liner_llm(llm_provider: Any, persona: str, stats: dict) 
         f"- 参观展品数：{stats.get('total_exhibits_viewed', 0)}\n"
         f"只输出一句话，不要其他内容。"
     )
-    result = await llm_provider.generate(prompt)
-    return result.strip()[:50] if result else _pick_one_liner(stats, persona)
+    messages = [{"role": "user", "content": prompt}]
+    model = getattr(llm_provider, "report_model", None)
+    if getattr(llm_provider, "supports_model_override", False) is True and model:
+        result = await llm_provider.generate(messages, model=model)
+    else:
+        result = await llm_provider.generate(messages)
+    content = getattr(result, "content", result)
+    return str(content).strip()[:50] if content else _pick_one_liner(stats, persona)

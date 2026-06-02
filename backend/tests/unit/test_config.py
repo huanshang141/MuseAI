@@ -79,6 +79,20 @@ def test_settings_defaults():
     assert settings.EMBEDDING_DIMS == 768
 
 
+def test_settings_llm_model_split_defaults(monkeypatch):
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_TOUR_MODEL", raising=False)
+    monkeypatch.delenv("LLM_REPORT_MODEL", raising=False)
+
+    from app.config.settings import Settings
+
+    settings = Settings(_env_file=None, ALLOW_INSECURE_DEV_DEFAULTS=True)
+
+    assert settings.LLM_MODEL == "deepseek-v4-flash"
+    assert settings.LLM_TOUR_MODEL == "deepseek-v4-flash"
+    assert settings.LLM_REPORT_MODEL == "deepseek-v4-pro"
+
+
 def test_settings_validation_embedding_dims():
     from app.config.settings import Settings
 

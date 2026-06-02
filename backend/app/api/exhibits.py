@@ -126,16 +126,12 @@ async def list_exhibits(
             hall=hall,
             floor=floor,
         )
-        # Get total count for search results
-        all_exhibits = await service.search_exhibits(
+        total = await service.count_search_exhibits(
             query=search,
-            skip=0,
-            limit=10000,
             category=category,
             hall=hall,
             floor=floor,
         )
-        total = len(all_exhibits)
     else:
         exhibits = await service.list_exhibits(
             skip=skip,
@@ -144,9 +140,7 @@ async def list_exhibits(
             hall=hall,
             floor=floor,
         )
-        # Get total count for pagination
-        all_exhibits = await service.list_exhibits(skip=0, limit=10000, category=category, hall=hall, floor=floor)
-        total = len(all_exhibits)
+        total = await service.count_exhibits(category=category, hall=hall, floor=floor)
 
     return ExhibitListResponse(
         exhibits=[

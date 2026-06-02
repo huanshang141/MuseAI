@@ -1,443 +1,246 @@
-# MuseAI
+# MuseAI 后端
 
-博物馆智能导览系统 - 基于 RAG（检索增强生成）的智能博物馆内容交互平台。
+MuseAI 后端是面向半坡博物馆微信小程序的 FastAPI 服务，负责导览会话、SSE 流式 AI 回答、展品浏览、游览报告、策展路线接口、后台内容管理、RAG 检索、LLM 调用追踪和可选 TTS。
 
-[English](README.md)
+当前产品阶段：Stage 10C。微信小程序是首要交付形态，生产服务器目标规格为腾讯云 2 核 4G，因此后端设计和优化应避免不必要的模型调用、重型后台任务和额外常驻服务。
 
-## 功能特性
+## 当前状态
 
-- **智能问答**：基于 RAG 的问答系统，从博物馆知识库中进行上下文检索
-- **混合检索**：使用倒数排名融合（RRF）算法结合稠密向量检索和 BM25 关键词检索，支持来源去重
-- **多轮对话**：支持查询转换策略（HyDE、后退提问、多查询）和动态召回过滤的有状态对话
-- **文档摄入**：自动层级文档分块（父子关系）和嵌入，支持 Elasticsearch 索引
-- **流式响应**：实时 SSE（服务器推送事件）流式输出，支持可选的 TTS 音频事件
-- **用户认证**：基于 JWT 的身份认证，支持速率限制和令牌黑名单
-- **导览系统**：博物馆导览会话管理，展厅追踪，事件记录和参观报告
-- **策展人 AI 智能体**：基于 LangGraph 的 AI 导览规划、展品叙事生成和反思提示
-- **语音合成**：基于句子级别的 TTS 流式输出，支持人设管理、Redis 缓存和多提供商（小米、Mock）
-- **访客画像**：个性化访客画像，包含兴趣、知识水平和叙事偏好
-- **管理后台**：完整的管理界面，涵盖展品、展厅、文档、提示词、TTS 人设和 LLM 调用追踪审计
-- **设计系统**：基于 Element Plus 的博物馆主题设计令牌和组件
-- **健康监控**：内置健康检查端点，提供服务可观测性
+已实现并仍在使用：
 
-## 系统架构
+- 微信小程序游客导览流程。
+- 游客导览 session 和 `X-Session-Token`。
+- `/api/v1/tour/sessions/{id}/chat/stream` SSE 流式导览回答。
+- 导览事件、真实到访展厅统计、报告生成。
+- 四类导览身份：
+  - `A` 考古研究员
+  - `B` 研学记录员
+  - `C` 历史追问者
+  - `D` 器物研究员
+- 半坡展厅 slug 规范化和旧 slug 兼容。
+- 公共展品浏览、按展厅筛选和搜索。
+- 后台展品、展厅、文档、Prompt、LLM trace、TTS persona 管理 API。
+- RAG 链路：query rewrite、Elasticsearch 检索、rerank、文档过滤、流式生成。
+- DeepSeek thinking 默认关闭：`LLM_ENABLE_THINKING=false`。
+- LLM 模型分层：
+  - `LLM_TOUR_MODEL=deepseek-v4-flash` 用于普通导览和 RAG 流式回答。
+  - `LLM_REPORT_MODEL=deepseek-v4-pro` 用于报告摘要。
+  - `LLM_MODEL` 保留为兼容兜底字段。
+- 展品列表和搜索接口已改为轻量 count 统计。
+- Redis 或 Elasticsearch 不可用时进入 degraded 模式，而不是整站直接不可用。
 
-MuseAI 采用严格的分层架构：
+保留但当前小程序端不重点使用：
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    前端层 (Vue 3)                        │
-├─────────────────────────────────────────────────────────┤
-│                    API 层 (FastAPI)                      │
-├─────────────────────────────────────────────────────────┤
-│                    应用层                                │
-│         (认证、聊天、文档、摄入服务)                      │
-├─────────────────────────────────────────────────────────┤
-│                    领域层                                │
-│              (实体、值对象)                              │
-├─────────────────────────────────────────────────────────┤
-│                   基础设施层                             │
-│      (PostgreSQL, Elasticsearch, Redis, LLM)           │
-└─────────────────────────────────────────────────────────┘
-```
+- `/api/v1/curator/plan-tour` 结构化路线接口。
+- 通用 chat API。
+- 文档上传和摄入 API。
+- TTS 合成 API。
+
+尚未生产闭环：
+
+- 拍照识别展品。
+- 语音输入。
+- 小程序端 TTS 播放闭环。
+- 官方博物馆地图和展厅点位数据。
+- 馆方授权的完整展品清单、图片和空间位置。
 
 ## 技术栈
 
-### 后端
-- **框架**：FastAPI（异步支持）
-- **ORM**：SQLAlchemy 2.0（异步）
-- **验证**：Pydantic v2
-- **AI/ML**：LangChain、LangGraph、OpenAI 兼容 LLM
-- **数据库迁移**：Alembic
+| 层级 | 技术 |
+| --- | --- |
+| API | FastAPI, Pydantic v2 |
+| 运行时 | Python 3.11+, uv, Uvicorn |
+| 数据库 | PostgreSQL 16, SQLAlchemy async |
+| 缓存 | Redis 7 |
+| 检索 | Elasticsearch 8, 自定义 IK analyzer 镜像 |
+| RAG | LangChain, LangGraph, 自定义 retriever/filter |
+| LLM | OpenAI-compatible provider，当前按 DeepSeek 兼容接口配置 |
+| Rerank | SiliconFlow/OpenAI/Cohere/custom/mock |
+| TTS | Xiaomi MiMo 或 mock provider，可选 |
+| 测试 | pytest, pytest-asyncio |
 
-### 前端
-- **框架**：Vue 3 组合式 API
-- **UI 库**：Element Plus（博物馆设计系统）
-- **构建工具**：Vite
-- **路由**：Vue Router
-- **组合式函数**：可复用的认证、聊天、导览、TTS、展品等 hooks
+## 目录结构
 
-### 基础设施
-- **数据库**：PostgreSQL 16
-- **搜索引擎**：Elasticsearch 8.x + IK 分词器
-- **缓存**：Redis 7
-- **LLM**：OpenAI 兼容提供商（GPT-4o-mini）
-- **嵌入模型**：Ollama（nomic-embed-text）
-- **重排序**：OpenAI 兼容或 SiliconFlow 重排序提供商
-- **语音合成**：小米 TTS 提供商（Redis 缓存）
-
-## 环境要求
-
-- Python 3.11+
-- Node.js 18+
-- Docker 和 Docker Compose
-- uv（Python 包管理器）
-
-## 快速开始
-
-### 1. 克隆仓库
-
-```bash
-git clone https://github.com/yourusername/museai.git
-cd museai
+```text
+backend/
+├── backend/
+│   ├── app/
+│   │   ├── api/                    # FastAPI routers
+│   │   │   ├── admin/              # 后台内容、Prompt、trace、TTS API
+│   │   │   ├── auth.py
+│   │   │   ├── chat.py
+│   │   │   ├── curator.py
+│   │   │   ├── documents.py
+│   │   │   ├── exhibits.py
+│   │   │   ├── health.py
+│   │   │   ├── profile.py
+│   │   │   ├── tour.py
+│   │   │   └── tts.py
+│   │   ├── application/            # 应用服务和用例层
+│   │   ├── config/                 # settings 与环境变量校验
+│   │   ├── domain/                 # 领域实体和异常
+│   │   ├── infra/                  # PostgreSQL、Redis、ES、provider、LangChain
+│   │   ├── observability/          # 日志和请求中间件
+│   │   └── main.py                 # FastAPI 入口
+│   ├── alembic/                    # 数据库迁移
+│   └── tests/                      # unit、contract、e2e 测试
+├── deploy/
+│   └── nginx.conf                  # HTTPS/SSE 反向代理模板
+├── docker/
+│   └── elasticsearch/              # Elasticsearch 自定义镜像
+├── docs/
+│   ├── reference/展品.md            # 半坡展品导入来源
+│   └── *.md                        # 审计、性能诊断和交接文档
+├── scripts/
+│   ├── init_db.py
+│   ├── seed_prompts_and_personas.py
+│   ├── import_real_exhibits_via_api.py
+│   └── ...
+├── .env.example
+├── CONFIGURATION.md
+├── docker-compose.yml              # 目前只启动 PostgreSQL、Redis、Elasticsearch
+├── pyproject.toml
+└── uv.lock
 ```
 
-### 2. 启动基础设施服务
+## API 概览
 
-```bash
-docker-compose up -d
-```
+所有应用接口都挂载在 `/api/v1` 下。
 
-这将启动 PostgreSQL、Elasticsearch 和 Redis。
-
-### 3. 配置环境变量
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env` 文件进行配置。必要设置：
-
-```env
-# LLM 配置（生产环境必需）
-LLM_API_KEY=your-openai-api-key
-
-# JWT 密钥（生产环境必须 ≥32 字符）
-JWT_SECRET=your-secure-jwt-secret-key-here
-```
-
-### 4. 安装后端依赖
-
-```bash
-uv sync
-```
-
-### 5. 初始化数据库
-
-```bash
-# 运行数据库迁移（创建表结构）
-python scripts/init_db.py
-
-# 创建管理员用户
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
-```
-
-> 详细说明请参见下方 [数据库初始化](#数据库初始化) 章节。
-
-### 6. 运行后端服务
-
-```bash
-uv run uvicorn backend.app.main:app --reload
-```
-
-API 将在 `http://localhost:8000` 可用。
-
-### 7. 安装前端依赖
-
-```bash
-cd frontend
-npm install
-```
-
-### 8. 运行前端开发服务器
-
-```bash
-npm run dev
-```
-
-前端将在 `http://localhost:5173` 可用。
-
-## API 文档
-
-后端运行后，可访问交互式 API 文档：
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
-
-### 主要端点
-
-| 端点 | 方法 | 描述 |
-|------|------|------|
-| `/api/v1/auth/register` | POST | 注册新用户 |
-| `/api/v1/auth/login` | POST | 登录获取 JWT 令牌 |
-| `/api/v1/auth/logout` | POST | 登出（黑名单令牌） |
-| `/api/v1/documents/upload` | POST | 上传文档进行摄入 |
-| `/api/v1/documents` | GET | 获取用户文档列表 |
-| `/api/v1/chat/sessions` | GET/POST | 管理聊天会话 |
-| `/api/v1/chat/ask` | POST | 提问（非流式） |
-| `/api/v1/chat/ask/stream` | POST | 提问（SSE 流式） |
-| `/api/v1/chat/guest/message` | POST | 访客消息（SSE 流式） |
-| `/api/v1/exhibits` | GET | 浏览展品（公开） |
-| `/api/v1/exhibits/{id}` | GET | 获取展品详情 |
-| `/api/v1/profile` | GET/PUT | 获取/更新访客画像 |
-| `/api/v1/tour/sessions` | POST | 创建导览会话 |
-| `/api/v1/tour/sessions/{id}/chat/stream` | POST | 导览聊天流式输出（SSE） |
-| `/api/v1/tour/sessions/{id}/report` | GET/POST | 生成/获取导览报告 |
-| `/api/v1/curator/plan-tour` | POST | 规划博物馆导览（AI） |
-| `/api/v1/curator/narrative` | POST | 生成展品叙事（AI） |
-| `/api/v1/tts/synthesize` | POST | 文本转语音合成 |
-| `/api/v1/admin/exhibits` | GET/POST | 管理展品 |
-| `/api/v1/admin/halls` | GET/POST | 管理展厅 |
-| `/api/v1/admin/prompts` | GET | 管理提示词模板 |
-| `/api/v1/admin/documents` | GET/POST | 管理文档 |
-| `/api/v1/admin/llm-traces` | GET | 查看 LLM 调用追踪 |
-| `/api/v1/admin/tts/personas` | GET/PUT | 管理 TTS 人设 |
-| `/api/v1/health` | GET | 健康检查 |
-| `/api/v1/ready` | GET | 就绪检查 |
+| 模块 | 端点示例 | 用途 |
+| --- | --- | --- |
+| 健康检查 | `GET /health`, `GET /ready` | 服务和依赖状态 |
+| 认证 | `POST /auth/register`, `POST /auth/login` | 用户和管理员认证 |
+| 导览 | `POST /tour/sessions`, `POST /tour/sessions/{id}/chat/stream` | 小程序导览 session 与 SSE 回答 |
+| 报告 | `POST /tour/sessions/{id}/report`, `GET /tour/sessions/{id}/report` | 生成或读取游览报告 |
+| 展品 | `GET /exhibits`, `GET /exhibits/{id}` | 公共展品浏览与搜索 |
+| 策展 | `POST /curator/plan-tour`, `/narrative`, `/reflection` | 结构化路线、叙事和反思问题 |
+| TTS | `POST /tts/synthesize` | 可选语音合成 |
+| 后台 | `/admin/exhibits`, `/admin/halls`, `/admin/prompts`, `/admin/documents`, `/admin/llm-traces`, `/admin/tts/personas` | 内容与运维管理 |
 
 ## 配置说明
 
-环境变量（参考 `.env.example`）：
+运行配置由 `backend/app/config/settings.py` 从 `backend/.env` 读取。真实 `.env` 不允许提交仓库。
 
-| 变量 | 描述 | 默认值 |
-|------|------|--------|
-| `APP_ENV` | 环境（development/production） | `development` |
-| `DATABASE_URL` | PostgreSQL 连接字符串 | 必需 |
-| `REDIS_URL` | Redis 连接字符串 | 必需 |
-| `ELASTICSEARCH_URL` | Elasticsearch 端点 | 必需 |
-| `JWT_SECRET` | JWT 签名密钥（生产环境 ≥32 字符） | 必需 |
-| `JWT_ALGORITHM` | JWT 算法 | `HS256` |
-| `JWT_EXPIRE_MINUTES` | 令牌过期时间 | `1440` |
-| `LLM_PROVIDER` | LLM 提供商 | `openai` |
-| `LLM_BASE_URL` | LLM API 基础 URL | `https://api.openai.com/v1` |
-| `LLM_API_KEY` | LLM API 密钥 | 必需 |
-| `LLM_MODEL` | 模型名称 | `gpt-4o-mini` |
-| `EMBEDDING_PROVIDER` | 嵌入模型提供商 | `ollama` |
-| `EMBEDDING_OLLAMA_BASE_URL` | Ollama 基础 URL | `http://localhost:11434` |
-| `EMBEDDING_OLLAMA_MODEL` | 嵌入模型 | `nomic-embed-text` |
-| `ELASTICSEARCH_INDEX` | ES 索引名称 | `museai_chunks_v1` |
-| `EMBEDDING_DIMS` | 嵌入维度 | `1536` |
-| `RERANK_PROVIDER` | 重排序提供商（openai, cohere, custom） | `openai` |
-| `RERANK_MODEL` | 重排序模型标识 | `rerank-v1` |
-| `RERANK_TOP_N` | 重排序结果数量 | `10` |
-| `TTS_ENABLED` | 启用语音合成 | `false` |
-| `TTS_PROVIDER` | TTS 提供商（xiaomi, mock） | `xiaomi` |
-| `TTS_DEFAULT_VOICE` | 默认 TTS 语音/人设 | `冰糖` |
+关键字段：
 
-## 数据库初始化
+| 字段 | 当前含义 |
+| --- | --- |
+| `APP_ENV` | `development`、`test`、`local` 或 `production` |
+| `DEBUG` | 生产环境保持 `false` |
+| `ALLOW_INSECURE_DEV_DEFAULTS` | 仅本地调试可用，生产必须 `false` |
+| `DATABASE_URL` | PostgreSQL async 连接串 |
+| `REDIS_URL` | Redis 连接串 |
+| `ELASTICSEARCH_URL` | Elasticsearch 地址 |
+| `JWT_SECRET` | 生产环境必填，至少 32 字符 |
+| `LLM_BASE_URL` | OpenAI-compatible LLM base URL |
+| `LLM_API_KEY` | 生产环境必填 |
+| `LLM_MODEL` | 兼容兜底模型 |
+| `LLM_TOUR_MODEL` | 导览、RAG、流式回答默认模型 |
+| `LLM_REPORT_MODEL` | 报告摘要模型 |
+| `LLM_ENABLE_THINKING` | `false` 时向支持的模型发送 thinking disabled |
+| `LLM_HEADERS` | 可选 JSON 字符串，用于额外上游请求头 |
+| `RERANK_PROVIDER` | `siliconflow`、`openai`、`cohere`、`custom` 或 `mock` |
+| `TTS_ENABLED` | 语音功能未闭环前建议保持 `false` |
+| `CORS_ORIGINS` | 生产环境不能使用通配符 |
+| `TRUSTED_PROXIES` | 仅填写可信反代 IP，例如本机 Nginx 后面填 `127.0.0.1` |
 
-项目使用 Alembic 管理数据库 schema 迁移。应用启动时也会自动创建缺失的表，但推荐使用迁移脚本来保证 schema 版本正确。
+更完整的操作流程见根目录 `后端配置文档.md`。
 
-### 初始化脚本
-
-`scripts/init_db.py` 是统一的服务初始化入口，覆盖 PostgreSQL 迁移、Elasticsearch 索引创建和服务连通性检查：
+## 本地运行
 
 ```bash
-# 运行迁移 + ES 索引创建 + 服务连通性检查
-python scripts/init_db.py
+cd backend
 
-# 运行迁移 + 创建管理员
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123
-
-# 完整初始化：迁移 + ES 索引 + 管理员 + 开发测试数据
-python scripts/init_db.py --admin-email admin@museai.local --admin-password YourPassword123 --seed-dev
-
-# 仅运行 PostgreSQL 迁移
-python scripts/init_db.py --schema-only
-
-# 仅创建 ES 索引（幂等，已存在则跳过）
-python scripts/init_db.py --init-es
-```
-
-### 生产环境部署流程
-
-```bash
-# 1. 启动基础设施
-docker-compose up -d
-
-# 2. 配置环境变量
+# 1. 创建本地配置
 cp .env.example .env
-# 编辑 .env，设置 JWT_SECRET、LLM_API_KEY 等
 
-# 3. 安装依赖
+# 2. 安装依赖
 uv sync
 
-# 4. 初始化所有服务（数据库迁移 + ES 索引 + 管理员）
-python scripts/init_db.py --init-es --admin-email admin@museum.cn --admin-password 'YourStr0ngPass!'
+# 3. 启动基础设施
+docker compose up -d
 
-# 5. 启动服务
-uv run uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
+# 4. 初始化数据库和 ES index
+uv run python scripts/init_db.py --init-es
+
+# 5. 同步 prompts、personas 和 halls
+uv run python scripts/seed_prompts_and_personas.py
+
+# 6. 启动开发服务
+uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 本地开发流程
+健康检查：
 
 ```bash
-# 1. 启动基础设施
-docker-compose up -d
-
-# 2. 配置环境变量
-cp .env.example .env
-# 编辑 .env，确保 DATABASE_URL 指向本地 PostgreSQL
-
-# 3. 安装依赖
-uv sync
-
-# 4. 完整初始化：数据库迁移 + ES 索引 + 管理员 + 测试数据
-python scripts/init_db.py --admin-email admin@museai.local --admin-password dev12345678 --seed-dev
-
-# 5. 启动后端
-uv run uvicorn backend.app.main:app --reload
-
-# 6. 启动前端
-cd frontend && npm install && npm run dev
+curl http://127.0.0.1:8000/api/v1/health
+curl http://127.0.0.1:8000/api/v1/ready
 ```
 
-### 手动操作 Alembic
+## 数据导入
 
-如需手动管理迁移：
+当前半坡展品导入路径：
 
 ```bash
-# 查看当前迁移状态
-uv run alembic current
-
-# 升级到最新版本
-uv run alembic upgrade head
-
-# 回滚一个版本
-uv run alembic downgrade -1
-
-# 查看迁移历史
-uv run alembic history
+cd backend
+uv run python scripts/import_real_exhibits_via_api.py \
+  --base-url http://127.0.0.1:8000/api/v1 \
+  --email <admin-email> \
+  --password '<admin-password>'
 ```
 
-### 种子数据脚本
+注意：该脚本会清理已有展品、文档和展厅，再从 `docs/reference/展品.md` 导入。只有确认要重置展品数据时再运行。
 
-项目提供以下独立的种子数据脚本（`scripts/` 目录）：
+## 测试
 
-| 脚本 | 用途 | 依赖服务 |
-|------|------|----------|
-| `seed_dev_user.py` | 创建开发测试用户 | PostgreSQL |
-| `bootstrap_admin.py` | 创建/提升管理员用户 | PostgreSQL |
-| `init_exhibits.py` | 导入 70+ 展品数据（青铜器、陶瓷、书画等） | PostgreSQL, Elasticsearch, Ollama |
-| `init_test_data.py` | 综合测试数据（用户、文档、聊天记录） | PostgreSQL, Elasticsearch, Ollama |
-| `import_real_exhibits_via_api.py` | 通过 REST API 导入展品数据 | 完整后端服务 |
-| `cleanup_llm_traces.py` | 清理过期 LLM 调用追踪记录 | PostgreSQL |
-
-## 开发指南
-
-### 一键本地验证
+常用检查：
 
 ```bash
-bash scripts/verify_local_quality.sh
+cd backend
+
+py -3 -m compileall -q backend scripts backend/tests
+uv run --extra dev pytest -q
 ```
 
-### 运行测试
+聚焦测试：
 
 ```bash
-# 单元测试和契约测试
-uv run pytest backend/tests/unit backend/tests/contract -v
-
-# 单个测试文件
-uv run pytest backend/tests/unit/test_domain_entities.py -v
-
-# E2E 测试（需要运行基础设施）
-uv run pytest backend/tests/e2e -v
+uv run --extra dev pytest backend/tests/contract/test_tour_api.py -q
+uv run --extra dev pytest backend/tests/contract/test_exhibits_api.py -q
+uv run --extra dev pytest backend/tests/unit/test_tour_chat.py -q
+uv run --extra dev pytest backend/tests/unit/test_llm_provider.py backend/tests/unit/test_config.py -q
 ```
 
-### 代码质量
+近期变更总结中记录的完整基线：
 
-```bash
-# 代码检查
-uv run ruff check backend/
-
-# 类型检查
-uv run mypy backend/
+```text
+996 passed, 23 skipped, 12 warnings
 ```
 
-### 前端开发
+如果 Windows 本地 pytest 遇到临时目录权限问题，可先把 `TMP` 和 `TEMP` 指向项目内临时目录再运行。
 
-```bash
-cd frontend
+## 生产部署说明
 
-# 开发服务器
-npm run dev
+当前 `docker-compose.yml` 只启动 PostgreSQL、Redis、Elasticsearch，不包含 FastAPI API 服务。当前 2 核 4G 服务器推荐部署形态：
 
-# 生产构建
-npm run build
-```
+1. 用 `docker compose up -d` 启动基础设施。
+2. 执行迁移和 seed 脚本。
+3. 用 `systemd` 托管：
+   ```bash
+   uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1
+   ```
+4. 用宝塔或 Nginx 将 HTTPS 域名的 `/api/` 反向代理到 `127.0.0.1:8000`。
+5. 不对公网暴露 PostgreSQL、Redis、Elasticsearch 和 8000 端口。
+6. 在微信公众平台把 HTTPS API 域名配置为小程序 request 合法域名。
 
-## 项目结构
+SSE 流式回答需要反代关闭 buffering，并设置较长的 read timeout。
 
-```
-museai/
-├── backend/
-│   ├── app/
-│   │   ├── api/                 # FastAPI 路由
-│   │   │   ├── auth.py         # 认证端点
-│   │   │   ├── chat.py         # 聊天端点
-│   │   │   ├── curator.py      # 策展人 AI 端点
-│   │   │   ├── documents.py    # 文档管理
-│   │   │   ├── exhibits.py     # 展品浏览
-│   │   │   ├── health.py       # 健康检查
-│   │   │   ├── profile.py      # 访客画像
-│   │   │   ├── tour.py         # 导览会话管理
-│   │   │   ├── tts.py          # 语音合成
-│   │   │   └── admin/          # 管理路由
-│   │   │       ├── documents.py
-│   │   │       ├── exhibits.py
-│   │   │       ├── halls.py
-│   │   │       ├── llm_traces.py
-│   │   │       ├── prompts.py
-│   │   │       └── tts_persona.py
-│   │   ├── application/         # 业务逻辑
-│   │   │   ├── auth_service.py
-│   │   │   ├── chat_service.py
-│   │   │   ├── curator_service.py
-│   │   │   ├── document_service.py
-│   │   │   ├── ingestion_service.py
-│   │   │   ├── tour_*_service.py
-│   │   │   ├── tts_service.py
-│   │   │   ├── llm_trace/      # LLM 调用追踪
-│   │   │   └── workflows/      # 多轮状态机
-│   │   ├── domain/              # 领域实体
-│   │   │   ├── entities.py
-│   │   │   ├── value_objects.py
-│   │   │   └── services/       # RRF 融合
-│   │   ├── infra/              # 基础设施
-│   │   │   ├── postgres/
-│   │   │   ├── elasticsearch/
-│   │   │   ├── redis/
-│   │   │   ├── cache/          # 提示词缓存
-│   │   │   ├── langchain/      # RAG Agent, 检索器, 策展人智能体
-│   │   │   ├── providers/      # LLM, 嵌入, 重排序, TTS 提供商
-│   │   │   └── security/
-│   │   └── main.py
-│   └── tests/
-│       ├── unit/
-│       ├── contract/
-│       └── e2e/
-├── frontend/
-│   ├── src/
-│   │   ├── api/               # API 客户端
-│   │   ├── components/        # Vue 组件（聊天、导览、展品、管理等）
-│   │   ├── composables/       # Vue 组合式函数（useAuth, useChat, useTour, useTTSPlayer 等）
-│   │   ├── design-system/     # 博物馆设计令牌和组件
-│   │   ├── views/             # 页面视图（首页、导览、策展人、展品、管理等）
-│   │   ├── router/            # Vue Router 配置
-│   │   ├── styles/            # 全局样式
-│   │   └── main.js
-│   └── package.json
-├── scripts/                   # 工具脚本（种子数据、初始化、清理）
-├── docker/
-├── docs/
-├── docker-compose.yml
-├── pyproject.toml
-└── .env.example
-```
+## 运维约定
 
-## RAG 管道流程
-
-1. **查询处理**：用户查询通过聊天端点进入
-2. **检索**：并行执行稠密向量检索 + BM25 关键词检索
-3. **融合**：倒数排名融合（RRF）合并结果，支持来源去重
-4. **重排序**：重排序提供商对结果进行评分和过滤
-5. **动态过滤**：绝对/相对差距策略过滤低质量结果
-6. **分块合并**：检索到子分块时自动提升父分块（层级结构）
-7. **评估**：检查检索质量分数阈值
-8. **查询转换**（如需要）：HyDE、后退提问或多查询策略
-9. **生成**：LLM 基于检索上下文生成答案
-10. **流式输出**：通过 SSE 流式返回响应（支持可选的 TTS 音频事件）
-
-## 许可证
-
-MIT License
+- 永远不要提交 `backend/.env`。
+- 后端配置变化时必须同步更新 `.env.example`、`settings.py`、`CONFIGURATION.md`、`README.md`、`README_CN.md` 和根目录 `后端配置文档.md`。
+- 普通导览默认使用 `LLM_TOUR_MODEL`，报告和研究型摘要使用 `LLM_REPORT_MODEL`。
+- 不要把 tour chat 的重复 LLM 调用重新引入。
+- 新增后端能力前先评估 2 核 4G 生产服务器是否能承受。
+- 拍照/OCR/语音功能未完成前，前端应隐藏或明确标记为未开放，避免影响小程序审核和用户体验。

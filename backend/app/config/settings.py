@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str = "https://api.deepseek.com/v1"
     LLM_API_KEY: str = ""  # Changed: No default
     LLM_MODEL: str = "deepseek-v4-flash"
+    LLM_TOUR_MODEL: str = "deepseek-v4-flash"
+    LLM_REPORT_MODEL: str = "deepseek-v4-pro"
     LLM_HEADERS: str = ""  # JSON string of extra headers, e.g. '{"User-Agent": "curl/8.5.0"}'
     LLM_TEMPERATURE: float = 0.6
     LLM_MAX_TOKENS: int = 800  # 0 = no limit
@@ -76,6 +78,14 @@ class Settings(BaseSettings):
             raise ValueError("LLM_HEADERS must be a valid JSON object string") from exc
         if not isinstance(parsed, dict):
             raise ValueError("LLM_HEADERS must be a JSON object")
+        return v
+
+    @field_validator("LLM_MODEL", "LLM_TOUR_MODEL", "LLM_REPORT_MODEL")
+    @classmethod
+    def validate_llm_model_name(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("LLM model name cannot be empty")
         return v
 
     @field_validator("LLM_TEMPERATURE")

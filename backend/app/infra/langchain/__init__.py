@@ -75,7 +75,7 @@ def create_llm(settings: Settings, callbacks: list | None = None) -> ChatOpenAI:
     return ChatOpenAI(
         base_url=settings.LLM_BASE_URL,
         api_key=settings.LLM_API_KEY,
-        model=settings.LLM_MODEL,
+        model=getattr(settings, "LLM_TOUR_MODEL", None) or settings.LLM_MODEL,
         default_headers=default_headers,
         callbacks=callbacks,
     )

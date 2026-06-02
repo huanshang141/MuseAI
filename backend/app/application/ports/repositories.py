@@ -103,6 +103,21 @@ class ExhibitRepositoryPort(Protocol):
         limit: int = 20,
     ) -> list[Exhibit]: ...
 
+    async def count_with_filters(
+        self,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int: ...
+
+    async def count_search_by_name(
+        self,
+        query: str,
+        category: str | None = None,
+        hall: str | None = None,
+        floor: int | None = None,
+    ) -> int: ...
+
     async def get_distinct_categories(self) -> list[str]: ...
 
     async def get_distinct_halls(self) -> list[str]: ...
@@ -149,9 +164,9 @@ class ChatMessageRepositoryPort(Protocol):
 
 
 class LLMProviderPort(Protocol):
-    async def generate(self, messages: list[dict[str, Any]]) -> Any: ...
+    async def generate(self, messages: list[dict[str, Any]], model: str | None = None) -> Any: ...
 
-    def generate_stream(self, messages: list[dict[str, Any]]) -> Any: ...
+    def generate_stream(self, messages: list[dict[str, Any]], model: str | None = None) -> Any: ...
 
 
 class CachePort(Protocol):

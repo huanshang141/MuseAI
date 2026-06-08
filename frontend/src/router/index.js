@@ -23,9 +23,8 @@ const routes = [
     name: 'home',
     component: HomeView,
     meta: {
-      title: '智能问答',
-      icon: 'ChatDotRound',
-      sidebar: 'chat-sessions',
+      title: '工作台',
+      icon: 'HomeFilled',
     },
   },
   {
@@ -177,10 +176,6 @@ const router = createRouter({
 
 router.beforeEach(async (to, _from, next) => {
   const auth = useAuth()
-
-  if (!auth.initialized.value) {
-    await auth.initAuth()
-  }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated.value) {
     next({ name: 'home', query: { redirect: to.fullPath } })

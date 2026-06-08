@@ -29,7 +29,7 @@ const route = useRoute()
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
 const navItems = [
-  { path: '/', title: '智能问答', icon: ChatDotRound, requiresAuth: false },
+  { path: '/', title: '工作台', icon: ChatDotRound, requiresAuth: false },
   { path: '/tour', title: 'AI 导览', icon: Compass, requiresAuth: false },
   { path: '/curator', title: '导览助手', icon: MapLocation, requiresAuth: true },
   { path: '/exhibits', title: '展品浏览', icon: Collection, requiresAuth: true },
@@ -65,7 +65,7 @@ onMounted(checkHealth)
 </script>
 
 <template>
-  <div class="app-header">
+  <header class="app-header">
     <div class="header-left">
       <el-button
         v-if="showSidebarToggle"
@@ -133,7 +133,7 @@ onMounted(checkHealth)
         </el-button>
       </template>
     </div>
-  </div>
+  </header>
 </template>
 
 <style scoped>

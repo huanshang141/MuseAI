@@ -56,13 +56,13 @@ function reloadPage() {
         <AppSidebar :type="sidebarType" />
       </AppDrawer>
 
-      <div class="app-main" :class="{ 'app-main--no-padding': isTourRoute }">
+      <main class="app-main" :class="{ 'app-main--no-padding': isTourRoute }">
         <router-view v-slot="{ Component }">
           <transition name="fade" mode="out-in">
             <component :is="Component" />
           </transition>
         </router-view>
-      </div>
+      </main>
     </div>
 
     <AuthModal v-model:visible="showAuthModal" @success="reloadPage" />

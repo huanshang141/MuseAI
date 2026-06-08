@@ -183,7 +183,7 @@ def test_build_system_prompt_with_client_context():
 
 def test_build_system_prompt_adds_challenge_only_for_deep_context():
     plain_prompt = build_system_prompt(persona="D", assumption="D", hall="kiln-hall")
-    assert "反身性挑战提示" not in plain_prompt
+    assert "反身性融入提示" not in plain_prompt
 
     deep_prompt = build_system_prompt(
         persona="D",
@@ -191,9 +191,9 @@ def test_build_system_prompt_adds_challenge_only_for_deep_context():
         hall="kiln-hall",
         exhibit_context="尖底瓶，汲水陶器",
     )
-    assert "反身性挑战提示" in deep_prompt
-    assert "除了工艺和外观" in deep_prompt
-    assert "不要每轮都使用" in deep_prompt
+    assert "反身性融入提示" in deep_prompt
+    assert "使用场景、操作方式或社会关系" in deep_prompt
+    assert "不要在回答末尾固定追加问题" in deep_prompt
 
 
 def test_build_system_prompt_uses_persona_specific_challenge():

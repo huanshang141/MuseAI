@@ -288,9 +288,30 @@ def _record_point_from_answer(answer: str | None) -> str:
     return _compact_record_text(sentences[0] if sentences else text, 110)
 
 
-def _build_report_record_notes(events=None) -> list[dict[str, str]]:
-    groups: dict[str, list[dict[str, str]]] = {}
-    fallback_entries: list[dict[str, str]] = []
+def _infer_record_topic(text: str) -> str:
+    if any(keyword in text for keyword in ("陶", "器", "工艺", "纹", "材料", "石器", "骨器", "工具", "用途")):
+        return "器物工艺"
+    if any(keyword in text for keyword in ("聚落", "房屋", "半地穴", "壕沟", "遗址", "空间", "布局", "墓葬")):
+        return "聚落空间"
+    if any(keyword in text for keyword in ("社会", "组织", "分工", "共同体", "协作", "规则", "公共")):
+        return "社会组织"
+    if any(keyword in text for keyword in ("生活", "食物", "农业", "居住", "日常", "生产")):
+        return "日常生活"
+    return "证据线索"
+
+
+def _persona_record_frame(persona: str | None) -> tuple[str, str]:
+    frames = {
+        "A": ("考古研究员", "这段记录更像一份考古观察：它把问题压回到可核对的遗迹、材料和推断边界上。"),
+        "B": ("研学记录员", "这段记录更像一份研学笔记：它把展厅见闻整理成后续还能复盘的学习线索。"),
+        "C": ("历史追问者", "这段记录更像一次历史追问：它把展厅内容和半坡社会、共同生活的问题连接起来。"),
+        "D": ("器物研究员", "这段记录更像一份器物观察：它从材料、器形、用途和工艺痕迹进入半坡生活。"),
+    }
+    return frames.get(persona or "A", frames["A"])
+
+
+def _build_report_record_notes(events=None, persona: str | None = None) -> list[dict[str, str]]:
+    entries_by_question: dict[str, dict[str, str]] = {}
     for event in events or []:
         event_type = getattr(event, "event_type", None)
         if event_type not in {"assistant_answer", "exhibit_question"}:
@@ -313,41 +334,39 @@ def _build_report_record_notes(events=None) -> list[dict[str, str]]:
         compact_question = _compact_record_text(question, 54)
         if not compact_question:
             continue
-        item = {
-            "question": f"围绕：{compact_question}",
-            "point": _record_point_from_answer(metadata.get("answer")),
-        }
-        if event_type == "assistant_answer" and metadata.get("answer"):
-            groups.setdefault(hall or "summary", []).append(item)
-        else:
-            fallback_entries.append(item)
-
-    if not groups and fallback_entries:
-        groups["summary"] = fallback_entries
-
-    notes: list[dict[str, str]] = []
-    for hall, items in groups.items():
-        unique_items: list[dict[str, str]] = []
-        seen: set[str] = set()
-        for item in items:
-            key = item["question"]
-            if key in seen:
-                continue
-            seen.add(key)
-            unique_items.append(item)
-        if not unique_items:
-            continue
-        sample_questions = "；".join(
-            item["question"].replace("围绕：", "") for item in unique_items[:3]
-        )
-        title = hall_display_name(hall) if hall != "summary" else "记录摘要"
-        notes.append(
+        key = f"{hall or 'summary'}|{compact_question}"
+        entry = entries_by_question.setdefault(
+            key,
             {
-                "question": f"{title}：{len(unique_items)} 组问答",
-                "point": f"本展厅对话已合并整理，代表问题包括：{sample_questions}。后续可回到对应展厅核对可见证据和展品细节。",
-            }
+                "hall": hall or "",
+                "question": compact_question,
+                "answer": "",
+            },
         )
-    return notes[:4]
+        if event_type == "assistant_answer" and metadata.get("answer"):
+            entry["answer"] = _record_point_from_answer(metadata.get("answer"))
+
+    entries = list(entries_by_question.values())
+    if not entries:
+        return []
+
+    persona_name, frame = _persona_record_frame(persona)
+    hall_names = []
+    for entry in entries:
+        hall_name = hall_display_name(entry["hall"]) if entry["hall"] else ""
+        if hall_name and hall_name not in hall_names:
+            hall_names.append(hall_name)
+    hall_text = "、".join(hall_names) if hall_names else "半坡遗址"
+    questions_text = "”“".join(entry["question"] for entry in entries[:4])
+    answer_text = " ".join(entry["answer"] for entry in entries if entry["answer"])
+    topic = _infer_record_topic(" ".join([questions_text, answer_text]))
+    point = f"以{persona_name}的视角看，本次游览主要围绕{hall_text}展开，关注点落在{topic}。"
+    if questions_text:
+        point += f"你提出的问题包括“{questions_text}”，这些问题已经不只是记录到访，而是在尝试把现场材料转化为判断线索。"
+    if answer_text:
+        point += f"从回答内容看，最值得保留的复盘线索是：{_compact_record_text(answer_text, 120)}。"
+    point += frame
+    return [{"question": "游览记录摘要", "point": point}]
 
 
 def _format_report(report, tour_session=None, events=None) -> dict:
@@ -396,7 +415,7 @@ def _format_report(report, tour_session=None, events=None) -> dict:
         "one_liner": report.one_liner,
         "report_theme": report.report_theme,
         "highlights": _build_report_highlights(report, halls_visited),
-        "record_notes": _build_report_record_notes(events),
+        "record_notes": _build_report_record_notes(events, getattr(tour_session, "persona", None)),
         "reflection": reflection,
         "created_at": report.created_at.isoformat(),
     }

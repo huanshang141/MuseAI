@@ -72,6 +72,26 @@ class ReloadResponse(BaseModel):
     message: str
 
 
+CANONICAL_TTS_PROMPT_META = {
+    "tour_tts_persona_a": {
+        "name": "Tour TTS - 考古研究员",
+        "description": "考古研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出证据与推理边界。",
+    },
+    "tour_tts_persona_b": {
+        "name": "Tour TTS - 研学记录员",
+        "description": "研学记录员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合边看边记和研学引导。",
+    },
+    "tour_tts_persona_c": {
+        "name": "Tour TTS - 历史追问者",
+        "description": "历史追问者语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出问题意识和历史联系。",
+    },
+    "tour_tts_persona_d": {
+        "name": "Tour TTS - 器物研究员",
+        "description": "器物研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合材料、器形、纹饰和工艺细读。",
+    },
+}
+
+
 def _normalize_variables(variables: list) -> list[dict[str, str]]:
     """Normalize variables to list of dicts format.
 
@@ -90,11 +110,12 @@ def _normalize_variables(variables: list) -> list[dict[str, str]]:
 
 def _prompt_to_response(prompt: Prompt) -> PromptResponse:
     """Convert Prompt entity to response model."""
+    canonical_meta = CANONICAL_TTS_PROMPT_META.get(prompt.key)
     return PromptResponse(
         id=prompt.id.value,
         key=prompt.key,
-        name=prompt.name,
-        description=prompt.description,
+        name=canonical_meta["name"] if canonical_meta else prompt.name,
+        description=canonical_meta["description"] if canonical_meta else prompt.description,
         category=prompt.category,
         content=prompt.content,
         variables=_normalize_variables(prompt.variables),

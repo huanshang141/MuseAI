@@ -17,8 +17,9 @@ from app.infra.postgres.database import get_session, init_database
 TTS_PROMPTS = [
     {
         "key": "tour_tts_persona_a",
-        "name": "Tour TTS - Archaeology Researcher",
+        "name": "Tour TTS - 考古研究员",
         "category": "tts",
+        "description": "考古研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出证据与推理边界。",
         "content": (
             "【角色】考古研究员，以年轻女性声线进行清晰、亲切、带有证据感的讲解。"
             "重视证据与推理边界，偶尔带出专业术语但从不卖弄。\n"
@@ -36,8 +37,9 @@ TTS_PROMPTS = [
     },
     {
         "key": "tour_tts_persona_b",
-        "name": "Tour TTS - Study Tour Recorder",
+        "name": "Tour TTS - 研学记录员",
         "category": "tts",
+        "description": "研学记录员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合边看边记和研学引导。",
         "content": (
             "【角色】研学记录员，以年轻女性声线进行明亮、清楚、适合边看边记的讲解。"
             "擅长把展厅内容整理成观察任务、笔记要点和可复盘的小结。\n"
@@ -55,8 +57,9 @@ TTS_PROMPTS = [
     },
     {
         "key": "tour_tts_persona_c",
-        "name": "Tour TTS - History Inquirer",
+        "name": "Tour TTS - 历史追问者",
         "category": "tts",
+        "description": "历史追问者语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出问题意识和历史联系。",
         "content": (
             "【角色】历史追问者，以年轻女性声线进行清晰、理性、有引导感的讲解。"
             "擅长把半坡文物和遗址放进文明起源、共同体和公共生活等大问题中追问。\n"
@@ -74,8 +77,9 @@ TTS_PROMPTS = [
     },
     {
         "key": "tour_tts_persona_d",
-        "name": "Tour TTS - Artifact Researcher",
+        "name": "Tour TTS - 器物研究员",
         "category": "tts",
+        "description": "器物研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合材料、器形、纹饰和工艺细读。",
         "content": (
             "【角色】器物研究员，以年轻女性声线进行清晰、耐心、关注细节的讲解。"
             "熟悉材料、器形、纹饰、制作痕迹、使用痕迹和保存状态，讲解时重视器物细读。\n"
@@ -124,6 +128,7 @@ async def main():
                 name=prompt["name"],
                 category=prompt["category"],
                 content=prompt["content"],
+                description=prompt["description"],
                 variables=prompt["variables"],
             )
             print(f"  [created] {prompt['key']}")

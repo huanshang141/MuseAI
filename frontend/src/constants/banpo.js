@@ -39,7 +39,7 @@ export const BANPO_HALLS = [
     estimated_duration_minutes: 18,
     display_order: 30,
     description: '以“陶器如何被制作出来”为核心叙事，解释制坯、装饰、干燥、入窑烧成等生产流程。',
-    highlights: ['陶窑遗迹', '制陶流程', '烧成痕迹', '陶器工艺'],
+    highlights: ['陶窑遗址', '火候工艺', '制陶流程'],
   },
   {
     key: 'workshop',
@@ -53,7 +53,7 @@ export const BANPO_HALLS = [
     estimated_duration_minutes: 20,
     display_order: 40,
     description: '把制陶、材料、手作等史前生活知识转化为可参与的互动学习体验。',
-    highlights: ['手作体验', '史前工艺', '材料认知', '互动学习'],
+    highlights: ['手作体验', '史前工艺', '互动学习'],
   },
   {
     key: 'banpoGirl',
@@ -66,8 +66,8 @@ export const BANPO_HALLS = [
     floor: 1,
     estimated_duration_minutes: 8,
     display_order: 50,
-    description: '以“半坡姑娘”为代表形象进行艺术化再现，是观众理解半坡人物想象与公共记忆的入口。',
-    highlights: ['人物形象', '公共记忆', '艺术再现'],
+    description: '以“半坡姑娘”为代表形象进行艺术化再现，是观众合影点和半坡人形象记忆入口。',
+    highlights: ['人物形象', '文化象征', '观展地标'],
   },
   {
     key: 'education',
@@ -87,15 +87,15 @@ export const BANPO_HALLS = [
     key: 'peony',
     slug: 'peony-garden',
     name: '牡丹园',
-    shortName: '牡丹园',
+    shortName: '牡丹',
     icon: '🌸',
     type: '常开放',
     zone: '园区空间',
     floor: 3,
     estimated_duration_minutes: 10,
     display_order: 70,
-    description: '馆区公共景观空间，可作为路线间的缓冲和观众休整点。',
-    highlights: ['园区景观', '休整空间', '公共体验'],
+    description: '以牡丹为核心的园林休憩区域，适合在观展间隙停留并体验季节性自然景观。',
+    highlights: ['植物景观', '园林休憩', '季节观赏'],
   },
   {
     key: 'temp1',
@@ -108,8 +108,8 @@ export const BANPO_HALLS = [
     floor: 3,
     estimated_duration_minutes: 15,
     display_order: 90,
-    description: '临时展览空间，当前主题需按馆方最新展陈内容更新。',
-    highlights: ['临时展览', '主题待定'],
+    description: '承载阶段性专题展览，主题和展品随当期策展内容变化。',
+    highlights: ['当期专题', '临时展品', '策展主题'],
   },
   {
     key: 'temp2',
@@ -122,8 +122,8 @@ export const BANPO_HALLS = [
     floor: 3,
     estimated_duration_minutes: 15,
     display_order: 100,
-    description: '临时展览空间，当前主题需按馆方最新展陈内容更新。',
-    highlights: ['临时展览', '主题待定'],
+    description: '与临展厅一共同承担轮换展出，需要按馆方最新展览清单更新内容。',
+    highlights: ['轮换展览', '阶段性专题', '馆方更新'],
   },
 ]
 
@@ -213,7 +213,6 @@ export function getLegacyHallRows(records = []) {
       return rawSlug && !CANONICAL_HALL_SLUGS.has(rawSlug)
     })
     .map((item) => {
-      const rawSlug = item.slug || item.hall || item.hall_slug
       return {
         ...item,
         targetSlug: '',
@@ -285,71 +284,102 @@ export const BANPO_RHYTHMS = [
   { value: 'research', label: '研究深化模式' },
 ]
 
-function routeStep(slug, title, focus, minutes) {
+function routeStep(slug, title, focus, minutes, reason) {
   const hall = getHallBySlug(slug)
   return {
+    order: 0,
     hall_slug: slug,
     hall_name: hall?.name || slug,
     title,
     focus,
+    reason,
+    minutes,
     estimated_minutes: minutes,
     tags: hall?.highlights?.slice(0, 3) || [],
   }
 }
 
+const MINI_PROGRAM_FALLBACK_STEPS = [
+  routeStep(
+    'basic-exhibition-hall',
+    '基本陈列展厅',
+    '半坡人、石器工具、彩陶与装饰品。',
+    18,
+    '先建立半坡文化的基本印象，了解出土遗物、生活方式和考古发现脉络。',
+  ),
+  routeStep(
+    'site-protection-hall',
+    '遗址保护大厅',
+    '房屋遗迹、墓葬区、制陶区和聚落边界。',
+    18,
+    '再把器物放回真实遗址空间，观察房屋、墓葬、作坊和公共空间。',
+  ),
+  routeStep(
+    'kiln-hall',
+    '陶窑展厅',
+    '陶窑结构、烧成痕迹和制陶工艺。',
+    14,
+    '补上制陶流程，理解陶器从材料、成型到烧制的过程。',
+  ),
+  routeStep(
+    'prehistoric-workshop',
+    '史前工坊',
+    '手作步骤、材料处理和工艺难点。',
+    14,
+    '用互动体验把抽象技术转化为可感知的操作过程。',
+  ),
+  routeStep(
+    'banpo-girl-sculpture',
+    '半坡姑娘雕塑',
+    '人物形象、文化象征和观展记忆点。',
+    8,
+    '通过公共形象理解半坡遗址如何被今天的人记住和表达。',
+  ),
+  routeStep(
+    'temporary-hall-1',
+    '临展厅一',
+    '当期主题、展签说明和馆方更新。',
+    8,
+    '临展内容随馆方主题更新，适合用现场展签确认当期信息。',
+  ),
+  routeStep(
+    'temporary-hall-2',
+    '临展厅二',
+    '轮换展览、阶段性主题和现场说明。',
+    8,
+    '继续查看临时展陈，补充当期策展主题中的另一组材料。',
+  ),
+  routeStep(
+    'education-center',
+    '教研中心',
+    '研学问题、讨论线索和活动信息。',
+    8,
+    '把前面的观察整理成问题、笔记或复盘提纲。',
+  ),
+  routeStep(
+    'peony-garden',
+    '牡丹园',
+    '园林休憩、季节景观和参观节奏。',
+    6,
+    '作为参观间隙的停留点，放慢节奏并整理刚才的观察。',
+  ),
+].map((step, index) => ({ ...step, order: index + 1 }))
+
+function miniProgramFallbackRoute(persona) {
+  return {
+    persona,
+    title: '小程序本地兜底路线',
+    summary: '与小程序 route 页固定 9 站 fallback 完全一致；身份只影响后端 AI plan payload，不改变本地兜底顺序。',
+    total_minutes: 102,
+    steps: MINI_PROGRAM_FALLBACK_STEPS,
+  }
+}
+
 export const BANPO_ROUTE_STRATEGIES = {
-  A: {
-    persona: BANPO_PERSONA_BY_CODE.A,
-    summary: '先建立文物证据框架，再回到遗址空间和陶器工艺中验证推断。',
-    total_minutes: 90,
-    steps: [
-      routeStep('basic-exhibition-hall', '建立证据框架', '看器物、出土背景和展签如何支撑判断。', 20),
-      routeStep('site-protection-hall', '回到原址验证', '把房屋、墓葬和壕沟放回真实聚落空间中理解。', 20),
-      routeStep('kiln-hall', '追踪制陶证据', '从烧成痕迹和工艺流程检验“陶器如何生产”。', 15),
-      routeStep('prehistoric-workshop', '补足实验体验', '用操作难度理解工具和工艺背后的劳动经验。', 15),
-      routeStep('banpo-girl-sculpture', '辨析想象与证据', '区分考古事实、艺术再现和公共记忆。', 10),
-      routeStep('education-center', '整理研究问题', '把观察点整理成证据链和待查问题。', 10),
-    ],
-  },
-  B: {
-    persona: BANPO_PERSONA_BY_CODE.B,
-    summary: '按“领任务、记证据、成笔记”的节奏，把参观材料整理成可复盘的研学记录。',
-    total_minutes: 90,
-    steps: [
-      routeStep('site-protection-hall', '先领观察任务', '记录房屋、墓葬、公共空间的相互位置。', 18),
-      routeStep('basic-exhibition-hall', '补充展品证据', '记录器物名称、用途、材料和能说明问题的细节。', 22),
-      routeStep('education-center', '整理问题清单', '把观察整理成问题链、证据链和小结。', 15),
-      routeStep('prehistoric-workshop', '动手理解工艺', '记录手作环节、难点和展品之间的对应关系。', 15),
-      routeStep('kiln-hall', '理解陶器生产', '把制陶流程补进研学笔记。', 12),
-      routeStep('banpo-girl-sculpture', '形成复盘入口', '记录人物形象如何影响今天对半坡的第一印象。', 8),
-    ],
-  },
-  C: {
-    persona: BANPO_PERSONA_BY_CODE.C,
-    summary: '从日常生活的问题进入，再追问聚落组织、公共记忆和今天如何理解半坡。',
-    total_minutes: 90,
-    steps: [
-      routeStep('basic-exhibition-hall', '从生活问题开始', '看吃住劳动、器物用途和装饰如何组织日常。', 20),
-      routeStep('site-protection-hall', '追问聚落关系', '观察房屋、墓葬和公共空间是否体现规则。', 20),
-      routeStep('banpo-girl-sculpture', '看公共记忆', '思考现代雕塑如何塑造半坡人的形象。', 10),
-      routeStep('peony-garden', '换到公共空间', '把博物馆园区也作为今天的展示和休整空间来理解。', 10),
-      routeStep('education-center', '整理追问线索', '把“为什么”和“还有什么证据”整理成后续问题。', 15),
-      routeStep('kiln-hall', '回到工艺证据', '用陶窑生产补充对社会分工的讨论。', 15),
-    ],
-  },
-  D: {
-    persona: BANPO_PERSONA_BY_CODE.D,
-    summary: '从代表性器物进入，再回到遗址和工艺流程，用细节建立可解释的半坡图景。',
-    total_minutes: 90,
-    steps: [
-      routeStep('basic-exhibition-hall', '先看器物成品', '观察材料、器形、纹饰和磨损痕迹。', 23),
-      routeStep('kiln-hall', '再理解制作过程', '从陶窑、烧成痕迹和制陶流程理解工艺链条。', 17),
-      routeStep('prehistoric-workshop', '用体验验证难度', '把“好看”“有用”“难做”拆成可观察证据。', 15),
-      routeStep('site-protection-hall', '放回使用场景', '看器物如何进入房屋、墓葬和公共空间。', 20),
-      routeStep('banpo-girl-sculpture', '区分器物与形象', '辨析实物证据和艺术想象的边界。', 8),
-      routeStep('education-center', '整理器物卡片', '形成可复盘的器物观察表。', 7),
-    ],
-  },
+  A: miniProgramFallbackRoute(BANPO_PERSONA_BY_CODE.A),
+  B: miniProgramFallbackRoute(BANPO_PERSONA_BY_CODE.B),
+  C: miniProgramFallbackRoute(BANPO_PERSONA_BY_CODE.C),
+  D: miniProgramFallbackRoute(BANPO_PERSONA_BY_CODE.D),
 }
 
 export const TTS_VOICE_CONTRACT = {

@@ -41,7 +41,7 @@ async function fetchManualRoutes() {
       <div>
         <span class="kicker">路线契约</span>
         <h2>AI 策展路线与本地兜底</h2>
-        <p>小程序路线页优先调用 <code>/curator/plan-tour</code> 生成结构化路线。这里展示四身份兜底策略，用于网络失败、接口异常或人工验收时保持体验完整。</p>
+        <p>小程序路线页优先调用 <code>/curator/plan-tour</code> 生成结构化路线。这里展示与小程序 <code>route.js</code> 完全一致的 9 站本地兜底路线，用于网络失败、接口异常或人工验收时保持体验完整。</p>
       </div>
       <el-button :loading="loading" @click="fetchManualRoutes">刷新人工路线</el-button>
     </header>
@@ -54,7 +54,7 @@ async function fetchManualRoutes() {
       title="不会覆盖小程序 AI 路线"
     >
       <template #default>
-        管理端此页用于查看和校验路线契约。真正的个性化顺序由后端 curator service 根据 persona、时间和问卷兴趣实时生成。
+        管理端此页用于查看和校验路线契约。真正的个性化顺序由后端 curator service 根据 persona、时间和问卷兴趣实时生成；本地兜底路线不按身份改顺序。
       </template>
     </el-alert>
 
@@ -119,7 +119,7 @@ async function fetchManualRoutes() {
       </div>
       <el-empty
         v-if="!manualRoutes.length"
-        description="当前没有单独维护人工路线；小程序会使用 AI 策展路线和本地兜底策略。"
+        description="当前没有单独维护人工路线；小程序会使用 AI 策展路线和 9 站本地兜底路线。"
       />
       <el-table v-else :data="manualRoutes" border>
         <el-table-column prop="name" label="路线名称" min-width="160" />

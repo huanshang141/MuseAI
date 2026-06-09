@@ -19,7 +19,9 @@ const formRef = ref(null)
 const exhibits = ref([])
 const halls = ref([])
 const selectedRows = ref([])
+const batchHall = ref('')
 const batchDeleting = ref(false)
+const batchBinding = ref(false)
 const problemResolving = ref(false)
 const dialogVisible = ref(false)
 const isEditing = ref(false)
@@ -79,13 +81,13 @@ const filteredExhibits = computed(() => {
 
 const nonExhibitRows = computed(() => activeNormalizedExhibits.value.filter((item) => isNonExhibitName(item.name)))
 const unmappedRows = computed(() => activeNormalizedExhibits.value.filter((item) => !activeHallSlugs.value.has(item.hall)))
-const legacyHallRows = computed(() => activeNormalizedExhibits.value.filter((item) => item.rawHall && item.rawHall !== item.hall && activeHallSlugs.value.has(item.hall)))
+const problemRows = computed(() => [...nonExhibitRows.value, ...unmappedRows.value])
 
 const stats = computed(() => [
   { label: '展项总数', value: normalizedExhibits.value.length, hint: '后台展品库' },
   { label: '可展示', value: normalizedExhibits.value.filter((item) => item.is_active !== false).length, hint: '小程序可检索' },
   { label: '展厅覆盖', value: `${coveredHallCount.value}/${BANPO_HALLS.length}`, hint: 'canonical slug' },
-  { label: '需处理', value: nonExhibitRows.value.length + unmappedRows.value.length + legacyHallRows.value.length, hint: '非展品或映射异常' },
+  { label: '需处理', value: problemRows.value.length, hint: '非展品或未绑定展厅' },
 ])
 
 const coveredHallCount = computed(() => {
@@ -233,12 +235,14 @@ function handleSelectionChange(selection) {
 
 async function handleResolveProblemRows() {
   const rowsToDisable = nonExhibitRows.value
-  const rowsToNormalize = legacyHallRows.value
-  if (!rowsToDisable.length && !rowsToNormalize.length) return
+  if (!rowsToDisable.length) {
+    ElMessage.warning('未绑定展厅的展项需要选择行后批量绑定展厅，或逐条编辑所属展厅')
+    return
+  }
 
   try {
     await ElMessageBox.confirm(
-      `将停用 ${rowsToDisable.length} 条非展品，并修正 ${rowsToNormalize.length} 条旧展厅映射。是否继续？`,
+      `将停用 ${rowsToDisable.length} 条可能不是展品的条目。未绑定展厅的展项不会自动停用，请选择行后批量绑定展厅。是否继续？`,
       '处理需处理项',
       { type: 'warning' },
     )
@@ -251,12 +255,6 @@ async function handleResolveProblemRows() {
       if (result.ok) successCount += 1
       else failedCount += 1
     }
-    for (const row of rowsToNormalize) {
-      const result = await updateExhibit(row.id, { hall: row.hall })
-      if (result.ok) successCount += 1
-      else failedCount += 1
-    }
-
     await fetchExhibits()
     if (failedCount) {
       ElMessage.warning(`已处理 ${successCount} 条，${failedCount} 条失败`)
@@ -267,6 +265,35 @@ async function handleResolveProblemRows() {
     // user cancelled
   } finally {
     problemResolving.value = false
+  }
+}
+
+async function handleBatchBindHall() {
+  if (!selectedRows.value.length || !batchHall.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定将已选中的 ${selectedRows.value.length} 件展项绑定到「${getHallDisplayName(batchHall.value)}」吗？`,
+      '批量绑定展厅',
+      { type: 'warning' },
+    )
+    batchBinding.value = true
+    let successCount = 0
+    let failedCount = 0
+    for (const row of selectedRows.value) {
+      const result = await updateExhibit(row.id, { hall: batchHall.value })
+      if (result.ok) successCount += 1
+      else failedCount += 1
+    }
+    await fetchExhibits()
+    if (failedCount) {
+      ElMessage.warning(`已绑定 ${successCount} 件，${failedCount} 件失败`)
+    } else {
+      ElMessage.success(`已绑定 ${successCount} 件展项`)
+    }
+  } catch {
+    // user cancelled
+  } finally {
+    batchBinding.value = false
   }
 }
 
@@ -313,9 +340,8 @@ async function handleBatchDelete() {
         <el-button @click="fetchExhibits">刷新</el-button>
         <el-button
           type="warning"
-          plain
           :loading="problemResolving"
-          :disabled="problemResolving || (!nonExhibitRows.length && !legacyHallRows.length)"
+          :disabled="problemResolving || !problemRows.length"
           @click="handleResolveProblemRows"
         >
           处理需处理项
@@ -356,6 +382,7 @@ async function handleBatchDelete() {
     >
       <template #default>
         有 {{ unmappedRows.length }} 条展项未绑定到当前半坡 canonical slug，会影响展厅筛选、报告统计和 OCR 匹配。
+        可勾选这些展项后，在工具栏选择展厅并批量绑定。
       </template>
     </el-alert>
 
@@ -372,6 +399,18 @@ async function handleBatchDelete() {
         <el-option label="停用展项" value="inactive" />
         <el-option label="全部状态" value="all" />
       </el-select>
+      <el-select v-model="batchHall" placeholder="批量绑定展厅" clearable filterable>
+        <el-option v-for="hall in canonicalHalls" :key="hall.slug" :label="hall.name" :value="hall.slug" />
+      </el-select>
+      <el-button
+        type="primary"
+        plain
+        :loading="batchBinding"
+        :disabled="batchBinding || !selectedRows.length || !batchHall"
+        @click="handleBatchBindHall"
+      >
+        绑定所选
+      </el-button>
       <el-button
         type="danger"
         plain
@@ -400,6 +439,7 @@ async function handleBatchDelete() {
               <div class="exhibit-name">
                 {{ row.name }}
                 <el-tag v-if="row.nonExhibit" type="warning" size="small">非展品候选</el-tag>
+                <el-tag v-if="!activeHallSlugs.has(row.hall)" type="danger" size="small">未绑定展厅</el-tag>
                 <el-tag v-if="row.is_active === false" type="info" size="small">停用</el-tag>
               </div>
               <div class="exhibit-desc">{{ row.description || '暂无简介' }}</div>
@@ -411,7 +451,7 @@ async function handleBatchDelete() {
         <template #default="{ row }">
           <div class="hall-cell">
             <strong>{{ row.hallName }}</strong>
-            <span>{{ row.hall }}</span>
+            <span>{{ row.hall || row.rawHall || '未绑定 canonical slug' }}</span>
           </div>
         </template>
       </el-table-column>
@@ -588,7 +628,7 @@ async function handleBatchDelete() {
 
 .toolbar {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 220px 190px 150px auto;
+  grid-template-columns: minmax(260px, 1fr) 200px 170px 140px 200px auto auto;
   gap: 10px;
   margin-bottom: 16px;
 }

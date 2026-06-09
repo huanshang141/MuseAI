@@ -2,10 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
-  Collection,
   Document,
   MapLocation,
-  Microphone,
   Monitor,
   Refresh,
   Search,
@@ -45,6 +43,8 @@ const personaContract = Object.values(BANPO_PERSONAS).map((persona) => ({
   route: persona.routeTitle,
 }))
 
+const expectedTtsKeys = BANPO_PERSONAS.map((persona) => `tour_tts_persona_${persona.code.toLowerCase()}`)
+
 const missingExpectedHalls = computed(() => {
   const current = new Set(halls.value.map((hall) => normalizeHallSlug(hall.slug)))
   return expectedHalls.filter((hall) => !current.has(hall.slug))
@@ -56,8 +56,14 @@ const inactiveExpectedHalls = computed(() => {
 })
 
 const hasBingtangVoice = computed(() => {
-  if (!ttsPersonas.value.length) return false
+  if (!hasExactTtsPersonas.value) return false
   return ttsPersonas.value.every((item) => !item.voice || item.voice === TTS_VOICE_CONTRACT.voice)
+})
+
+const hasExactTtsPersonas = computed(() => {
+  const keys = ttsPersonas.value.map((item) => item.key).sort()
+  return keys.length === expectedTtsKeys.length
+    && expectedTtsKeys.every((key, index) => keys[index] === key)
 })
 
 const dashboardStats = computed(() => [
@@ -95,8 +101,8 @@ const flowRows = computed(() => [
     miniapp: 'onboarding -> persona-reveal -> route',
     backend: '/tour/sessions, persona A/B/C/D',
     control: '提示词管理、语音角色管理',
-    status: ttsPersonas.value.length >= 4 ? 'ok' : 'warn',
-    note: ttsPersonas.value.length >= 4 ? '四身份配置已覆盖' : 'TTS 身份配置少于 4 个',
+    status: hasExactTtsPersonas.value ? 'ok' : 'warn',
+    note: hasExactTtsPersonas.value ? '四身份 TTS key 与小程序 A/B/C/D 完全一致' : 'TTS 身份必须只保留 tour_tts_persona_a/b/c/d',
     actions: [
       { label: '提示词', path: '/admin/prompts' },
       { label: '语音角色', path: '/admin/tts-personas' },
@@ -108,7 +114,7 @@ const flowRows = computed(() => [
     backend: '/curator/plan-tour',
     control: '路线管理、提示词管理、LLM 调用追踪',
     status: healthStatus.value === 'ok' ? 'ok' : 'warn',
-    note: '小程序优先使用 curator plan；路线管理用于人工维护和兜底参考',
+    note: '路线管理展示的小程序本地 fallback 为固定 9 站、约 102 分钟；AI plan 可覆盖展示',
     actions: [
       { label: '路线管理', path: '/admin/tour-paths' },
       { label: '调用追踪', path: '/admin/llm-traces' },
@@ -116,13 +122,13 @@ const flowRows = computed(() => [
   },
   {
     name: '展厅选择与到访统计',
-    miniapp: 'hall 选择、tour events、report halls_visited',
+    miniapp: 'hall 选择、有效互动事件、report halls_visited',
     backend: '/tour/halls, /tour/sessions/:id/events, /report',
     control: '展厅设置',
     status: missingExpectedHalls.value.length ? 'warn' : 'ok',
     note: missingExpectedHalls.value.length
       ? `缺少 ${missingExpectedHalls.value.length} 个小程序约定展厅`
-      : '展厅 slug 与小程序常用顺序可对齐',
+      : '展厅 slug 与小程序 DEFAULT_ORDER 完全一致；hall_enter 不单独计入到访统计',
     actions: [{ label: '展厅设置', path: '/admin/halls' }],
   },
   {
@@ -151,11 +157,11 @@ const flowRows = computed(() => [
   },
   {
     name: '报告与 Reflection Engine',
-    miniapp: 'report 直接渲染 halls_visited / highlights / reflection / record_notes',
+    miniapp: 'report 渲染 halls_visited / highlights / reflection / record_notes，并合并本地记录摘要',
     backend: '/tour/sessions/:id/report',
     control: '提示词管理、LLM 调用追踪',
     status: healthStatus.value === 'ok' ? 'ok' : 'warn',
-    note: '报告由事件、展厅、展品和规则式 reflection 组成，不新增独立后台表',
+    note: '报告由有效互动事件、展厅、展品、规则式 reflection 与小程序本地 TOUR_RECORD_SUMMARY 共同组成',
     actions: [
       { label: '提示词', path: '/admin/prompts' },
       { label: '调用追踪', path: '/admin/llm-traces' },
@@ -167,7 +173,7 @@ const flowRows = computed(() => [
     backend: '/tts/synthesize',
     control: '语音角色管理',
     status: hasBingtangVoice.value ? 'ok' : 'warn',
-    note: hasBingtangVoice.value ? '当前后台只保留冰糖声线配置' : '未检测到统一冰糖声线配置',
+    note: hasBingtangVoice.value ? '四身份仅保留 A/B/C/D，并统一使用冰糖声线' : 'TTS key 或冰糖声线未完全对齐',
     actions: [{ label: '语音角色', path: '/admin/tts-personas' }],
   },
 ])

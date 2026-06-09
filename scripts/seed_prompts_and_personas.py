@@ -355,9 +355,9 @@ PROMPTS: list[dict] = [
     # ── Tour TTS Personas ───────────────────────────────────────
     {
         "key": "tour_tts_persona_a",
-        "name": "Tour TTS - Archaeology Researcher",
+        "name": "Tour TTS - 考古研究员",
         "category": "tts",
-        "description": "考古研究员语音人设：冰糖，明亮清晰的年轻女性声线",
+        "description": "考古研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出证据与推理边界。",
         "variables": [
             {"name": "__voice__", "description": "冰糖"},
             {"name": "__voice_description__", "description": "年轻女性声线，明亮清澈，亲切自然，适合清晰、有证据感的博物馆讲解"},
@@ -375,9 +375,9 @@ PROMPTS: list[dict] = [
     },
     {
         "key": "tour_tts_persona_b",
-        "name": "Tour TTS - Study Tour Recorder",
+        "name": "Tour TTS - 研学记录员",
         "category": "tts",
-        "description": "研学记录员语音人设：冰糖，明亮清晰的年轻女性声线",
+        "description": "研学记录员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合边看边记和研学引导。",
         "variables": [
             {"name": "__voice__", "description": "冰糖"},
             {"name": "__voice_description__", "description": "年轻女性声线，明亮清澈，亲切自然，适合研学引导"},
@@ -395,9 +395,9 @@ PROMPTS: list[dict] = [
     },
     {
         "key": "tour_tts_persona_c",
-        "name": "Tour TTS - History Inquirer",
+        "name": "Tour TTS - 历史追问者",
         "category": "tts",
-        "description": "历史追问者语音人设：冰糖，明亮清晰的年轻女性声线",
+        "description": "历史追问者语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出问题意识和历史联系。",
         "variables": [
             {"name": "__voice__", "description": "冰糖"},
             {"name": "__voice_description__", "description": "年轻女性声线，明亮清澈，理性自然，富有引导感"},
@@ -415,9 +415,9 @@ PROMPTS: list[dict] = [
     },
     {
         "key": "tour_tts_persona_d",
-        "name": "Tour TTS - Artifact Researcher",
+        "name": "Tour TTS - 器物研究员",
         "category": "tts",
-        "description": "器物研究员语音人设：冰糖，明亮清晰的年轻女性声线",
+        "description": "器物研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合材料、器形、纹饰和工艺细读。",
         "variables": [
             {"name": "__voice__", "description": "冰糖"},
             {"name": "__voice_description__", "description": "年轻女性声线，明亮清澈，耐心自然，适合器物细读"},
@@ -441,15 +441,15 @@ PROMPTS: list[dict] = [
 # ────────────────────────────────────────────────────────────────
 
 HALLS: list[dict] = [
-    {"slug": "basic-exhibition-hall", "name": "基本陈列展厅", "description": "以半坡遗址相关考古发现与研究成果为主线，系统展示半坡文化的生活形态、生产方式与社会结构。", "floor": 1, "estimated_duration_minutes": 40, "display_order": 1},
-    {"slug": "site-protection-hall", "name": "遗址保护大厅", "description": "强调边保护边展示，呈现墓葬、地面圆形房屋、烧制作坊、灶具灶台等关键遗存。", "floor": 1, "estimated_duration_minutes": 35, "display_order": 2},
-    {"slug": "temporary-hall-1", "name": "临展厅一", "description": "承载策划性的短期或阶段性展览，具体主题和展品视当期安排而定。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 8},
-    {"slug": "temporary-hall-2", "name": "临展厅二", "description": "与临展厅一共同负责轮换展出，具体内容需由馆方按当期展览更新。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 9},
-    {"slug": "banpo-girl-sculpture", "name": "半坡姑娘雕塑", "description": "以半坡姑娘为代表性形象进行艺术化再现，是观众合影点与文化符号。", "floor": 1, "estimated_duration_minutes": 8, "display_order": 5},
-    {"slug": "prehistoric-workshop", "name": "史前工坊", "description": "以工坊形式让观众参与史前生活相关体验，把考古知识转化为可参与的学习过程。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 4},
-    {"slug": "education-center", "name": "教研中心", "description": "面向青少年和公众教育活动，组织课堂、研学和主题研究型活动。", "floor": 1, "estimated_duration_minutes": 20, "display_order": 6},
-    {"slug": "peony-garden", "name": "牡丹园", "description": "以牡丹为核心的园林景观区域，兼具观赏与休闲功能。", "floor": 1, "estimated_duration_minutes": 15, "display_order": 7},
-    {"slug": "kiln-hall", "name": "陶窑展厅", "description": "以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 3},
+    {"slug": "basic-exhibition-hall", "name": "基本陈列展厅", "description": "以半坡遗址考古发现与研究成果为主线，系统呈现半坡文化的生活形态、生产方式与社会结构。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 10},
+    {"slug": "site-protection-hall", "name": "遗址保护大厅", "description": "强调原址呈现与保护展示，可观察墓葬、地面圆形房屋、烧制作坊、灶具灶台等关键遗存。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 20},
+    {"slug": "kiln-hall", "name": "陶窑展厅", "description": "以“陶器如何被制作出来”为核心叙事，解释制坯、装饰、干燥、入窑烧成等生产流程。", "floor": 1, "estimated_duration_minutes": 18, "display_order": 30},
+    {"slug": "prehistoric-workshop", "name": "史前工坊", "description": "把制陶、材料、手作等史前生活知识转化为可参与的互动学习体验。", "floor": 2, "estimated_duration_minutes": 20, "display_order": 40},
+    {"slug": "banpo-girl-sculpture", "name": "半坡姑娘雕塑", "description": "以“半坡姑娘”为代表形象进行艺术化再现，是观众合影点和半坡人形象记忆入口。", "floor": 1, "estimated_duration_minutes": 8, "display_order": 50},
+    {"slug": "education-center", "name": "教研中心", "description": "面向青少年和公众教育活动，适合承载研学课程、主题课堂与研究型活动。", "floor": 2, "estimated_duration_minutes": 18, "display_order": 60},
+    {"slug": "peony-garden", "name": "牡丹园", "description": "以牡丹为核心的园林休憩区域，适合在观展间隙停留并体验季节性自然景观。", "floor": 3, "estimated_duration_minutes": 10, "display_order": 70},
+    {"slug": "temporary-hall-1", "name": "临展厅一", "description": "承载阶段性专题展览，主题和展品随当期策展内容变化。", "floor": 3, "estimated_duration_minutes": 15, "display_order": 90},
+    {"slug": "temporary-hall-2", "name": "临展厅二", "description": "与临展厅一共同承担轮换展出，需要按馆方最新展览清单更新内容。", "floor": 3, "estimated_duration_minutes": 15, "display_order": 100},
 ]
 
 

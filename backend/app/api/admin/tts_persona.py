@@ -25,10 +25,22 @@ router = APIRouter(prefix="/admin/tts", tags=["admin-tts"])
 VALID_PERSONAS = {"a", "b", "c", "d"}
 PERSONA_KEY_PREFIX = "tour_tts_persona_"
 PERSONA_DEFAULTS = {
-    "a": {"name": "Tour TTS - 考古研究员", "description": "考古研究员语音人设"},
-    "b": {"name": "Tour TTS - 研学记录员", "description": "研学记录员语音人设"},
-    "c": {"name": "Tour TTS - 历史追问者", "description": "历史追问者语音人设"},
-    "d": {"name": "Tour TTS - 器物研究员", "description": "器物研究员语音人设"},
+    "a": {
+        "name": "Tour TTS - 考古研究员",
+        "description": "考古研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出证据与推理边界。",
+    },
+    "b": {
+        "name": "Tour TTS - 研学记录员",
+        "description": "研学记录员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合边看边记和研学引导。",
+    },
+    "c": {
+        "name": "Tour TTS - 历史追问者",
+        "description": "历史追问者语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出问题意识和历史联系。",
+    },
+    "d": {
+        "name": "Tour TTS - 器物研究员",
+        "description": "器物研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，适合材料、器形、纹饰和工艺细读。",
+    },
 }
 
 
@@ -85,11 +97,13 @@ def _normalize_variables(variables: list) -> list[dict[str, str]]:
 
 def _persona_to_response(prompt: Prompt) -> TtsPersonaResponse:
     normalized = _normalize_variables(prompt.variables)
+    persona_code = prompt.key.removeprefix(PERSONA_KEY_PREFIX)
+    defaults = PERSONA_DEFAULTS.get(persona_code)
     return TtsPersonaResponse(
         id=prompt.id.value,
         key=prompt.key,
-        name=prompt.name,
-        description=prompt.description,
+        name=defaults["name"] if defaults else prompt.name,
+        description=defaults["description"] if defaults else prompt.description,
         category=prompt.category,
         content=prompt.content,
         voice=extract_voice(normalized),

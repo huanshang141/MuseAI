@@ -23,7 +23,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-frontend\package-lock.json
+package-lock.json
 
 # Virtual environments
 .venv/

@@ -657,6 +657,95 @@ def test_aggregate_stats_dedupes_retried_question_events():
     assert stats["ceramic_questions"] == 1
 
 
+def test_aggregate_stats_prefers_answered_questions_for_report_count():
+    session = _make_session(started_at=datetime.now(UTC) - timedelta(minutes=5))
+    events = [
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="basic-exhibition-hall",
+            event_meta={"question": "裸问题，不应在已有回答统计中加一"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="assistant_answer",
+            hall="basic-exhibition-hall",
+            event_meta={"question": "问题一", "answer": "回答一"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="assistant_answer",
+            hall="site-protection-hall",
+            event_meta={"question": "问题二", "answer": "回答二", "is_ceramic_question": True},
+        ).to_entity(),
+        _make_event_model(
+            event_type="assistant_answer",
+            hall="kiln-hall",
+            event_meta={"question": "问题三", "answer": "回答三"},
+        ).to_entity(),
+    ]
+
+    stats = aggregate_stats(events, session)
+
+    assert stats["total_questions"] == 3
+    assert stats["ceramic_questions"] == 1
+
+
+def test_aggregate_stats_counts_exhibit_view_without_duration():
+    session = _make_session(started_at=datetime.now(UTC) - timedelta(minutes=5))
+    events = [
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id="exhibit-no-duration",
+            hall="basic-exhibition-hall",
+            duration_seconds=None,
+        ).to_entity(),
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id="exhibit-with-duration",
+            hall="basic-exhibition-hall",
+            duration_seconds=120,
+            event_meta={"client_event_id": "view-duration-1"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id="exhibit-with-duration",
+            hall="basic-exhibition-hall",
+            duration_seconds=120,
+            event_meta={"client_event_id": "view-duration-1"},
+        ).to_entity(),
+    ]
+
+    stats = aggregate_stats(events, session)
+
+    assert stats["total_exhibits_viewed"] == 2
+    assert stats["most_viewed_exhibit_id"] == "exhibit-with-duration"
+    assert stats["most_viewed_exhibit_duration"] == 120
+
+
+def test_aggregate_stats_counts_named_local_exhibit_view():
+    session = _make_session(started_at=datetime.now(UTC) - timedelta(minutes=5))
+    events = [
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id=None,
+            hall="basic-exhibition-hall",
+            duration_seconds=30,
+            event_meta={"exhibit_name": "石器工具"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id=None,
+            hall="basic-exhibition-hall",
+            duration_seconds=20,
+            event_meta={"exhibit_name": "石器工具"},
+        ).to_entity(),
+    ]
+
+    stats = aggregate_stats(events, session)
+
+    assert stats["total_exhibits_viewed"] == 1
+    assert stats["most_viewed_exhibit_id"] == "name:石器工具"
+    assert stats["most_viewed_exhibit_duration"] == 50
+
+
 def test_reflection_summary_detects_interest_shift():
     session = _make_session(persona="D", assumption="D")
     events = [

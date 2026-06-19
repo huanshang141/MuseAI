@@ -394,28 +394,39 @@ def aggregate_stats(events: list, tour_session) -> dict:
 
     exhibit_durations: dict[str, int] = {}
     hall_durations: dict[str, int] = {}
-    total_questions = 0
-    ceramic_questions = 0
+    answered_questions = 0
+    fallback_questions = 0
+    answered_ceramic_questions = 0
+    fallback_ceramic_questions = 0
     viewed_exhibits: set[str] = set()
-    seen_questions: set[str] = set()
+    seen_answered_questions: set[str] = set()
+    seen_question_events: set[str] = set()
     seen_duration_events: set[str] = set()
 
     for event in events:
         metadata = _event_metadata(event)
-        if event.event_type == "exhibit_view" and event.exhibit_id and event.duration_seconds:
-            duration_key = _event_dedupe_key(
-                event,
-                event.event_type,
-                event.exhibit_id,
-                event.hall,
-                event.duration_seconds,
-            )
-            if duration_key in seen_duration_events:
+        if event.event_type == "exhibit_view":
+            eid = ""
+            if event.exhibit_id:
+                eid = event.exhibit_id.value if hasattr(event.exhibit_id, 'value') else str(event.exhibit_id)
+            if not eid:
+                exhibit_name = str(metadata.get("exhibit_name") or metadata.get("name") or "").strip()
+                if exhibit_name:
+                    eid = f"name:{exhibit_name}"
+            if not eid:
                 continue
-            seen_duration_events.add(duration_key)
-            eid = event.exhibit_id.value if hasattr(event.exhibit_id, 'value') else str(event.exhibit_id)
-            exhibit_durations[eid] = exhibit_durations.get(eid, 0) + event.duration_seconds
             viewed_exhibits.add(eid)
+            if event.duration_seconds:
+                duration_key = _event_dedupe_key(
+                    event,
+                    event.event_type,
+                    event.exhibit_id,
+                    event.hall,
+                    event.duration_seconds,
+                )
+                if duration_key not in seen_duration_events:
+                    seen_duration_events.add(duration_key)
+                    exhibit_durations[eid] = exhibit_durations.get(eid, 0) + event.duration_seconds
         elif event.event_type == "hall_leave" and event.hall and event.duration_seconds:
             duration_key = _event_dedupe_key(
                 event,
@@ -430,6 +441,20 @@ def aggregate_stats(events: list, tour_session) -> dict:
             if not hall:
                 continue
             hall_durations[hall] = hall_durations.get(hall, 0) + event.duration_seconds
+        elif event.event_type == "assistant_answer":
+            question_text = metadata.get("question") or metadata.get("message") or ""
+            question_key = _event_dedupe_key(
+                event,
+                event.event_type,
+                normalize_hall(event.hall),
+                question_text,
+            )
+            if question_key in seen_answered_questions:
+                continue
+            seen_answered_questions.add(question_key)
+            answered_questions += 1
+            if metadata.get("is_ceramic_question") or detect_ceramic_question(str(question_text)):
+                answered_ceramic_questions += 1
         elif event.event_type == "exhibit_question":
             question_text = metadata.get("message") or metadata.get("question") or ""
             question_key = _event_dedupe_key(
@@ -438,12 +463,12 @@ def aggregate_stats(events: list, tour_session) -> dict:
                 normalize_hall(event.hall),
                 question_text,
             )
-            if question_key in seen_questions:
+            if question_key in seen_question_events:
                 continue
-            seen_questions.add(question_key)
-            total_questions += 1
+            seen_question_events.add(question_key)
+            fallback_questions += 1
             if metadata.get("is_ceramic_question"):
-                ceramic_questions += 1
+                fallback_ceramic_questions += 1
 
     most_viewed_exhibit_id = None
     most_viewed_exhibit_duration = None
@@ -460,6 +485,8 @@ def aggregate_stats(events: list, tour_session) -> dict:
         longest_hall_duration = hall_durations[top_hall]
 
     site_hall_minutes = hall_durations.get("site-protection-hall", 0) / 60.0
+    total_questions = answered_questions if answered_questions else fallback_questions
+    ceramic_questions = answered_ceramic_questions if answered_questions else fallback_ceramic_questions
 
     return {
         "total_duration_minutes": round(total_duration, 1),

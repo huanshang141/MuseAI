@@ -162,7 +162,7 @@ def build_system_prompt(
         parts.append(f"当前展品信息：{exhibit_context}")
     else:
         parts.append(
-            "当前没有具体展项上下文；回答展厅问题时不要说'这件展品'、'这件文物'。"
+            "当前没有具体展品上下文；回答展厅问题时不要说'这件展品'、'这件文物'。"
             "如需提到对象，请说'当前展厅展出的相关器物/遗存'或直接说对象名称。"
         )
 
@@ -187,7 +187,7 @@ def _build_challenge_prompt(
     assumption_hint = ASSUMPTION_CONTEXTS.get(assumption, ASSUMPTION_CONTEXTS["D"])
     return (
         "【反身性融入提示】这不是结尾模板，不要照抄下面的文字，不要在回答末尾固定追加问题。"
-        "仅当用户进入展项深挖、连续追问，或当前问题确实需要归纳含义时，"
+        "仅当用户进入展品深挖、连续追问，或当前问题确实需要归纳含义时，"
         "把这条线索自然融入回答中的一处解释里；优先使用陈述句、转折句或小结句，"
         "不要用突兀的反问结束。若用户只问事实定义或简单说明，直接回答事实即可。"
         f"可参考初始判断：{assumption_hint} "

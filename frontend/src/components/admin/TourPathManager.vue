@@ -127,7 +127,7 @@ async function fetchManualRoutes() {
         <el-table-column prop="estimated_duration" label="时长" width="110">
           <template #default="{ row }">{{ row.estimated_duration || '-' }} 分钟</template>
         </el-table-column>
-        <el-table-column prop="exhibit_count" label="展项数" width="100" />
+        <el-table-column prop="exhibit_count" label="展品数" width="100" />
       </el-table>
     </section>
   </div>

@@ -158,3 +158,42 @@ uv run pytest backend/tests/contract/test_tour_api.py -k "report" -q --basetemp 
 ```
 
 结果：语法检查通过；`aggregate_stats` 单测 6 passed；报告契约测试 5 passed。
+
+## 2026-06-20 管理端与后端展品命名统一
+
+### 范围
+
+- 用户指出小程序和管理端语义只涉及“展品”，旧称不应再保留。
+- 本轮只做命名清理，不修改 DB schema、API 契约、SSE 协议或 RAG 流程。
+
+### 修改
+
+- `backend/app/application/tour_chat_service.py`
+  - 后端导览提示词中的旧称统一为“展品”。
+- `frontend/src/components/admin/ExhibitManager.vue`
+  - 管理端展品管理标题、统计卡片、批量绑定/停用提示、筛选项和表格列统一为“展品”。
+- `frontend/src/components/admin/MiniProgramControlPanel.vue`
+  - 小程序闭环说明中的数据与报告统计文案统一为“展品”。
+- `frontend/src/components/admin/TourPathManager.vue`
+  - 路线表格中的统计列统一为“展品数”。
+- `frontend/src/components/tour/HallSelect.vue`
+  - 管理端/旧 Web 展厅选择展示中的标签统一为“展品”。
+- `docs/banpo_data_audit.md`
+  - 数据审计文档统一为“展品知识库”。
+
+### 待验证
+
+- 已完成。
+
+### 验证
+
+```bash
+$env:UV_CACHE_DIR='.uv-cache-codex'
+uv run python -m py_compile backend/app/application/tour_chat_service.py
+cd frontend
+npm.cmd run build
+cd ..
+rg -n "展项" backend frontend docs -S
+```
+
+结果：Python 语法检查通过；管理端 Vite build 通过。Vite 仅提示 Element Plus vendor chunk 超过 500 kB，为现有依赖体积警告。残留关键字扫描无命中。

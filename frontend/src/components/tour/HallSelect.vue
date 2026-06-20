@@ -48,7 +48,7 @@ onMounted(async () => {
         </div>
         <div class="hall-stat">
           <strong>{{ hall.exhibit_count || 0 }}</strong>
-          <span>展项</span>
+          <span>展品</span>
           <strong>{{ hall.estimated_duration_minutes }}</strong>
           <span>分钟</span>
         </div>

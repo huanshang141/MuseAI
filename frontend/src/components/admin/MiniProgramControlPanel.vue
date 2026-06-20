@@ -82,7 +82,7 @@ const dashboardStats = computed(() => [
     type: missingExpectedHalls.value.length || inactiveExpectedHalls.value.length ? 'warning' : 'success',
   },
   {
-    label: '展项数据',
+    label: '展品数据',
     value: String(exhibits.value.length),
     desc: '影响展品浏览、搜展品和 OCR fallback',
     type: exhibits.value.length ? 'success' : 'warning',
@@ -182,7 +182,7 @@ const syncRows = [
   {
     area: '展品管理',
     runtime: '小程序通过 /exhibits 和 /exhibits/:id 实时读取后端展品库',
-    effect: '保存后立即影响搜展品、展品详情、OCR fallback 和报告展项统计',
+    effect: '保存后立即影响搜展品、展品详情、OCR fallback 和报告展品统计',
     note: '需要绑定 canonical hall slug；未绑定展厅会被小程序筛选、报告和 OCR 逻辑漏掉。',
   },
   {

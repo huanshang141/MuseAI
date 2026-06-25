@@ -93,6 +93,7 @@ class TourChatHistoryItem(BaseModel):
 class TourChatRequest(BaseModel):
     message: str = Field(..., max_length=2000)
     exhibit_id: str | None = None
+    exhibit_context: str | None = Field(default=None, max_length=1200)
     client_event_id: str | None = Field(default=None, max_length=120)
     style: TourChatStyle | None = None
     client_context: str | None = Field(default=None, max_length=1500)
@@ -232,6 +233,46 @@ def _format_session(tour_session) -> dict:
         "visited_exhibit_ids": tour_session.visited_exhibit_ids,
         "started_at": tour_session.started_at.isoformat(),
     }
+
+
+def _compact_chat_exhibit_context(value: str | None, max_len: int = 1200) -> str | None:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
+async def _resolve_chat_exhibit_context(
+    session,
+    exhibit_id: str | None,
+    provided_context: str | None,
+) -> str | None:
+    context = _compact_chat_exhibit_context(provided_context)
+    if context:
+        return context
+
+    eid = str(exhibit_id or "").strip()
+    if not eid or eid.startswith("local-") or eid.startswith("mock-"):
+        return None
+
+    exhibit = await session.get(Exhibit, eid)
+    if exhibit is None:
+        return None
+
+    parts = [f"名称：{exhibit.name}"]
+    hall_slug = normalize_hall(exhibit.hall)
+    hall_name = hall_display_name(hall_slug) if hall_slug else None
+    if hall_name or exhibit.hall:
+        parts.append(f"展厅：{hall_name or exhibit.hall}")
+    if exhibit.category:
+        parts.append(f"类别：{exhibit.category}")
+    if exhibit.era:
+        parts.append(f"年代：{exhibit.era}")
+    if exhibit.description:
+        parts.append(f"简介：{str(exhibit.description).strip()[:600]}")
+    return "\n".join(parts)[:1200]
 
 
 def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
@@ -768,6 +809,12 @@ async def tour_chat_stream(
         except (TourSessionNotFound, TourSessionExpired):
             pass  # Will fall back to session persona in ask_stream_tour
 
+    exhibit_context = await _resolve_chat_exhibit_context(
+        session,
+        body.exhibit_id,
+        body.exhibit_context,
+    )
+
     return StreamingResponse(
         ask_stream_tour(
             db_session=session,
@@ -777,6 +824,7 @@ async def tour_chat_stream(
             rag_agent=rag_agent,
             llm_provider=llm_provider,
             exhibit_id=body.exhibit_id,
+            exhibit_context=exhibit_context,
             client_event_id=body.client_event_id,
             client_context=body.client_context,
             conversation_history=[

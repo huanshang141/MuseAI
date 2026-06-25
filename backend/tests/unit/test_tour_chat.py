@@ -156,7 +156,7 @@ def test_build_system_prompt_with_exhibit_context():
         persona="A", assumption="A", exhibit_context="人面鱼纹盆，红陶制品"
     )
     assert "人面鱼纹盆，红陶制品" in prompt
-    assert "当前展品信息" in prompt
+    assert "当前讨论对象信息" in prompt
 
 
 def test_build_system_prompt_with_visited_exhibits():
@@ -295,6 +295,43 @@ async def test_stream_rag_preserves_system_prompt_with_prompt_gateway():
     assert "临展厅应该怎么看？" in prompt
 
 
+@pytest.mark.asyncio
+async def test_stream_rag_uses_exhibit_anchor_for_retrieval_only():
+    captured_messages = []
+
+    class Doc:
+        page_content = "参考材料：横穴窑由火膛、窑室和烟道构成。"
+
+    rag_agent = MagicMock()
+    rag_agent.run = AsyncMock(return_value={"documents": [Doc()]})
+    rag_agent.prompt_gateway = None
+
+    llm_provider = MagicMock()
+
+    async def fake_stream(messages):
+        captured_messages.extend(messages)
+        yield "ok"
+
+    llm_provider.generate_stream = fake_stream
+
+    events = []
+    async for event, chunk in _stream_rag(
+        rag_agent,
+        llm_provider,
+        "这是什么东西",
+        "系统提示：当前展厅是陶窑展厅。",
+        retrieval_query="当前讨论对象：横穴窑\n用户问题：这是什么东西",
+    ):
+        events.append((event, chunk))
+
+    assert events
+    called_query = rag_agent.run.await_args.args[0]
+    assert "横穴窑" in called_query
+    assert "这是什么东西" in called_query
+    prompt = "\n".join(m["content"] for m in captured_messages)
+    assert "用户问题：这是什么东西" in prompt
+
+
 # ===================================================================
 # Tour Chat Stream Tests (ask_stream_tour behaviour)
 # ===================================================================
@@ -424,6 +461,10 @@ class TestTourChatRequestTTSField:
     def test_tts_enabled(self):
         req = TourChatRequest(message="hi", tts=True)
         assert req.tts is True
+
+    def test_exhibit_context_accepted(self):
+        req = TourChatRequest(message="这是什么东西", exhibit_context="名称：横穴窑")
+        assert req.exhibit_context == "名称：横穴窑"
 
 
 # ===================================================================

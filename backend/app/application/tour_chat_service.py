@@ -131,6 +131,36 @@ def _should_use_history_for_retrieval(message: str) -> bool:
     return any(keyword in text for keyword in CONTEXT_REWRITE_KEYWORDS)
 
 
+def _context_field(context: str | None, label: str) -> str | None:
+    if not context:
+        return None
+    prefix = f"{label}："
+    for line in str(context).splitlines():
+        text = line.strip()
+        if text.startswith(prefix):
+            value = text[len(prefix):].strip()
+            return value or None
+    return None
+
+
+def _build_exhibit_retrieval_query(message: str, exhibit_context: str | None) -> str:
+    context = (exhibit_context or "").strip()
+    if not context:
+        return message
+    name = _context_field(context, "名称")
+    hall = _context_field(context, "展厅")
+    header_parts = []
+    if name:
+        header_parts.append(f"当前讨论对象：{name}")
+    if hall:
+        header_parts.append(f"所在展厅：{hall}")
+    header = "\n".join(header_parts)
+    body = context[:700]
+    if header:
+        return f"{header}\n{body}\n用户问题：{message}"
+    return f"{body}\n用户问题：{message}"
+
+
 def build_system_prompt(
     persona: str,
     assumption: str,
@@ -159,7 +189,7 @@ def build_system_prompt(
         parts.append(challenge_prompt)
 
     if exhibit_context:
-        parts.append(f"当前展品信息：{exhibit_context}")
+        parts.append(f"当前讨论对象信息：{exhibit_context}")
     else:
         parts.append(
             "当前没有具体展品上下文；回答展厅问题时不要说'这件展品'、'这件文物'。"
@@ -319,9 +349,11 @@ async def ask_stream_tour(
     t_rag = time.perf_counter()
     _first_token = False
     full_content_parts: list[str] = []
+    retrieval_query = _build_exhibit_retrieval_query(message, exhibit_context)
     try:
         async for event, chunk in _stream_rag(
             rag_agent, llm_provider, message, system_prompt,
+            retrieval_query=retrieval_query if retrieval_query != message else None,
             conversation_history=conversation_history if _should_use_history_for_retrieval(message) else None,
             answer_history=conversation_history,
             perf_log=log, trace_id=trace_id,
@@ -375,6 +407,9 @@ async def ask_stream_tour(
             event_metadata = {"question": message, "is_ceramic_question": is_ceramic}
             if client_event_id:
                 event_metadata["client_event_id"] = client_event_id
+            exhibit_name = _context_field(exhibit_context, "名称")
+            if exhibit_name:
+                event_metadata["exhibit_name"] = exhibit_name
             await record_events(event_session, tour_session_id, [
                 {
                     "event_type": "exhibit_question",
@@ -392,6 +427,7 @@ async def _stream_rag(
     llm_provider: Any,
     message: str,
     system_prompt: str,
+    retrieval_query: str | None = None,
     conversation_history: list[dict[str, str]] | None = None,
     answer_history: list[dict[str, str]] | None = None,
     perf_log: Any = None,
@@ -400,8 +436,9 @@ async def _stream_rag(
     # ── RAG pipeline (rewrite → retrieve → merge → rerank → filter → evaluate) ──
     # skip_generate=True: generate node is a no-op, we stream via llm_provider below.
     _t = time.perf_counter()
+    query_for_retrieval = retrieval_query or message
     result = await rag_agent.run(
-        message,
+        query_for_retrieval,
         system_prompt=system_prompt,
         conversation_history=conversation_history,
         trace_id=trace_id,

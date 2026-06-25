@@ -6,7 +6,7 @@ MuseAI backend is the FastAPI service for the Banpo Museum WeChat mini-program. 
 
 ## Current Stage
 
-The backend is now in the **launch preparation and release closeout stage**. The core mini-program experience is supported and the planned mini-program features have completed real-device testing. Formal release still depends on filing, WeChat legal-domain approval, real data, OCR service decisions, API-key governance, and production process management. See [上线准备.md](../project_materials/docs/上线准备.md) for the operational checklist.
+The backend is now in the **launch preparation and release closeout stage**. The core mini-program experience is supported and the planned mini-program features have completed real-device testing. ICP filing and the WeChat request legal-domain flow have passed; formal release still depends on real data, OCR service decisions, API-key governance, production process management, and experience-version release work. See [上线准备.md](../project_materials/docs/上线准备.md) for the operational checklist.
 
 
 ## Implemented Capabilities
@@ -45,9 +45,9 @@ The backend is now in the **launch preparation and release closeout stage**. The
 
 HTTPS status, split in two parts:
 
-- Done (server side): `api.banpo-museai.xyz` DNS, SSL certificate, and Nginx 443 reverse proxy are configured; `https://api.banpo-museai.xyz/api/v1/health` returns healthy.
-- Current development state: because `banpo-museai.xyz` is still waiting for filing, the mini-program frontend temporarily uses the server HTTP development endpoint `http://122.152.232.190:3000/api/v1`; release builds must switch back to `https://api.banpo-museai.xyz/api/v1`.
-- Not done (WeChat side): filing, WeChat admin legal request-domain configuration, and an official-environment real-device run with the DevTools legal-domain exemption turned off.
+- Done: ICP filing for `banpo-museai.xyz` has passed; `api.banpo-museai.xyz` DNS, SSL certificate, and Nginx 443 reverse proxy are configured; `https://api.banpo-museai.xyz/api/v1/health` returns healthy.
+- Current development state: the mini-program frontend now uses `https://api.banpo-museai.xyz/api/v1` for testing; the public HTTP development endpoint is retained only as emergency fallback or historical debugging context.
+- Done (WeChat side): the WeChat request legal domain is configured, DevTools domain settings were refreshed, and real-device testing passed with the legal-domain exemption turned off.
 
 Other items:
 
@@ -56,7 +56,7 @@ Other items:
 - The LLM Qwen API is provided by Alex, while other API keys are provided by another teammate. Release needs explicit ownership, quota, billing, alerting, and rotation rules.
 - Current Qwen calls consume free or trial quota. Confirm quota, rate limits, and billing policy in the provider console before experience-version testing.
 - Production process management (systemd), log rotation, and database backup now have deployment assets (see `deploy/`), but they have not been applied on the server yet.
-- Experience-version upload, tester distribution, and official acceptance with legal-domain checks enabled are not complete.
+- Experience-version upload, tester distribution, and a final full regression before upload are not complete.
 
 ## Tech Stack
 
@@ -214,7 +214,7 @@ The current server resource budget is now **2 CPU cores / 8 GB RAM**. Deployment
 
 - Uvicorn listens on `127.0.0.1:8000`.
 - Nginx proxies traffic to the backend.
-- During filing, the mini-program can temporarily use `http://122.152.232.190:3000/api/v1` for development; release builds must switch back to `https://api.banpo-museai.xyz/api/v1` and disable the WeChat DevTools legal-domain exemption.
+- The mini-program should now use `https://api.banpo-museai.xyz/api/v1` for testing. If it temporarily falls back to `http://122.152.232.190:3000/api/v1`, release builds must switch back to HTTPS and disable the WeChat DevTools legal-domain exemption.
 - Historical note: early development used `http://122.152.232.190:3000/api/v1`; the public HTTP entry should be closed once HTTPS real-device validation passes (see `deploy/DEPLOYMENT_NOTES.md`).
 
 Recommended for 2 CPU cores / 8 GB RAM:
@@ -239,9 +239,8 @@ Before launch, replace manual `nohup` with systemd or Docker Compose.
 
 ## Launch Blockers
 
-- Decide the mini-program filing subject: individual, university/project institution, or museum partner.
-- After filing passes, configure WeChat legal domains for request/uploadFile/downloadFile.
-- Switch frontend API endpoints from the temporary development HTTP endpoint to `https://api.banpo-museai.xyz/api/v1`.
+- The WeChat request legal domain is configured and passed real-device testing with the exemption disabled. If future features upload files or download remote file URLs, confirm uploadFile/downloadFile legal domains.
+- Frontend API endpoints have been switched from the temporary development HTTP endpoint to `https://api.banpo-museai.xyz/api/v1`.
 - Import and sample-check official museum exhibit, hall, image, and spatial data.
 - Decide the OCR release strategy: buy/configure OCR service ID, or hide OCR and keep text search only.
 - Confirm Qwen/DashScope free quota, paid activation, rate limits, and bill alerts.

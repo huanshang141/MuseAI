@@ -738,7 +738,7 @@ def test_aggregate_stats_counts_user_sent_messages_not_answer_events():
     assert stats["ceramic_questions"] == 1
 
 
-def test_aggregate_stats_dedupes_retried_answers_with_new_client_ids():
+def test_aggregate_stats_counts_answer_events_when_question_events_missing():
     session = _make_session(started_at=datetime.now(UTC) - timedelta(minutes=5))
     events = [
         _make_event_model(
@@ -772,7 +772,7 @@ def test_aggregate_stats_dedupes_retried_answers_with_new_client_ids():
 
     stats = aggregate_stats(events, session)
 
-    assert stats["total_questions"] == 0
+    assert stats["total_questions"] == 2
 
 
 def test_aggregate_stats_counts_exhibit_view_without_duration():

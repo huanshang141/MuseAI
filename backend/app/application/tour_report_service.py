@@ -423,7 +423,7 @@ def aggregate_stats(events: list, tour_session) -> dict:
     sent_ceramic_questions = 0
     viewed_exhibits: set[str] = set()
     seen_question_events: set[str] = set()
-    recent_question_signatures: dict[str, tuple[float, bool]] = {}
+    recent_question_signatures: dict[str, tuple[float, bool, bool]] = {}
     seen_duration_events: set[str] = set()
 
     for event in events:
@@ -464,9 +464,15 @@ def aggregate_stats(events: list, tour_session) -> dict:
             if not hall:
                 continue
             hall_durations[hall] = hall_durations.get(hall, 0) + event.duration_seconds
-        elif event.event_type == "exhibit_question":
+        elif event.event_type in {"exhibit_question", "assistant_answer"}:
             question_text = metadata.get("message") or metadata.get("question") or metadata.get("query") or ""
-            client_event_id = metadata.get("client_event_id")
+            if not str(question_text or "").strip():
+                continue
+            client_event_id = (
+                metadata.get("client_event_id")
+                if event.event_type == "exhibit_question"
+                else metadata.get("question_client_event_id") or metadata.get("client_event_id")
+            )
             if client_event_id:
                 question_key = f"client:{client_event_id}"
                 if question_key in seen_question_events:
@@ -478,16 +484,23 @@ def aggregate_stats(events: list, tour_session) -> dict:
                 hall = normalize_hall(event.hall) or ""
                 question_signature = f"{hall}|{normalized_question}"
                 has_frontend_question_id = _is_frontend_question_client_id(client_event_id)
+                is_answer_event = event.event_type == "assistant_answer"
                 previous = recent_question_signatures.get(question_signature)
                 if (
                     previous is not None
                     and abs(event_time - previous[0]) <= 15
-                    and (previous[1] or has_frontend_question_id)
+                    and (
+                        previous[1]
+                        or has_frontend_question_id
+                        or previous[2]
+                        or is_answer_event
+                    )
                 ):
                     continue
                 recent_question_signatures[question_signature] = (
                     event_time,
                     has_frontend_question_id,
+                    is_answer_event,
                 )
             sent_questions += 1
             if metadata.get("is_ceramic_question") or detect_ceramic_question(str(question_text)):

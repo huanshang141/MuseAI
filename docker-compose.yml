@@ -9,7 +9,7 @@ services:
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
     mem_limit: 768m
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -27,7 +27,7 @@ services:
       - POSTGRES_PASSWORD=museai123
       - POSTGRES_DB=museai
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,7 +40,7 @@ services:
     image: redis:7-alpine
     container_name: museai-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

@@ -24,3 +24,8 @@
 - 对话检索会按 `Exhibit.document_id` 校验旧 document 分片，仅允许当前展厅启用展品关联的分片，同时保留未关联展品的通用馆方文档。
 - 最终验证：关键组合 159 passed；全后端 1073 passed、23 skipped（17 条既有 warning）；本次变更 scoped Ruff 与 `git diff --check` 通过。
 - 提交 SHA：见本提交。推送分支：`codex/data-driven-miniapp-framework`。
+
+## 2026-07-16
+
+- 生产部署验证发现长期运行的 `uv run uvicorn` 会使新的 `uv run` 运维命令等待；systemd unit 改为直接调用 checkout 内 `.venv/bin/alembic` 和 `.venv/bin/uvicorn`。
+- 部署说明补充每次切换提交后先执行 `uv sync --frozen`，确保 systemd 使用的虚拟环境与目标提交一致。

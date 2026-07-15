@@ -8,8 +8,10 @@
 # Adjust before installing:
 #   - WorkingDirectory / EnvironmentFile: replace /home/ubuntu/MuseAI
 #     with the actual checkout path on the server.
-#   - ExecStart uv path: run `which uv` as the service user and use that
-#     absolute path (systemd does not load the user's shell PATH).
+#   - Run `uv sync --frozen` before installing or restarting the unit so the
+#     checked-out revision has a complete `.venv`.
+#   - WorkingDirectory must remain the repository root because Alembic and
+#     the application load configuration relative to it.
 
 [Unit]
 Description=MuseAI FastAPI backend (uvicorn)
@@ -29,8 +31,8 @@ EnvironmentFile=/home/ubuntu/MuseAI/.env
 # Keep PostgreSQL schema in sync with the application before accepting traffic.
 # Alembic is idempotent when no revisions are pending; if a migration fails,
 # the app should not start against a mismatched schema.
-ExecStartPre=/home/ubuntu/.local/bin/uv run alembic upgrade head
-ExecStart=/home/ubuntu/.local/bin/uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1
+ExecStartPre=/home/ubuntu/MuseAI/.venv/bin/alembic upgrade head
+ExecStart=/home/ubuntu/MuseAI/.venv/bin/uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --workers 1
 Restart=always
 RestartSec=5
 # Give in-flight SSE streams a moment to finish on stop/restart.

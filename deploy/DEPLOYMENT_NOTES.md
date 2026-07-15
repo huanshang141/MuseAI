@@ -48,7 +48,9 @@ journalctl -u museai-backend -n 100 --no-pager
 
 ```bash
 # 1) 按锁文件同步依赖并确认虚拟环境命令存在
+uv lock --check
 uv sync --frozen
+uv pip check --python /home/ubuntu/MuseAI/.venv/bin/python
 test -x /home/ubuntu/MuseAI/.venv/bin/alembic
 test -x /home/ubuntu/MuseAI/.venv/bin/uvicorn
 
@@ -70,6 +72,7 @@ sudo systemctl enable --now museai-backend
 - 切换到 systemd 前，先停掉手动 nohup 进程：
   `pkill -f "uv run uvicorn backend.app.main:app" || true`
 - `EnvironmentFile` 指向 `/home/ubuntu/MuseAI/.env`。systemd 对该文件解析较严格：值含空格必须加引号、不能有 `export`。应用本身也会通过 pydantic-settings 读取同一份 `.env`，两者保持一致即可。
+- `uv.lock` 必须由 Git 跟踪。`uv lock --check` 失败或 `uv pip check` 报缺包时禁止重启服务；不要让服务器保留一个覆盖仓库状态的未跟踪旧锁文件。
 - unit 直接调用当前 checkout 的 `.venv/bin/alembic` 与 `.venv/bin/uvicorn`，避免长期运行的 `uv run` 父进程与后续 `uv run` 运维命令发生环境锁等待；因此每次切换提交后必须先执行 `uv sync --frozen`。
 - unit 会在启动前执行 `.venv/bin/alembic upgrade head`。没有待执行 revision 时该命令是幂等的；如果迁移失败，服务不会在错误 schema 上启动。
 - 不要给生产 unit 加 `--reload`。

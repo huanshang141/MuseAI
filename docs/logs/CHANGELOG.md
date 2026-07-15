@@ -30,3 +30,4 @@
 - 生产部署验证发现长期运行的 `uv run uvicorn` 会使新的 `uv run` 运维命令等待；systemd unit 改为直接调用 checkout 内 `.venv/bin/alembic` 和 `.venv/bin/uvicorn`。
 - 部署说明补充每次切换提交后先执行 `uv sync --frozen`，确保 systemd 使用的虚拟环境与目标提交一致。
 - PostgreSQL、Redis 与 Elasticsearch 的 Compose 端口只绑定 `127.0.0.1`，避免无认证基础服务暴露到公网。
+- 修复生产依赖不可复现：停止忽略并提交 `uv.lock`，部署时先执行 `uv lock --check`、`uv sync --frozen` 和 `uv pip check`，避免服务器旧锁遗漏 `openpyxl` 等运行时依赖。

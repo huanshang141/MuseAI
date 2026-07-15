@@ -36,7 +36,6 @@ env/
 .uv-cache/
 .uv-cache-codex/
 uv-cache/
-uv.lock
 
 # IDE
 .idea/

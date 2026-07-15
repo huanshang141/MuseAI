@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.value_objects import ExhibitId, Location
@@ -30,6 +32,9 @@ class Exhibit(Base):
     document_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("documents.id"), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     display_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    suggested_questions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -55,3 +60,7 @@ class Exhibit(Base):
         )
 
     document: Mapped[Document] = relationship(back_populates="exhibits")
+
+    __table_args__ = (
+        sa.UniqueConstraint("source_name", "source_record_id", name="uq_exhibits_source_record"),
+    )

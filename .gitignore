@@ -68,6 +68,8 @@ test_alembic.db
 
 # Logs
 logs/
+!docs/logs/
+!docs/logs/CHANGELOG.md
 backend_uvicorn.log
 
 # Performance test reports (keep directory structure but ignore generated reports)
@@ -84,5 +86,8 @@ frontend/node_modules/
 
 # codex
 codex.md
+/AGENTS.md
+/DESIGN.md
+/CURRENT_TASK.md
 
 !docs/reference/展品.md

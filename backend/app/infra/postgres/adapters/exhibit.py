@@ -7,6 +7,15 @@ from app.domain.value_objects import ExhibitId, Location
 from ..models import Exhibit as ExhibitORM
 
 
+def _catalog_ordering():
+    """Keep imported catalog order deterministic across PostgreSQL and SQLite."""
+    return (
+        ExhibitORM.display_order.asc().nulls_last(),
+        ExhibitORM.created_at.asc(),
+        ExhibitORM.id.asc(),
+    )
+
+
 class PostgresExhibitRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
@@ -48,7 +57,7 @@ class PostgresExhibitRepository:
         query = select(ExhibitORM)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
-        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
+        query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -62,7 +71,7 @@ class PostgresExhibitRepository:
         query = select(ExhibitORM).where(ExhibitORM.category == category)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
-        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
+        query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -76,7 +85,7 @@ class PostgresExhibitRepository:
         query = select(ExhibitORM).where(ExhibitORM.hall == hall)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
-        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
+        query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -143,7 +152,11 @@ class PostgresExhibitRepository:
         return True
 
     async def list_all_active(self) -> list[Exhibit]:
-        query = select(ExhibitORM).where(ExhibitORM.is_active.is_(True))
+        query = (
+            select(ExhibitORM)
+            .where(ExhibitORM.is_active.is_(True))
+            .order_by(*_catalog_ordering())
+        )
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -164,7 +177,7 @@ class PostgresExhibitRepository:
         if floor is not None:
             query = query.where(ExhibitORM.floor == floor)
 
-        query = query.order_by(ExhibitORM.created_at.desc()).offset(skip).limit(limit)
+        query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -191,7 +204,9 @@ class PostgresExhibitRepository:
         if floor is not None:
             sql_query = sql_query.where(ExhibitORM.floor == floor)
 
-        sql_query = sql_query.offset(skip).limit(limit)
+        sql_query = (
+            sql_query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
+        )
         result = await self._session.execute(sql_query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 

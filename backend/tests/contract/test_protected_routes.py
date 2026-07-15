@@ -5,6 +5,8 @@ from app.infra.postgres.models import Base
 from app.main import app
 from httpx import ASGITransport, AsyncClient
 
+from tests.auth_helpers import ensure_test_user, issue_test_token
+
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
@@ -75,21 +77,15 @@ async def test_protected_route_with_valid_token(db_session):
     app.dependency_overrides[original_get_db_session] = override_get_db
 
     try:
+        user = await ensure_test_user(
+            db_session,
+            email="protected-admin@example.com",
+            password="ProtectedAdmin123!",
+            role="admin",
+        )
+        token = issue_test_token(user)
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Register a user
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": "protected@example.com", "password": "Protected123!"},
-            )
-
-            # Login to get a token
-            login_response = await client.post(
-                "/api/v1/auth/login",
-                json={"email": "protected@example.com", "password": "Protected123!"},
-            )
-            token = login_response.json()["access_token"]
-
             # Access protected route with token
             response = await client.get(
                 "/api/v1/chat/sessions",

@@ -1,5 +1,4 @@
 import json
-import warnings
 from pathlib import Path
 
 from pydantic import field_validator, model_validator
@@ -212,6 +211,13 @@ class Settings(BaseSettings):
     # Allow insecure dev defaults for local development
     ALLOW_INSECURE_DEV_DEFAULTS: bool = False
     RATE_LIMIT_ENABLED: bool = True
+    TOUR_CHAT_SESSION_RATE_LIMIT_PER_MINUTE: int = 20
+    TOUR_CHAT_IP_RATE_LIMIT_PER_MINUTE: int = 300
+    TOUR_SESSION_CREATE_IP_RATE_LIMIT_PER_MINUTE: int = 300
+    TOUR_REPORT_SESSION_RATE_LIMIT_PER_MINUTE: int = 6
+    TOUR_REPORT_IP_RATE_LIMIT_PER_MINUTE: int = 120
+    TOUR_SESSION_WRITE_SESSION_RATE_LIMIT_PER_MINUTE: int = 60
+    TOUR_SESSION_WRITE_IP_RATE_LIMIT_PER_MINUTE: int = 600
 
     # Logging settings
     LOG_LEVEL: str = "INFO"
@@ -227,6 +233,10 @@ class Settings(BaseSettings):
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "json"  # "json" or "text"
 
+    # Accepted only so older deployments can remove the variable without a
+    # startup outage. It has no authorization effect and is not documented.
+    ADMIN_EMAILS: str = ""
+
     @field_validator("LOG_FORMAT")
     @classmethod
     def validate_log_format(cls, v: str) -> str:
@@ -236,19 +246,10 @@ class Settings(BaseSettings):
             raise ValueError(f"LOG_FORMAT must be one of {allowed}, got {v!r}")
         return v
 
-    # Admin configuration (comma-separated list of admin email addresses)
-    ADMIN_EMAILS: str = ""
-
     # Trusted proxy configuration for client IP extraction
     # Comma-separated list of trusted proxy/load balancer IPs
     # These IPs are trusted to send valid X-Forwarded-For headers
     TRUSTED_PROXIES: str = ""
-
-    def get_admin_emails(self) -> list[str]:
-        """Parse ADMIN_EMAILS setting into a list."""
-        if not self.ADMIN_EMAILS:
-            return []
-        return [email.strip() for email in self.ADMIN_EMAILS.split(",") if email.strip()]
 
     def get_trusted_proxies(self) -> set[str]:
         """Parse TRUSTED_PROXIES setting into a set."""
@@ -277,13 +278,6 @@ class Settings(BaseSettings):
                 raise ValueError("TTS_API_KEY must be set when TTS_PROVIDER is configured in production")
             if self.CORS_ORIGINS.strip() == "*":
                 raise ValueError("CORS_ORIGINS cannot be wildcard in production")
-            if self.ADMIN_EMAILS.strip():
-                warnings.warn(
-                    "ADMIN_EMAILS is deprecated in production; use scripts/bootstrap_admin.py.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
         if self.JWT_EXPIRE_MINUTES <= 0:
             raise ValueError("JWT_EXPIRE_MINUTES must be positive")
         if self.RERANK_MIN_DOCS > self.RERANK_MAX_DOCS:

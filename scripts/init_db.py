@@ -8,9 +8,6 @@ Usage:
     # Full initialization (migrations + ES index + service checks)
     python scripts/init_db.py
 
-    # With admin user creation
-    python scripts/init_db.py --admin-email admin@museai.local --admin-password <password>
-
     # With development seed data (requires Elasticsearch + Ollama running)
     python scripts/init_db.py --seed-dev
 
@@ -25,11 +22,8 @@ Environment variables:
     REDIS_URL:             Redis endpoint (default: redis://localhost:6379)
 
 Examples:
-    # Production deployment
-    python scripts/init_db.py --admin-email admin@museum.cn --admin-password 'YourStr0ngPass!'
-
     # Local development (full setup with seed data)
-    python scripts/init_db.py --seed-dev --admin-email admin@museai.local --admin-password dev12345678
+    python scripts/init_db.py --seed-dev
 
     # Only run PostgreSQL migrations
     python scripts/init_db.py --schema-only
@@ -46,9 +40,6 @@ from dotenv import load_dotenv
 
 # Load .env file from project root so os.environ picks up DATABASE_URL etc.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-MIN_PASSWORD_LENGTH = 12
-
 
 # ---------------------------------------------------------------------------
 # Service connectivity checks
@@ -221,48 +212,6 @@ async def create_es_index() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Admin user bootstrap
-# ---------------------------------------------------------------------------
-
-async def bootstrap_admin(email: str, password: str) -> None:
-    """Create or promote an admin user."""
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-    from app.infra.postgres.models import User
-    from app.infra.security.password import hash_password
-
-    if len(password) < MIN_PASSWORD_LENGTH:
-        print(f"Error: Admin password must be at least {MIN_PASSWORD_LENGTH} characters.")
-        sys.exit(1)
-
-    database_url = _check_database_url()
-    engine = create_async_engine(database_url, echo=False)
-    session_maker = async_sessionmaker(engine, expire_on_commit=False)
-
-    async with session_maker() as session:
-        result = await session.execute(select(User).where(User.email == email))
-        existing = result.scalar_one_or_none()
-
-        if existing is not None:
-            if existing.role == "admin":
-                print(f"  User '{email}' is already an admin. Skipping.")
-            else:
-                existing.role = "admin"
-                await session.commit()
-                print(f"  Promoted existing user '{email}' to admin.")
-        else:
-            password_hash = hash_password(password)
-            user_id = os.urandom(16).hex()
-            user = User(id=user_id, email=email, password_hash=password_hash, role="admin")
-            session.add(user)
-            await session.commit()
-            print(f"  Created admin user: id={user_id}, email={email}")
-
-    await engine.dispose()
-
-
-# ---------------------------------------------------------------------------
 # Seed data
 # ---------------------------------------------------------------------------
 
@@ -310,14 +259,6 @@ def main() -> None:
         epilog=__doc__,
     )
     parser.add_argument(
-        "--admin-email",
-        help="Email for the admin user to create/promote",
-    )
-    parser.add_argument(
-        "--admin-password",
-        help=f"Password for the admin user (min {MIN_PASSWORD_LENGTH} chars)",
-    )
-    parser.add_argument(
         "--init-es",
         action="store_true",
         help="Create Elasticsearch index with proper mapping (idempotent).",
@@ -333,11 +274,6 @@ def main() -> None:
         help="Only run PostgreSQL migrations, skip all other operations.",
     )
     args = parser.parse_args()
-
-    if args.admin_email and not args.admin_password:
-        parser.error("--admin-password is required when --admin-email is provided.")
-    if args.admin_password and not args.admin_email:
-        parser.error("--admin-email is required when --admin-password is provided.")
 
     # Ensure sys.path includes backend for imports
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
@@ -377,16 +313,7 @@ def main() -> None:
             print("  [SKIP] Elasticsearch is not reachable.")
         print()
 
-    # Step 3: Bootstrap admin user
-    if args.admin_email and args.admin_password:
-        step += 1
-        print(f"{'=' * 60}")
-        print(f"Step {step}: Bootstrap admin user")
-        print(f"{'=' * 60}")
-        asyncio.run(bootstrap_admin(args.admin_email, args.admin_password))
-        print()
-
-    # Step 4: Seed development data
+    # Step 3: Seed development data
     if args.seed_dev:
         step += 1
         print(f"{'=' * 60}")
@@ -413,9 +340,8 @@ def main() -> None:
         print("  Start it with: docker-compose up -d elasticsearch")
         print("  Then run:      python scripts/init_db.py --init-es")
 
-    if not args.admin_email:
-        print("\nTip: Create an admin user with:")
-        print("  python scripts/init_db.py --admin-email admin@museai.local --admin-password <password>")
+    print("\nTip: Create the single administrator with:")
+    print("  python scripts/bootstrap_admin.py --email admin@museai.local")
 
 
 if __name__ == "__main__":

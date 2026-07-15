@@ -234,7 +234,7 @@ Environment variables (see `.env.example` for full reference):
 - `JWT_SECRET`: str, default `""` — **Required in production** (≥32 chars)
 - `JWT_ALGORITHM`: str, default `"HS256"` — JWT signing algorithm
 - `JWT_EXPIRE_MINUTES`: int, settings.py default `60` — Token lifetime in minutes (`.env.example` ships `1440`)
-- `ADMIN_EMAILS`: str, default `""` — Comma-separated admin emails. **Deprecated**: in production this raises a `DeprecationWarning`. Initialize admins with `scripts/bootstrap_admin.py` instead.
+- Administrators are not configured by email environment variables. Initialize the single admin with `scripts/bootstrap_admin.py`; public registration is disabled.
 
 ### Database
 - `DATABASE_URL`: str, default `"sqlite+aiosqlite:///:memory:"` — PostgreSQL connection string
@@ -309,7 +309,7 @@ Environment variables (see `.env.example` for full reference):
 - `CORS_ORIGINS`: str, default `"http://localhost:3000"` — Comma-separated origins or `"*"` (wildcard forbidden in production)
 - `CORS_ALLOW_CREDENTIALS`: bool, default `True` — Allow credentials in CORS
 
-Production requires `JWT_SECRET` (≥32 chars), `LLM_API_KEY`, `RERANK_API_KEY` (when `RERANK_PROVIDER` != mock), and `TTS_API_KEY` (when `TTS_ENABLED` and provider != mock). `ADMIN_EMAILS` is deprecated in production — use `scripts/bootstrap_admin.py`.
+Production requires `JWT_SECRET` (≥32 chars), `LLM_API_KEY`, `RERANK_API_KEY` (when `RERANK_PROVIDER` != mock), and `TTS_API_KEY` (when `TTS_ENABLED` and provider != mock). Create the single administrator with `scripts/bootstrap_admin.py`.
 
 ## Testing Structure
 

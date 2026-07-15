@@ -2,15 +2,12 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from app.api.auth import RegisterRequest
 from app.application.auth_service import (
     authenticate_user,
     create_access_token,
     get_user_by_id,
-    register_user,
     verify_token,
 )
-from pydantic import ValidationError
 
 
 def create_mock_user_repo():
@@ -20,46 +17,6 @@ def create_mock_user_repo():
     mock_repo.get_by_email = AsyncMock(return_value=None)
     mock_repo.get_by_id = AsyncMock(return_value=None)
     return mock_repo
-
-
-@pytest.mark.asyncio
-async def test_register_user():
-    """Test successful user registration."""
-    mock_repo = create_mock_user_repo()
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="test@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-    )
-
-    assert user is not None
-    assert user.email == "test@example.com"
-    assert user.password_hash == "hashed_password_123"
-    mock_hash_func.assert_called_once_with("password123")
-    mock_repo.add.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_register_user_duplicate_email():
-    """Test that registering with a duplicate email raises an integrity error."""
-    from sqlalchemy.exc import IntegrityError
-
-    mock_repo = create_mock_user_repo()
-    mock_repo.add = AsyncMock(side_effect=IntegrityError("duplicate key", {}, None))
-
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    with pytest.raises(IntegrityError):
-        await register_user(
-            user_repo=mock_repo,
-            email="duplicate@example.com",
-            password="password123",
-            hash_password_func=mock_hash_func,
-        )
 
 
 @pytest.mark.asyncio
@@ -187,73 +144,3 @@ async def test_get_user_by_id_not_found():
     user = await get_user_by_id(user_repo=mock_repo, user_id="nonexistent-user")
 
     assert user is None
-
-
-# Password validation tests
-@pytest.mark.parametrize(
-    "password,expected_error",
-    [
-        ("Short1", "at least 8 characters"),
-        ("lowercase1", "uppercase letter"),
-        ("UPPERCASE1", "lowercase letter"),
-        ("NoDigitsHere", "digit"),
-    ],
-)
-def test_password_validation_rejects_invalid(password, expected_error):
-    """Test that passwords not meeting requirements are rejected."""
-    with pytest.raises(ValidationError, match=expected_error):
-        RegisterRequest(email="test@example.com", password=password)
-
-
-def test_valid_password_accepted():
-    """Test that valid passwords meeting all requirements are accepted."""
-    request = RegisterRequest(email="test@example.com", password="ValidPass1!")
-    assert request.password == "ValidPass1!"
-    assert request.email == "test@example.com"
-
-
-def test_password_validation_error_messages_clear():
-    """Test that validation error messages are user-friendly."""
-    with pytest.raises(ValidationError) as exc_info:
-        RegisterRequest(email="test@example.com", password="weak")
-
-    error_str = str(exc_info.value)
-    # Should contain clear, user-friendly messages
-    assert "Password must be at least 8 characters" in error_str
-
-
-# Role assignment tests
-@pytest.mark.asyncio
-async def test_register_user_always_assigns_user_role():
-    """New registrations should always start as regular users."""
-    mock_repo = create_mock_user_repo()
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="regular@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-    )
-
-    assert user is not None
-    assert user.email == "regular@example.com"
-    assert user.role == "user"
-
-
-@pytest.mark.asyncio
-async def test_register_user_does_not_auto_promote_admin_like_email():
-    """Email strings must not auto-grant admin role during registration."""
-    mock_repo = create_mock_user_repo()
-    mock_hash_func = MagicMock(return_value="hashed_password_123")
-
-    user = await register_user(
-        user_repo=mock_repo,
-        email="admin@example.com",
-        password="password123",
-        hash_password_func=mock_hash_func,
-    )
-
-    assert user is not None
-    assert user.email == "admin@example.com"
-    assert user.role == "user"

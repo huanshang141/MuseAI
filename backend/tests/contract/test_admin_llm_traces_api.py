@@ -2,13 +2,14 @@
 from datetime import UTC, datetime
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
-from app.api.deps import check_auth_rate_limit, get_db_session as original_get_db_session
+from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import Base
 from app.infra.postgres.models.llm_trace import LLMTraceEvent
 from app.main import app
+from httpx import ASGITransport, AsyncClient
+
+from tests.auth_helpers import ensure_test_user, issue_test_token
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -30,60 +31,24 @@ async def db_session(session_maker):
 
 @pytest.fixture
 async def admin_token(db_session):
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
-    try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": "admin_llm@example.com", "password": "AdminPass123!"},
-            )
-            login_response = await client.post(
-                "/api/v1/auth/login",
-                json={"email": "admin_llm@example.com", "password": "AdminPass123!"},
-            )
-            token = login_response.json()["access_token"]
-
-            from app.infra.postgres.models import User
-            from sqlalchemy import select
-
-            result = await db_session.execute(select(User).where(User.email == "admin_llm@example.com"))
-            user = result.scalar_one()
-            user.role = "admin"
-            await db_session.commit()
-
-            return token
-    finally:
-        app.dependency_overrides = {}
+    user = await ensure_test_user(
+        db_session,
+        email="admin_llm@example.com",
+        password="AdminPass123!",
+        role="admin",
+    )
+    return issue_test_token(user)
 
 
 @pytest.fixture
 async def user_token(db_session):
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
-    try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": "user_llm@example.com", "password": "UserPass123!"},
-            )
-            login_response = await client.post(
-                "/api/v1/auth/login",
-                json={"email": "user_llm@example.com", "password": "UserPass123!"},
-            )
-            return login_response.json()["access_token"]
-    finally:
-        app.dependency_overrides = {}
+    user = await ensure_test_user(
+        db_session,
+        email="user_llm@example.com",
+        password="UserPass123!",
+        role="user",
+    )
+    return issue_test_token(user)
 
 
 @pytest.fixture

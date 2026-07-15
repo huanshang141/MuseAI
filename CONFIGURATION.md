@@ -144,19 +144,16 @@ ALLOW_INSECURE_DEV_DEFAULTS=true
 
 > **生产环境此选项无效** — 即使设为 `true`，生产环境仍强制要求配置真实密钥。
 
-### `ADMIN_EMAILS`
+### 管理员账号
 
-| 项目 | 说明 |
-|------|------|
-| **含义** | 管理员邮箱列表（逗号分隔），拥有这些邮箱的用户注册后自动获得管理员角色 |
-| **类型** | 字符串（逗号分隔） |
-| **默认值** | 空 |
+系统不再通过环境变量或公开注册入口授予管理员角色。部署并完成数据库迁移后，使用
+`scripts/bootstrap_admin.py` 创建唯一管理员；脚本会拒绝创建第二个管理员账号。
 
-```env
-ADMIN_EMAILS=admin@museum.com,curator@museum.com
+```powershell
+$env:MUSEAI_ADMIN_PASSWORD = "<强密码>"
+python scripts/bootstrap_admin.py --email admin@museum.com
+Remove-Item Env:MUSEAI_ADMIN_PASSWORD
 ```
-
-> 生产环境中此配置已弃用，建议使用 `scripts/bootstrap_admin.py` 脚本创建管理员。
 
 ### `TRUSTED_PROXIES`
 

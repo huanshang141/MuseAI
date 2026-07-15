@@ -4,14 +4,17 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from loguru import logger
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.application.hall_normalizer import normalize_hall
 from app.application.sse_events import sse_tour_event
-from app.application.tts_streaming import TTSStreamManager
-from app.infra.providers.tts.base import BaseTTSProvider
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import detect_ceramic_question
-from app.application.tour_session_service import get_session
+from app.application.tour_session_service import append_hall_chat_turn, get_session
+from app.application.tts_streaming import TTSStreamManager
+from app.infra.postgres.models import Exhibit
+from app.infra.providers.tts.base import BaseTTSProvider
 from app.observability.context import request_id_var
 
 PERSONA_PROMPTS = {
@@ -46,14 +49,25 @@ PERSONA_PROMPTS = {
     ),
 }
 
+DEFAULT_PERSONA_PROMPT = (
+    "你是一位可信、友好且克制的博物馆导览员，正在陪用户参观西安半坡博物馆。"
+    "用户选择了快速开始，没有选择研学、考古、历史追问或器物研究等专门身份。"
+    "请直接围绕当前展厅、展品和用户问题解释，以现场可观察信息和馆方数据为依据；"
+    "不要擅自套用 A-D 任一专门人格，也不要把用户当作学生或专业研究者。"
+)
+
 ASSUMPTION_CONTEXTS = {
     "A": "游客初始假设：原始社会是没有压迫、人人平等的纯真年代。当讨论到社会结构相关内容时，引导反思这一假设。",
     "B": "游客初始假设：原始社会是饥寒交迫的荒野求生。当讨论到生存方式相关内容时，引导反思这一假设。",
     "C": "游客初始假设：原始社会已经出现贫富分化和阶级的雏形。当讨论到社会结构相关内容时，引导反思这一假设。",
-    "D": "游客初始立场：先不下判断，希望跟着证据走。回答时先整理可观察证据，再说明可能解释，鼓励用户逐步形成自己的观点。",
+    "D": (
+        "游客初始立场：先不下判断，希望跟着证据走。"
+        "回答时先整理可观察证据，再说明可能解释，鼓励用户逐步形成自己的观点。"
+    ),
 }
 
 CHALLENGE_PROMPTS = {
+    "default": "围绕用户眼前可观察的线索解释，并在证据不足时明确说明不确定性。",
     "A": "把结论拆成能直接看到的证据和由证据推出来的解释，必要时提醒哪些部分仍需保留不确定性。",
     "B": "把最有价值的观察转化为一条可记录的证据点，例如器物细节、空间位置、使用痕迹或展签信息。",
     "C": "把具体材料自然连接到更大的历史问题，例如聚落如何组织、公共生活如何形成、技术如何改变生活。",
@@ -61,21 +75,46 @@ CHALLENGE_PROMPTS = {
 }
 
 HALL_DESCRIPTIONS = {
-    "基本陈列展厅": "基本陈列展厅：以半坡遗址相关考古发现与研究成果为主线，系统展示半坡文化的生活形态、生产方式与社会结构，重点包括人面鱼纹彩陶盆、尖底瓶、彩陶、装饰品和石器工具。",
-    "遗址保护大厅": "遗址保护大厅：强调边保护边展示，呈现墓葬、地面圆形房屋、烧制作坊、灶具灶台等原址遗存，帮助用户理解半坡聚落空间和保护展示方式。",
-    "临展厅一": "临展厅一：用于阶段性专题展览，具体主题和展品随馆方当期策展安排变化。回答时应提醒用户以现场展签和馆方信息为准；不要编造当期展品，不要把基本陈列展厅的农耕工具、陶器等内容搬来填空。",
-    "临展厅二": "临展厅二：用于轮换展出和临时专题，具体内容需根据馆方当期展览清单更新。回答时不要编造当期展品，不要把基本陈列展厅的农耕工具、陶器等内容搬来填空。",
-    "半坡姑娘雕塑": "半坡姑娘雕塑：以半坡姑娘为代表性形象进行艺术化再现，是观众合影点和文化符号，适合从人物形象、公众记忆和半坡文化传播角度解释。",
+    "基本陈列展厅": (
+        "基本陈列展厅：以半坡遗址相关考古发现与研究成果为主线，系统展示半坡文化的生活形态、"
+        "生产方式与社会结构，重点包括人面鱼纹彩陶盆、尖底瓶、彩陶、装饰品和石器工具。"
+    ),
+    "遗址保护大厅": (
+        "遗址保护大厅：强调边保护边展示，呈现墓葬、地面圆形房屋、烧制作坊、灶具灶台等原址遗存，"
+        "帮助用户理解半坡聚落空间和保护展示方式。"
+    ),
+    "临展厅一": (
+        "临展厅一：用于阶段性专题展览，具体主题和展品随馆方当期策展安排变化。"
+        "回答时应提醒用户以现场展签和馆方信息为准；不要编造当期展品，"
+        "不要把基本陈列展厅的农耕工具、陶器等内容搬来填空。"
+    ),
+    "临展厅二": (
+        "临展厅二：用于轮换展出和临时专题，具体内容需根据馆方当期展览清单更新。"
+        "回答时不要编造当期展品，不要把基本陈列展厅的农耕工具、陶器等内容搬来填空。"
+    ),
+    "半坡姑娘雕塑": (
+        "半坡姑娘雕塑：以半坡姑娘为代表性形象进行艺术化再现，是观众合影点和文化符号，"
+        "适合从人物形象、公众记忆和半坡文化传播角度解释。"
+    ),
     "史前工坊": "史前工坊：以互动体验方式转化史前生活知识，适合围绕制陶、材料、手作和动手学习解释半坡工艺。",
     "教研中心": "教研中心：面向青少年和公众教育活动，适合组织研学课程、主题课堂和研究型活动。",
     "牡丹园": "牡丹园：以牡丹为核心的园林休憩区域，兼具观赏和休息功能，可联系博物馆参观节奏与自然景观体验。",
-    "陶窑展厅": "陶窑展厅：以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺，重点解释制坯、装饰、干燥、入窑烧成和火候控制。",
-    "basic-exhibition-hall": "基本陈列展厅：以半坡遗址相关考古发现与研究成果为主线，系统展示半坡文化的生活形态、生产方式与社会结构。",
+    "陶窑展厅": (
+        "陶窑展厅：以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺，"
+        "重点解释制坯、装饰、干燥、入窑烧成和火候控制。"
+    ),
+    "basic-exhibition-hall": (
+        "基本陈列展厅：以半坡遗址相关考古发现与研究成果为主线，"
+        "系统展示半坡文化的生活形态、生产方式与社会结构。"
+    ),
     "site-protection-hall": "遗址保护大厅：强调边保护边展示，呈现墓葬、地面圆形房屋、烧制作坊、灶具灶台等原址遗存。",
     "temporary-hall-1": "临展厅一：用于阶段性专题展览，具体主题和展品随馆方当期策展安排变化；不要编造当期展品。",
     "temporary-hall-2": "临展厅二：用于轮换展出和临时专题，具体内容需根据馆方当期展览清单更新；不要编造当期展品。",
     "banpo-girl-sculpture": "半坡姑娘雕塑：以半坡姑娘为代表性形象进行艺术化再现，是观众合影点和文化符号。",
-    "prehistoric-workshop": "史前工坊：以互动体验方式转化史前生活知识，适合围绕制陶、材料、手作和动手学习解释半坡工艺。",
+    "prehistoric-workshop": (
+        "史前工坊：以互动体验方式转化史前生活知识，"
+        "适合围绕制陶、材料、手作和动手学习解释半坡工艺。"
+    ),
     "education-center": "教研中心：面向青少年和公众教育活动，适合组织研学课程、主题课堂和研究型活动。",
     "peony-garden": "牡丹园：以牡丹为核心的园林休憩区域，兼具观赏和休息功能。",
     "kiln-hall": "陶窑展厅：以陶器如何被制作出来为核心叙事，展示半坡时期制陶与烧制工艺。",
@@ -168,12 +207,23 @@ def build_system_prompt(
     exhibit_context: str | None = None,
     visited_exhibits: list[str] | None = None,
     client_context: str | None = None,
+    hall_context: str | None = None,
+    persona_id: str | None = None,
 ) -> str:
-    parts = [PERSONA_PROMPTS.get(persona, PERSONA_PROMPTS["A"])]
-    parts.append(ASSUMPTION_CONTEXTS.get(assumption, ASSUMPTION_CONTEXTS["A"]))
+    effective_persona = "default" if persona_id == "default" else persona
+    persona_prompt = (
+        DEFAULT_PERSONA_PROMPT
+        if effective_persona == "default"
+        else PERSONA_PROMPTS.get(effective_persona, PERSONA_PROMPTS["A"])
+    )
+    parts = [persona_prompt]
+    if effective_persona != "default":
+        parts.append(ASSUMPTION_CONTEXTS.get(assumption, ASSUMPTION_CONTEXTS["A"]))
     parts.append(GLOBAL_DIALOGUE_RULE)
 
-    if hall and hall in HALL_DESCRIPTIONS:
+    if hall_context:
+        parts.append(f"当前展厅：{hall_context}")
+    elif hall and hall in HALL_DESCRIPTIONS:
         parts.append(f"当前展厅：{HALL_DESCRIPTIONS[hall]}")
         if hall in TEMPORARY_HALL_KEYS:
             parts.append(
@@ -181,10 +231,9 @@ def build_system_prompt(
                 "不要引用其他展厅的具体农耕工具、陶器或遗址内容来冒充临展内容。"
             )
 
-    if client_context:
-        parts.append(f"前端导览上下文（只用于约束回答，不作为事实来源）：\n{client_context}")
-
-    challenge_prompt = _build_challenge_prompt(persona, assumption, exhibit_context, client_context)
+    # ``client_context`` is retained in the Python signature for a staged
+    # client migration, but is deliberately excluded from the system prompt.
+    challenge_prompt = _build_challenge_prompt(effective_persona, assumption, exhibit_context, None)
     if challenge_prompt:
         parts.append(challenge_prompt)
 
@@ -214,6 +263,12 @@ def _build_challenge_prompt(
         return None
 
     challenge = CHALLENGE_PROMPTS.get(persona, CHALLENGE_PROMPTS["A"])
+    if persona == "default":
+        return (
+            "【反身性融入提示】这不是结尾模板，不要照抄下面的文字。"
+            "仅在用户连续追问或确实需要归纳时，把现场证据与不确定性自然融入解释；"
+            f"可参考的通用线索：{challenge}"
+        )
     assumption_hint = ASSUMPTION_CONTEXTS.get(assumption, ASSUMPTION_CONTEXTS["D"])
     return (
         "【反身性融入提示】这不是结尾模板，不要照抄下面的文字，不要在回答末尾固定追加问题。"
@@ -261,6 +316,7 @@ async def ask_stream_tour(
     client_event_id: str | None = None,
     exhibit_context: str | None = None,
     client_context: str | None = None,
+    hall_context: str | None = None,
     conversation_history: list[dict[str, str]] | None = None,
     style: Any = None,
     degraded_services: set[str] | None = None,
@@ -286,6 +342,7 @@ async def ask_stream_tour(
 
     # ── System prompt / style (sync, negligible) ───────────────────────────────
     visited_ids = tour_session.visited_exhibit_ids or []
+    questionnaire = getattr(tour_session, "questionnaire", None) or {}
     system_prompt = build_system_prompt(
         persona=tour_session.persona,
         assumption=tour_session.assumption,
@@ -293,6 +350,8 @@ async def ask_stream_tour(
         exhibit_context=exhibit_context,
         visited_exhibits=visited_ids,
         client_context=client_context,
+        hall_context=hall_context,
+        persona_id=questionnaire.get("persona_id"),
     )
     style_prompt = _build_style_prompt(style)
     if style_prompt:
@@ -329,7 +388,11 @@ async def ask_stream_tour(
         try:
             tts_config = await tts_service.get_tour_tts_config(effective_persona)
             _tts_ms = int((time.perf_counter() - _t) * 1000)
-            log.debug("TTS config resolved: voice={}, persona={}", tts_config.voice if tts_config else None, effective_persona)
+            log.debug(
+                "TTS config resolved: voice={}, persona={}",
+                tts_config.voice if tts_config else None,
+                effective_persona,
+            )
             log.bind(stage="tts_config", duration_ms=_tts_ms, ok=True, perf=True).info(
                 "[perf] tts_config  duration_ms={}ms", _tts_ms
             )
@@ -357,6 +420,8 @@ async def ask_stream_tour(
             conversation_history=conversation_history if _should_use_history_for_retrieval(message) else None,
             answer_history=conversation_history,
             perf_log=log, trace_id=trace_id,
+            db_session=db_session,
+            current_hall=tour_session.current_hall,
         ):
             if chunk is not None:
                 # First chunk = first token delivered to client
@@ -410,16 +475,119 @@ async def ask_stream_tour(
             exhibit_name = _context_field(exhibit_context, "名称")
             if exhibit_name:
                 event_metadata["exhibit_name"] = exhibit_name
-            await record_events(event_session, tour_session_id, [
+            answer = "".join(full_content_parts).strip()
+            events = [
                 {
                     "event_type": "exhibit_question",
                     "exhibit_id": exhibit_id,
                     "hall": tour_session.current_hall,
                     "metadata": event_metadata,
                 }
-            ])
+            ]
+            if answer:
+                events.append({
+                    "event_type": "assistant_answer",
+                    "exhibit_id": exhibit_id,
+                    "hall": tour_session.current_hall,
+                    "metadata": {
+                        "question": message,
+                        "answer": answer[:6000],
+                        "question_client_event_id": client_event_id,
+                        "is_ceramic_question": is_ceramic,
+                    },
+                })
+            await record_events(event_session, tour_session_id, events)
+
+            hall_key = normalize_hall(tour_session.current_hall)
+            if hall_key and answer:
+                await append_hall_chat_turn(
+                    event_session,
+                    tour_session_id,
+                    hall_key,
+                    message,
+                    answer,
+                )
     except Exception as e:
         log.error("Failed to record tour event after retries: {}", e)
+
+
+async def _filter_trusted_rag_documents(
+    db_session: AsyncSession | None,
+    documents: list[Any],
+    current_hall: str | None,
+) -> list[Any]:
+    """Drop exhibit-owned chunks not backed by an active current-hall DB row.
+
+    Elasticsearch is an eventually consistent retrieval cache, not the
+    authority for exhibit visibility. A document linked through
+    ``Exhibit.document_id`` follows the same visibility rule, while an
+    unassociated museum document remains available.
+    """
+    exhibit_ids = {
+        str((getattr(document, "metadata", None) or {}).get("source_id"))
+        for document in documents
+        if (getattr(document, "metadata", None) or {}).get("source_type") == "exhibit"
+        and (getattr(document, "metadata", None) or {}).get("source_id")
+    }
+    document_ids = {
+        str((getattr(document, "metadata", None) or {}).get("source_id"))
+        for document in documents
+        if (getattr(document, "metadata", None) or {}).get("source_type") == "document"
+        and (getattr(document, "metadata", None) or {}).get("source_id")
+    }
+    if not exhibit_ids and not document_ids:
+        return documents
+
+    normalized_hall = normalize_hall(current_hall)
+    allowed_ids: set[str] = set()
+    linked_document_ids: set[str] = set()
+    allowed_document_ids: set[str] = set()
+    if db_session is not None:
+        ownership_filters = []
+        if exhibit_ids:
+            ownership_filters.append(Exhibit.id.in_(exhibit_ids))
+        if document_ids:
+            ownership_filters.append(Exhibit.document_id.in_(document_ids))
+        result = await db_session.execute(
+            select(
+                Exhibit.id,
+                Exhibit.hall,
+                Exhibit.is_active,
+                Exhibit.document_id,
+            ).where(
+                or_(*ownership_filters),
+            )
+        )
+        for exhibit_id, hall, is_active, document_id in result.all():
+            hall_matches = bool(
+                normalized_hall and normalize_hall(hall) == normalized_hall
+            )
+            if str(exhibit_id) in exhibit_ids and is_active and hall_matches:
+                allowed_ids.add(str(exhibit_id))
+            if document_id and str(document_id) in document_ids:
+                linked_document_ids.add(str(document_id))
+                if is_active and hall_matches:
+                    allowed_document_ids.add(str(document_id))
+
+    filtered: list[Any] = []
+    for document in documents:
+        metadata = getattr(document, "metadata", None) or {}
+        source_type = metadata.get("source_type")
+        source_id = metadata.get("source_id")
+        if source_type == "document":
+            normalized_source_id = str(source_id) if source_id else ""
+            if (
+                normalized_source_id not in linked_document_ids
+                or normalized_source_id in allowed_document_ids
+            ):
+                filtered.append(document)
+            continue
+        if source_type != "exhibit":
+            filtered.append(document)
+            continue
+        if source_id and str(source_id) in allowed_ids:
+            filtered.append(document)
+    return filtered
 
 
 async def _stream_rag(
@@ -432,6 +600,8 @@ async def _stream_rag(
     answer_history: list[dict[str, str]] | None = None,
     perf_log: Any = None,
     trace_id: str | None = None,
+    db_session: AsyncSession | None = None,
+    current_hall: str | None = None,
 ) -> AsyncGenerator[tuple[str, str | None], None]:
     # ── RAG pipeline (rewrite → retrieve → merge → rerank → filter → evaluate) ──
     # skip_generate=True: generate node is a no-op, we stream via llm_provider below.
@@ -455,6 +625,7 @@ async def _stream_rag(
         or result.get("reranked_documents")
         or result.get("documents", [])
     )
+    docs = await _filter_trusted_rag_documents(db_session, docs, current_hall)
     if perf_log is not None:
         perf_log.info("[tour_chat] rag result docs={}", len(docs))
     context = _join_context(docs)

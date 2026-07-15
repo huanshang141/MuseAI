@@ -2,14 +2,17 @@
 """Bootstrap script to create an admin user.
 
 Usage:
-    python scripts/bootstrap_admin.py --email admin@museai.local --password <password>
+    $env:MUSEAI_ADMIN_PASSWORD = "<password>"
+    python scripts/bootstrap_admin.py --email admin@museai.local
 
 Environment variables:
     DATABASE_URL: PostgreSQL connection string (required)
+    MUSEAI_ADMIN_PASSWORD: Preferred non-interactive password source (optional)
 """
 
 import argparse
 import asyncio
+import getpass
 import os
 import sys
 
@@ -29,6 +32,24 @@ def _validate_password(password: str) -> None:
         raise ValueError(
             f"Password must be at least {MIN_PASSWORD_LENGTH} characters, got {len(password)}"
         )
+    requirements = {
+        "an uppercase letter": any(char.isupper() for char in password),
+        "a lowercase letter": any(char.islower() for char in password),
+        "a digit": any(char.isdigit() for char in password),
+        "a special character": any(not char.isalnum() and not char.isspace() for char in password),
+    }
+    missing = [label for label, satisfied in requirements.items() if not satisfied]
+    if missing:
+        raise ValueError("Password must contain " + ", ".join(missing))
+
+
+def _resolve_password(cli_password: str | None) -> str:
+    password = cli_password or os.environ.get("MUSEAI_ADMIN_PASSWORD")
+    if password is None:
+        password = getpass.getpass("Admin password: ")
+    if not password:
+        raise ValueError("Password cannot be empty")
+    return password
 
 
 async def bootstrap_admin(
@@ -41,34 +62,48 @@ async def bootstrap_admin(
     engine = create_async_engine(database_url, echo=False)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
-    async with session_maker() as session:
-        result = await session.execute(select(User).where(User.email == email))
-        existing_user = result.scalar_one_or_none()
+    try:
+        async with session_maker() as session:
+            admin_result = await session.execute(
+                select(User).where(User.role == "admin").limit(1)
+            )
+            existing_admin = admin_result.scalar_one_or_none()
+            if existing_admin is not None:
+                if existing_admin.email == email:
+                    print(f"User '{email}' is already the configured admin. Nothing to do.")
+                    return
+                raise ValueError(
+                    "An administrator account already exists. "
+                    "Refusing to create a second administrator."
+                )
 
-        if existing_user is not None:
-            if existing_user.role == "admin":
-                print(f"User '{email}' is already an admin. Nothing to do.")
-            else:
+            user_result = await session.execute(select(User).where(User.email == email))
+            existing_user = user_result.scalar_one_or_none()
+
+            if existing_user is not None:
                 existing_user.role = "admin"
+                existing_user.password_hash = hash_password(password)
                 await session.commit()
-                print(f"Promoted existing user '{email}' to admin.")
-            await engine.dispose()
-            return
+                print(f"Promoted existing user '{email}' to admin and refreshed its password.")
+                return
 
-        password_hash = hash_password(password)
-        user_id = os.urandom(16).hex()
-        user = User(id=user_id, email=email, password_hash=password_hash, role="admin")
-        session.add(user)
-        await session.commit()
-        print(f"Created admin user: id={user_id}, email={email}")
-
-    await engine.dispose()
+            password_hash = hash_password(password)
+            user_id = os.urandom(16).hex()
+            user = User(id=user_id, email=email, password_hash=password_hash, role="admin")
+            session.add(user)
+            await session.commit()
+            print(f"Created admin user: id={user_id}, email={email}")
+    finally:
+        await engine.dispose()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bootstrap an admin user")
     parser.add_argument("--email", required=True, help="Admin email address")
-    parser.add_argument("--password", required=True, help="Admin password (min 12 chars)")
+    parser.add_argument(
+        "--password",
+        help="Admin password (discouraged: visible in process history); prefer MUSEAI_ADMIN_PASSWORD",
+    )
     args = parser.parse_args()
 
     database_url = os.environ.get("DATABASE_URL")
@@ -77,7 +112,8 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        asyncio.run(bootstrap_admin(database_url, args.email, args.password))
+        password = _resolve_password(args.password)
+        asyncio.run(bootstrap_admin(database_url, args.email, password))
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)

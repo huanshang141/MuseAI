@@ -1,8 +1,11 @@
 """Shared hall normalization for tour APIs.
 
-Only the nine halls imported from the Banpo hall contract are accepted.
-Unknown or pre-contract hall values are dropped instead of being remapped.
+Known Banpo aliases map to their canonical slugs. Well-formed imported slugs
+are preserved so future museum datasets can add halls without code changes;
+API boundaries remain responsible for checking that a slug exists and is active.
 """
+
+import re
 
 CANONICAL_HALLS: dict[str, str] = {
     "basic-exhibition-hall": "基本陈列展厅",
@@ -129,13 +132,19 @@ HALL_ALIASES: dict[str, str] = {
 
 
 def normalize_hall(value: str | None) -> str | None:
-    """Return canonical slug for known halls; drop unknown values."""
+    """Return a canonical alias or preserve a well-formed imported slug."""
     if value is None:
         return None
     raw = str(value).strip()
     if not raw:
         return None
-    return HALL_ALIASES.get(raw)
+    known = HALL_ALIASES.get(raw)
+    if known:
+        return known
+    lowered = raw.lower()
+    if len(lowered) <= 100 and re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", lowered):
+        return lowered
+    return None
 
 
 def normalize_halls(values: list[str] | None) -> list[str]:

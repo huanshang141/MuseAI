@@ -1,6 +1,6 @@
 # backend/tests/unit/test_repositories.py
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from app.domain.entities import Exhibit, VisitorProfile
@@ -15,6 +15,7 @@ from app.infra.postgres.adapters import (
     PostgresVisitorProfileRepository,
 )
 from app.infra.postgres.models import Base
+from app.infra.postgres.models import Exhibit as ExhibitORM
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -240,6 +241,86 @@ class TestPostgresExhibitRepository:
         results = await repo.list_by_category("Ceramics")
         assert len(results) == 1
         assert results[0].name == "Ceramic Piece"
+
+    async def test_catalog_methods_follow_imported_display_order(self, async_session):
+        """Imported display_order controls catalog and plain-name search results."""
+        created = datetime(2026, 1, 1, tzinfo=UTC)
+        async_session.add_all(
+            [
+                ExhibitORM(
+                    id="catalog-order-020",
+                    name="馆方展品二十",
+                    description="排序测试",
+                    hall="catalog-hall",
+                    floor=1,
+                    category="catalog-category",
+                    is_active=True,
+                    display_order=20,
+                    created_at=created,
+                    updated_at=created,
+                ),
+                ExhibitORM(
+                    id="catalog-order-010-b",
+                    name="馆方展品十乙",
+                    description="排序测试",
+                    hall="catalog-hall",
+                    floor=1,
+                    category="catalog-category",
+                    is_active=True,
+                    display_order=10,
+                    created_at=created + timedelta(days=1),
+                    updated_at=created + timedelta(days=1),
+                ),
+                ExhibitORM(
+                    id="catalog-order-010-a",
+                    name="馆方展品十甲",
+                    description="排序测试",
+                    hall="catalog-hall",
+                    floor=1,
+                    category="catalog-category",
+                    is_active=True,
+                    display_order=10,
+                    created_at=created + timedelta(days=1),
+                    updated_at=created + timedelta(days=1),
+                ),
+                ExhibitORM(
+                    id="catalog-order-null",
+                    name="馆方展品未排序",
+                    description="排序测试",
+                    hall="catalog-hall",
+                    floor=1,
+                    category="catalog-category",
+                    is_active=True,
+                    display_order=None,
+                    created_at=created - timedelta(days=1),
+                    updated_at=created - timedelta(days=1),
+                ),
+            ]
+        )
+        await async_session.commit()
+        repo = PostgresExhibitRepository(async_session)
+        expected_ids = [
+            "catalog-order-010-a",
+            "catalog-order-010-b",
+            "catalog-order-020",
+            "catalog-order-null",
+        ]
+
+        result_sets = [
+            await repo.list_all(),
+            await repo.list_by_category("catalog-category"),
+            await repo.list_by_hall("catalog-hall"),
+            await repo.list_with_filters(
+                category="catalog-category",
+                hall="catalog-hall",
+                floor=1,
+            ),
+            await repo.list_all_active(),
+            await repo.search_by_name("馆方展品"),
+        ]
+
+        for results in result_sets:
+            assert [item.id.value for item in results] == expected_ids
 
     async def test_find_by_interests(self, async_session):
         """Test finding exhibits by interests (categories)."""

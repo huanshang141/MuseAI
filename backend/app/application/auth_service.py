@@ -1,34 +1,7 @@
-import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
 
 from app.application.ports.repositories import UserRepositoryPort
 from app.domain.entities import User as UserEntity
-
-
-async def register_user(
-    user_repo: UserRepositoryPort,
-    email: str,
-    password: str,
-    hash_password_func: Callable[[str], str],
-) -> UserEntity:
-    user_id = str(uuid.uuid4())
-    password_hash = hash_password_func(password)
-
-    now = datetime.now(UTC)
-    user = UserEntity(
-        id=user_id,
-        email=email,
-        password_hash=password_hash,
-        role="user",
-        created_at=now,
-    )
-    await user_repo.add(user)
-    return user
-
-
-async def get_user_by_email(user_repo: UserRepositoryPort, email: str) -> UserEntity | None:
-    return await user_repo.get_by_email(email)
 
 
 async def get_user_by_id(user_repo: UserRepositoryPort, user_id: str) -> UserEntity | None:
@@ -61,8 +34,6 @@ def verify_token(token: str, jwt_handler) -> str | None:
 
 
 __all__ = [
-    "register_user",
-    "get_user_by_email",
     "get_user_by_id",
     "authenticate_user",
     "create_access_token",

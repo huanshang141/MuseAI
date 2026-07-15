@@ -9,6 +9,8 @@ from app.infra.postgres.models import Base
 from app.main import app
 from httpx import ASGITransport, AsyncClient
 
+from tests.auth_helpers import ensure_test_user, issue_test_token
+
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
@@ -31,70 +33,25 @@ async def db_session(session_maker):
 @pytest.fixture
 async def admin_token(db_session):
     """Create an admin user and return an auth token."""
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
-    try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Register a user
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": "admin_test@example.com", "password": "AdminPass123!"},
-            )
-
-            # Login to get token
-            login_response = await client.post(
-                "/api/v1/auth/login",
-                json={"email": "admin_test@example.com", "password": "AdminPass123!"},
-            )
-            token = login_response.json()["access_token"]
-
-            # Update user role to admin directly in database
-            from app.infra.postgres.models import User
-            from sqlalchemy import select
-
-            result = await db_session.execute(
-                select(User).where(User.email == "admin_test@example.com")
-            )
-            user = result.scalar_one()
-            user.role = "admin"
-            await db_session.commit()
-
-            return token
-    finally:
-        app.dependency_overrides = {}
+    user = await ensure_test_user(
+        db_session,
+        email="admin_test@example.com",
+        password="AdminPass123!",
+        role="admin",
+    )
+    return issue_test_token(user)
 
 
 @pytest.fixture
 async def user_token(db_session):
-    """Create a regular user and return an auth token."""
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
-    try:
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # Register a user
-            await client.post(
-                "/api/v1/auth/register",
-                json={"email": "user_test@example.com", "password": "UserPass123!"},
-            )
-
-            # Login to get token
-            login_response = await client.post(
-                "/api/v1/auth/login",
-                json={"email": "user_test@example.com", "password": "UserPass123!"},
-            )
-            return login_response.json()["access_token"]
-    finally:
-        app.dependency_overrides = {}
+    """Mint a test-only user token to verify admin routes reject it."""
+    user = await ensure_test_user(
+        db_session,
+        email="user_test@example.com",
+        password="UserPass123!",
+        role="user",
+    )
+    return issue_test_token(user)
 
 
 @pytest.fixture

@@ -1,88 +1,346 @@
 import json
 import re
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
+from pydantic import (
+    ValidationError as PydanticValidationError,
+)
+from sqlalchemy import select
 
 from app.api.deps import (
     LLMProviderDep,
-    OptionalUser,
     RagAgentDep,
     SessionDep,
     SessionMakerDep,
+    TourChatRateLimitDep,
+    TourReportRateLimitDep,
+    TourSessionCreateRateLimitDep,
+    TourSessionWriteRateLimitDep,
 )
-from app.application.tour_chat_service import ask_stream_tour
-from app.application.tour_event_service import get_events_by_session, record_events
 from app.application.hall_normalizer import (
     canonical_hall_contract,
     hall_display_name,
     normalize_hall,
     normalize_halls,
 )
+from app.application.tour_chat_service import ask_stream_tour
+from app.application.tour_event_service import get_events_by_session, record_events
 from app.application.tour_report_service import build_reflection_summary, generate_report, get_report
 from app.application.tour_session_service import (
+    SESSION_EXPIRY_HOURS,
     create_session,
-    find_active_session_by_user,
     get_session,
-    re_onboard_session,
     update_session,
     verify_session_token,
 )
 from app.domain.exceptions import (
     TourSessionExpired,
     TourSessionNotFound,
+    TourSessionStateConflict,
     TourSessionTokenMismatch,
 )
 from app.infra.postgres.models import Exhibit, Hall
 
 router = APIRouter(prefix="/tour", tags=["tour"])
 
-TourPersonaCode = Literal["A", "B", "C", "D"]
+TourPersonaCode = Literal["default", "A", "B", "C", "D"]
 TourAssumptionCode = Literal["A", "B", "C", "D"]
 VISITED_HALL_EVENT_TYPES = {
     "exhibit_question",
     "exhibit_view",
 }
+MAX_SESSION_STATE_PATCH_BYTES = 2 * 1024 * 1024
+TOUR_HALL_FOCUS_MAX_LENGTH = 120
+
+
+class TourQuestionnaire(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    persona_id: Literal["default", "A", "B", "C", "D"] | None = None
+    focus_id: str | None = Field(default=None, max_length=64)
+    assumption: TourAssumptionCode | None = None
+    rhythm_id: str | int | None = None
+    intent_text: str | None = Field(default=None, max_length=500)
+    preferred_hall_order: list[str] = Field(default_factory=list, max_length=9)
+
+    @field_validator("rhythm_id")
+    @classmethod
+    def validate_rhythm_id(cls, value: str | int | None):
+        if isinstance(value, str) and len(value) > 64:
+            raise ValueError("rhythm_id exceeds 64 characters")
+        return value
+
+
+class TourQuestionnaireDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step: int = Field(default=1, ge=1, le=3)
+    selectedFocusId: str | None = Field(default=None, max_length=64)
+    selectedAssumptionId: str | None = Field(default=None, max_length=64)
+    selectedRhythmId: str | None = Field(default=None, max_length=64)
+    selectedPersonaName: str | None = Field(default=None, max_length=100)
+    intentText: str = Field(default="", max_length=500)
+
+
+class TourResumeExhibit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = Field(default=None, max_length=100)
+    name: str = Field(default="", max_length=255)
+    hall: str = Field(default="", max_length=100)
+    hallDisplay: str = Field(default="", max_length=255)
+    era: str = Field(default="", max_length=100)
+    category: str = Field(default="", max_length=100)
+    objectKind: str = Field(default="", max_length=100)
+    description: str = Field(default="", max_length=2000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+
+
+class TourStylePreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answerLength: Literal["brief", "balanced", "detailed"] = "balanced"
+    depth: Literal["introductory", "standard", "deep"] = "standard"
+    terminology: Literal["plain", "professional", "academic"] = "plain"
+    enabled: bool = True
+
+
+class TourTtsPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice: str = Field(default="冰糖", max_length=64)
+    autoPlay: bool = False
+    enabled: bool = True
+
+
+class TourRouteStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order: int = Field(ge=1, le=20)
+    hallId: str = Field(max_length=100)
+    hallSlug: str = Field(max_length=100)
+    name: str = Field(max_length=255)
+    highlights: list[str] = Field(default_factory=list, max_length=20)
+    duration: str = Field(default="", max_length=100)
+    estimatedMinutes: int = Field(default=0, ge=0, le=480)
+    reason: str = Field(default="", max_length=1000)
+    focus: str = Field(default="", max_length=500)
+    status: str = Field(default="upcoming", max_length=30)
+    isVisited: bool = False
+    isCurrent: bool = False
+
+
+class TourRouteFloorItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(max_length=100)
+    short: str = Field(max_length=20)
+    status: str = Field(default="upcoming", max_length=30)
+
+
+class TourRoutePlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    steps: list[TourRouteStep] = Field(default_factory=list, max_length=9)
+    floorItems: list[TourRouteFloorItem] = Field(default_factory=list, max_length=9)
+    totalDesc: str = Field(default="", max_length=200)
+    personaLabel: str = Field(default="", max_length=200)
+    tagline: str = Field(default="", max_length=1000)
+    stepsCount: int = Field(default=0, ge=0, le=9)
+    routeSource: str = Field(default="fallback", max_length=50)
+    routeSourceLabel: str = Field(default="", max_length=100)
+    planSummary: str = Field(default="", max_length=2000)
+    routeNotice: str = Field(default="", max_length=500)
+
+
+class TourResumeState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["onboarding", "opening", "touring", "completed"] | None = None
+    interest_type: TourPersonaCode | None = None
+    persona: TourPersonaCode | None = None
+    persona_id: Literal["default", "A", "B", "C", "D"] | None = None
+    assumption: TourAssumptionCode | None = None
+    questionnaire: TourQuestionnaire | None = None
+    questionnaire_draft: TourQuestionnaireDraft | None = None
+    route_plan: TourRoutePlan | None = None
+    current_page: str | None = Field(default=None, max_length=100)
+    current_page_params: dict[str, str] | None = None
+    current_hall: str | None = Field(default=None, max_length=100)
+    current_hall_name: str | None = Field(default=None, max_length=255)
+    current_exhibit_id: str | None = Field(default=None, max_length=100)
+    current_exhibit: TourResumeExhibit | None = None
+    current_scanned_exhibit_id: str | None = Field(default=None, max_length=100)
+    current_scanned_exhibit_name: str | None = Field(default=None, max_length=255)
+    last_scan_timestamp: int | None = Field(default=None, ge=0)
+    visited_halls: list[str] = Field(default_factory=list, max_length=9)
+    visited_exhibit_ids: list[str] = Field(default_factory=list, max_length=500)
+    ai_conversation_count: int = Field(default=0, ge=0, le=10000)
+    tour_started_at: datetime | None = None
+    intent_text: str | None = Field(default=None, max_length=500)
+    preferred_hall_order: list[str] = Field(default_factory=list, max_length=9)
+    time_budget: str | int | None = None
+    focus_id: str | None = Field(default=None, max_length=64)
+    focus_title: str | None = Field(default=None, max_length=200)
+    focus_prompt: str | None = Field(default=None, max_length=1000)
+    assumption_text: str | None = Field(default=None, max_length=500)
+    guide_mode_id: str | None = Field(default=None, max_length=64)
+    guide_mode_title: str | None = Field(default=None, max_length=200)
+    guide_mode_prompt: str | None = Field(default=None, max_length=1000)
+    style_preferences: TourStylePreferences | None = None
+    tts_preferences: TourTtsPreferences | None = None
+
+    @field_validator("current_page_params")
+    @classmethod
+    def validate_page_params(cls, value: dict[str, str] | None):
+        if value is not None and len(value) > 20:
+            raise ValueError("current_page_params supports at most 20 entries")
+        if value is not None and any(len(str(k)) > 100 or len(str(v)) > 500 for k, v in value.items()):
+            raise ValueError("current_page_params entry is too long")
+        return value
+
+
+class TourHallChatMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=1000)
 
 
 class TourSessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     interest_type: TourPersonaCode
     persona: TourPersonaCode
     assumption: TourAssumptionCode
-    guest_id: str | None = None
+    guest_id: str | None = Field(default=None, max_length=64)
+    questionnaire: TourQuestionnaire = Field(default_factory=TourQuestionnaire)
+    resume_state: TourResumeState = Field(default_factory=TourResumeState)
+
+    @model_validator(mode="after")
+    def validate_persona_identity(self):
+        if self.interest_type != self.persona:
+            raise ValueError("interest_type must match persona")
+        return self
 
 
 class TourSessionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     current_hall: str | None = None
-    current_exhibit_id: str | None = None
+    current_exhibit_id: str | None = Field(default=None, max_length=36)
     status: Literal["onboarding", "opening", "touring", "completed"] | None = None
     interest_type: TourPersonaCode | None = None
     persona: TourPersonaCode | None = None
     assumption: TourAssumptionCode | None = None
+    questionnaire: TourQuestionnaire | None = None
+    resume_state: TourResumeState | None = None
+    hall_chat_history: dict[str, list[TourHallChatMessage]] | None = None
+    tour_started_at: datetime | None = None
+    expected_state_version: int | None = Field(default=None, ge=1)
+
+    @field_validator("hall_chat_history")
+    @classmethod
+    def validate_hall_count(
+        cls, value: dict[str, list[TourHallChatMessage]] | None
+    ) -> dict[str, list[TourHallChatMessage]] | None:
+        if value is not None and len(value) > 9:
+            raise ValueError("hall_chat_history supports at most 9 halls")
+        if value is not None and any(len(messages) > 20 for messages in value.values()):
+            raise ValueError("each hall supports at most 20 messages")
+        return value
 
 
 class TourEventItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     event_type: Literal[
         "exhibit_view", "exhibit_question", "exhibit_deep_dive",
-        "hall_enter", "hall_leave", "assistant_answer",
+        "hall_enter", "hall_leave", "assistant_answer", "tour_start",
     ]
-    exhibit_id: str | None = None
-    hall: str | None = None
-    duration_seconds: int | None = None
-    metadata: dict | None = None
+    exhibit_id: str | None = Field(default=None, max_length=36)
+    hall: str | None = Field(default=None, max_length=100)
+    duration_seconds: int | None = Field(default=None, ge=0, le=86_400)
+    metadata: dict[str, str | bool | None] | None = None
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_metadata(
+        cls,
+        value: dict[str, str | bool | None] | None,
+    ) -> dict[str, str | bool] | None:
+        if value is None:
+            return None
+        limits = {
+            "started_at": 64,
+            "client_event_id": 120,
+            "question_client_event_id": 120,
+            "exhibit_name": 255,
+            "view_source": 64,
+            "message": 2_000,
+            "question": 2_000,
+            "answer": 4_000,
+            "trace_id": 120,
+            "exhibit_kind": 100,
+            "is_ceramic_question": 5,
+        }
+        unknown = set(value) - set(limits)
+        if unknown:
+            raise ValueError(
+                f"unsupported event metadata keys: {', '.join(sorted(unknown))}"
+            )
+        cleaned: dict[str, str | bool] = {}
+        for key, item in value.items():
+            if item is None:
+                continue
+            if key == "is_ceramic_question":
+                if not isinstance(item, bool):
+                    raise ValueError("metadata.is_ceramic_question must be boolean")
+                cleaned[key] = item
+                continue
+            if not isinstance(item, str):
+                raise ValueError(f"metadata.{key} must be a string")
+            if len(item) > limits[key]:
+                raise ValueError(f"metadata.{key} is too long")
+            cleaned[key] = item
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_tour_start_metadata(self):
+        if self.event_type == "tour_start":
+            value = (self.metadata or {}).get("started_at")
+            if not value:
+                raise ValueError("tour_start metadata.started_at is required")
+            try:
+                datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("tour_start metadata.started_at must be ISO 8601") from exc
+        return self
 
 
 class TourEventBatch(BaseModel):
-    events: list[TourEventItem] = Field(..., max_length=50)
+    model_config = ConfigDict(extra="forbid")
+
+    events: list[TourEventItem] = Field(..., min_length=1, max_length=50)
 
 
 class TourChatStyle(BaseModel):
-    answer_length: str | None = None
-    depth: str | None = None
-    terminology: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    answer_length: Literal["brief", "balanced", "detailed"] | None = None
+    depth: Literal["introductory", "standard", "deep"] | None = None
+    terminology: Literal["plain", "professional", "academic"] | None = None
 
 
 class TourChatHistoryItem(BaseModel):
@@ -91,8 +349,13 @@ class TourChatHistoryItem(BaseModel):
 
 
 class TourChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     message: str = Field(..., max_length=2000)
-    exhibit_id: str | None = None
+    hall_id: str | None = Field(default=None, max_length=100)
+    exhibit_id: str | None = Field(default=None, max_length=36)
+    # Deprecated compatibility fields. They are accepted during the mini-program
+    # migration but never used as museum facts or system-level instructions.
     exhibit_context: str | None = Field(default=None, max_length=1200)
     client_event_id: str | None = Field(default=None, max_length=120)
     style: TourChatStyle | None = None
@@ -107,10 +370,20 @@ class TourHallItem(BaseModel):
     description: str
     exhibit_count: int
     estimated_duration_minutes: int
+    highlights: list[str] = Field(default_factory=list, max_length=3)
+    focus: str = Field(default="", max_length=TOUR_HALL_FOCUS_MAX_LENGTH)
 
 
 class TourHallListResponse(BaseModel):
     halls: list[TourHallItem]
+
+
+class TourSuggestionResponse(BaseModel):
+    hall_id: str | None
+    exhibit_id: str | None
+    persona: TourPersonaCode
+    suggestions: list[str]
+    source: Literal["exhibit", "hall", "deterministic"]
 
 
 DEFAULT_HALLS_DATA = [
@@ -137,80 +410,98 @@ DEFAULT_HALLS_DATA = [
     ),
 ]
 
+DETERMINISTIC_SUGGESTIONS = {
+    "default": ["这个展厅最值得先看什么？", "眼前这些内容可以怎样理解？"],
+    "A": ["这里有哪些可以直接观察的证据？", "哪些结论仍需要保留不确定性？"],
+    "B": ["最值得记录的观察点是什么？", "我可以怎样整理这段参观笔记？"],
+    "C": ["这些材料反映了怎样的史前生活？", "它与更大的历史问题有什么联系？"],
+    "D": ["可以从哪些材料和制作痕迹观察？", "这些细节可能对应什么用途？"],
+}
+
+
+def _short_hall_focus(description: str | None) -> str:
+    return str(description or "").strip()[:TOUR_HALL_FOCUS_MAX_LENGTH]
+
 
 async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
-    """Load halls from unified hall settings, falling back to canonical defaults."""
+    """Use persisted halls authoritatively; fall back only before any rows exist."""
     stmt = (
         select(Hall)
-        .where(Hall.is_active.is_(True))
         .order_by(Hall.display_order.asc(), Hall.created_at.asc())
     )
     result = await session.execute(stmt)
     hall_rows = list(result.scalars().all())
 
-    rows_by_slug = {}
-    for hall in hall_rows:
-        slug = normalize_hall(hall.slug)
-        if slug and slug not in rows_by_slug:
-            rows_by_slug[slug] = hall
-
-    if not hall_rows and not canonical_hall_contract():
-        return DEFAULT_HALLS_DATA
-
-    halls: list[TourHallItem] = []
-    for contract in canonical_hall_contract():
-        slug = contract["slug"]
-        backend = rows_by_slug.get(slug)
-        if backend is not None and backend.is_active is False:
-            continue
-        halls.append(
+    if hall_rows:
+        return [
             TourHallItem(
-                slug=slug,
-                name=hall_display_name(slug),
-                description=(backend.description if backend else None) or contract.get("description") or "",
+                slug=normalize_hall(hall.slug) or hall.slug,
+                name=hall.name,
+                description=hall.description or "",
                 exhibit_count=0,
-                estimated_duration_minutes=(
-                    backend.estimated_duration_minutes
-                    if backend is not None
-                    else contract["estimated_duration_minutes"]
-                ),
+                estimated_duration_minutes=hall.estimated_duration_minutes,
+                focus=_short_hall_focus(hall.description),
             )
+            for hall in hall_rows
+            if hall.is_active
+        ]
+
+    contracts = canonical_hall_contract()
+    if not contracts:
+        return DEFAULT_HALLS_DATA
+    return [
+        TourHallItem(
+            slug=contract["slug"],
+            name=contract.get("name") or hall_display_name(contract["slug"]),
+            description=contract.get("description") or "",
+            exhibit_count=0,
+            estimated_duration_minutes=contract["estimated_duration_minutes"],
+            focus=_short_hall_focus(contract.get("description")),
         )
-    return halls
+        for contract in contracts
+    ]
+
+
+async def _load_hall_name_map(session: SessionDep) -> dict[str, str]:
+    result = await session.execute(select(Hall.slug, Hall.name))
+    return {
+        normalized: str(name)
+        for slug, name in result.all()
+        if (normalized := normalize_hall(slug)) and str(name or "").strip()
+    }
 
 
 async def _verify_ownership(
     session_id: str,
-    user: dict | None,
     token: str | None,
     db_session,
-) -> None:
-    if user:
-        try:
-            tour_session = await get_session(db_session, session_id)
-        except TourSessionNotFound:
-            raise HTTPException(status_code=404, detail="Tour session not found") from None
-        uid = (
-            tour_session.user_id.value
-            if hasattr(tour_session.user_id, "value")
-            else tour_session.user_id
-        )
-        if tour_session.user_id and str(uid) != user["id"]:
-            raise HTTPException(status_code=403, detail="Not your tour session") from None
-    elif token:
-        try:
-            await verify_session_token(db_session, session_id, token)
-        except TourSessionNotFound:
-            raise HTTPException(status_code=404, detail="Tour session not found") from None
-        except TourSessionTokenMismatch:
-            raise HTTPException(status_code=403, detail="Invalid session token") from None
-    else:
-        raise HTTPException(status_code=403, detail="Authentication required") from None
+):
+    """Authorize a mini-program session exclusively by its guest token.
+
+    A bearer token (including an administrator token) never grants access to a
+    visitor session. This keeps admin authentication isolated from tour data.
+    """
+    if not token:
+        raise HTTPException(status_code=403, detail="Session token required")
+    try:
+        return await verify_session_token(db_session, session_id, token)
+    except TourSessionNotFound:
+        raise HTTPException(status_code=404, detail="Tour session not found") from None
+    except TourSessionTokenMismatch:
+        raise HTTPException(status_code=403, detail="Invalid session token") from None
+    except TourSessionExpired:
+        raise HTTPException(status_code=410, detail="Tour session expired") from None
 
 
 def _format_session(tour_session) -> dict:
     eid = tour_session.current_exhibit_id
     uid = tour_session.user_id
+    last_active_at = tour_session.last_active_at
+    if last_active_at.tzinfo is None:
+        last_active_at = last_active_at.replace(tzinfo=UTC)
+    tour_started_at = tour_session.tour_started_at
+    if tour_started_at is not None and tour_started_at.tzinfo is None:
+        tour_started_at = tour_started_at.replace(tzinfo=UTC)
     return {
         "id": (
             tour_session.id.value
@@ -232,6 +523,15 @@ def _format_session(tour_session) -> dict:
         "visited_halls": normalize_halls(tour_session.visited_halls),
         "visited_exhibit_ids": tour_session.visited_exhibit_ids,
         "started_at": tour_session.started_at.isoformat(),
+        "tour_started_at": tour_started_at.isoformat() if tour_started_at else None,
+        "questionnaire": tour_session.questionnaire or {},
+        "resume_state": tour_session.resume_state or {},
+        "hall_chat_history": tour_session.hall_chat_history or {},
+        "state_version": tour_session.state_version,
+        "last_active_at": last_active_at.isoformat(),
+        "expires_at": (
+            last_active_at + timedelta(hours=SESSION_EXPIRY_HOURS)
+        ).isoformat(),
     }
 
 
@@ -247,23 +547,23 @@ def _compact_chat_exhibit_context(value: str | None, max_len: int = 1200) -> str
 async def _resolve_chat_exhibit_context(
     session,
     exhibit_id: str | None,
-    provided_context: str | None,
 ) -> str | None:
-    context = _compact_chat_exhibit_context(provided_context)
-    if context:
-        return context
-
     eid = str(exhibit_id or "").strip()
     if not eid or eid.startswith("local-") or eid.startswith("mock-"):
         return None
 
     exhibit = await session.get(Exhibit, eid)
-    if exhibit is None:
+    if exhibit is None or not exhibit.is_active:
         return None
 
     parts = [f"名称：{exhibit.name}"]
     hall_slug = normalize_hall(exhibit.hall)
-    hall_name = hall_display_name(hall_slug) if hall_slug else None
+    hall_row = await session.get(Hall, hall_slug) if hall_slug else None
+    hall_name = (
+        hall_row.name
+        if hall_row is not None
+        else (hall_display_name(hall_slug) if hall_slug else None)
+    )
     if hall_name or exhibit.hall:
         parts.append(f"展厅：{hall_name or exhibit.hall}")
     if exhibit.category:
@@ -273,6 +573,110 @@ async def _resolve_chat_exhibit_context(
     if exhibit.description:
         parts.append(f"简介：{str(exhibit.description).strip()[:600]}")
     return "\n".join(parts)[:1200]
+
+
+async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None:
+    normalized = normalize_hall(hall_id)
+    if not normalized:
+        return None
+    hall = await session.get(Hall, normalized)
+    if hall is not None and hall.is_active:
+        return f"{hall.name}：{str(hall.description or '').strip()}"[:1000]
+    for item in await _load_tour_halls(session):
+        if normalize_hall(item.slug) == normalized:
+            return f"{item.name}：{item.description}"[:1000]
+    return None
+
+
+def _validated_hall_chat_history(value: dict | None) -> dict[str, list[dict[str, str]]]:
+    normalized: dict[str, list[dict[str, str]]] = {}
+    for raw_hall, raw_messages in (value or {}).items():
+        hall = normalize_hall(raw_hall)
+        if not hall:
+            continue
+        messages = []
+        for raw in list(raw_messages or [])[-20:]:
+            if hasattr(raw, "model_dump"):
+                raw = raw.model_dump()
+            role = str((raw or {}).get("role") or "")
+            content = str((raw or {}).get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content[:1000]})
+        normalized[hall] = messages
+    return normalized
+
+
+def _normalized_questionnaire(
+    value: TourQuestionnaire | dict | None,
+    *,
+    persona: TourPersonaCode,
+    assumption: TourAssumptionCode,
+) -> dict:
+    if hasattr(value, "model_dump"):
+        normalized = value.model_dump(mode="json", exclude_none=True)
+    else:
+        normalized = dict(value or {})
+    raw_persona = normalized.get("persona_id")
+    if raw_persona is not None and raw_persona != persona:
+        raise HTTPException(
+            status_code=422,
+            detail="questionnaire.persona_id must match persona",
+        )
+    if normalized.get("assumption") not in {None, assumption}:
+        raise HTTPException(
+            status_code=422,
+            detail="questionnaire.assumption must match assumption",
+        )
+    normalized["persona_id"] = raw_persona or persona
+    normalized["assumption"] = assumption
+    return normalized
+
+
+def _normalized_resume_state(
+    value: TourResumeState | dict | None,
+    *,
+    persona: TourPersonaCode,
+    assumption: TourAssumptionCode,
+) -> dict:
+    if hasattr(value, "model_dump"):
+        normalized = value.model_dump(mode="json", exclude_none=True)
+    else:
+        normalized = dict(value or {})
+    if normalized.get("persona") not in {None, persona}:
+        raise HTTPException(status_code=422, detail="resume_state.persona must match persona")
+    raw_persona_id = normalized.get("persona_id")
+    if raw_persona_id not in {None, persona}:
+        raise HTTPException(status_code=422, detail="resume_state.persona_id must match persona")
+    if normalized.get("assumption") not in {None, assumption}:
+        raise HTTPException(status_code=422, detail="resume_state.assumption must match assumption")
+    if normalized.get("questionnaire") is not None:
+        normalized["questionnaire"] = _normalized_questionnaire(
+            normalized["questionnaire"], persona=persona, assumption=assumption
+        )
+    return normalized
+
+
+def _parsed_tour_started_at(value) -> datetime:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid tour_started_at") from exc
+    if not isinstance(value, datetime):
+        raise HTTPException(status_code=422, detail="Invalid tour_started_at")
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value
+
+
+def _validated_tour_started_at(value) -> datetime:
+    value = _parsed_tour_started_at(value)
+    now = datetime.now(UTC)
+    if value < now - timedelta(hours=SESSION_EXPIRY_HOURS):
+        raise HTTPException(status_code=422, detail="tour_started_at exceeds the 24-hour restoration window")
+    if value > now + timedelta(minutes=5):
+        raise HTTPException(status_code=422, detail="tour_started_at is in the future")
+    return value
 
 
 def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
@@ -312,125 +716,30 @@ def _compact_record_text(value: str | None, max_len: int = 90) -> str:
     return text
 
 
-def _append_unique(items: list[str], value: str) -> None:
-    text = str(value or "").strip()
-    if text and text not in items:
-        items.append(text)
-
-
-def _record_focus_phrases(question_text: str, answer_text: str, topic: str) -> list[str]:
-    text = f"{question_text} {answer_text}"
-    phrases: list[str] = []
-    if re.search(r"石器|骨器|工具|用途", text):
-        _append_unique(phrases, "石器骨器用途")
-    if re.search(r"文物|类型|展示|展厅", text):
-        _append_unique(phrases, "文物类型")
-    if re.search(r"动手|体验|技术|制作|步骤", text):
-        _append_unique(phrases, "动手体验与技术理解")
-    if re.search(r"陶|彩陶|陶器|器形|纹饰|工艺|烧制", text):
-        _append_unique(phrases, "器物工艺")
-    if re.search(r"房屋|聚落|遗址|壕沟|布局|半地穴", text):
-        _append_unique(phrases, "聚落空间")
-    if re.search(r"人面|鱼纹|图案|信仰|仪式|观念", text):
-        _append_unique(phrases, "图案与观念")
-    if re.search(r"生活|先民|日常|生产|定居", text):
-        _append_unique(phrases, "半坡生活方式")
-    if not phrases:
-        _append_unique(phrases, topic or "证据线索")
-    return phrases[:4]
-
-
-def _record_knowledge_phrases(answer_text: str, topic: str) -> list[str]:
-    phrases: list[str] = []
-    if re.search(r"石器|骨器|工具", answer_text):
-        _append_unique(phrases, "石器、骨器和工具可对应加工、制作与生产分工")
-    if re.search(r"陶|彩陶|陶器|器形|纹饰|烧制", answer_text):
-        _append_unique(phrases, "陶器可从器形、纹饰和制作痕迹理解用途")
-    if re.search(r"房屋|聚落|遗址|壕沟|半地穴|布局", answer_text):
-        _append_unique(phrases, "房屋、壕沟等遗迹能说明聚落布局")
-    if re.search(r"人面|鱼纹|图案|信仰|仪式|观念", answer_text):
-        _append_unique(phrases, "人面鱼纹等图案关联审美、仪式与观念")
-    if re.search(r"动手|体验|技术|制作|步骤|材料", answer_text):
-        _append_unique(phrases, "动手体验能把材料、步骤和工具关系具体化")
-    if re.search(r"生活|定居|生产|日常|先民", answer_text):
-        _append_unique(phrases, "出土文物反映定居、生产和日常生活方式")
-    if not phrases:
-        _append_unique(phrases, f"{topic or '证据线索'}需要回到展品、展签和遗迹位置核对")
-    return phrases[:3]
-
-
-def _append_summary_sentence(parts: list[str], sentence: str, max_len: int = 400) -> None:
-    if sentence and len("".join(parts) + sentence) <= max_len:
-        parts.append(sentence)
-
-
-def _join_record_phrases(phrases: list[str]) -> str:
-    clean = [phrase for phrase in phrases if phrase]
-    if not clean:
-        return ""
-    if len(clean) == 1:
-        return clean[0]
-    if len(clean) == 2:
-        return f"{clean[0]}和{clean[1]}"
-    return "、".join(clean[:-1]) + f"和{clean[-1]}"
-
-
 def _build_record_summary_point(
     hall_text: str,
     question_text: str,
     answer_text: str,
-    topic: str,
 ) -> str:
-    focus_phrases = _record_focus_phrases(question_text, answer_text, topic)
-    knowledge_phrases = _record_knowledge_phrases(answer_text, topic)
-    subject = f"{hall_text}这段记录" if hall_text and hall_text != "半坡遗址" else "这次参观"
-    focus_text = _join_record_phrases(focus_phrases)
-    knowledge_text = _join_record_phrases(knowledge_phrases)
-    parts: list[str] = []
-    _append_summary_sentence(parts, f"{subject}主要留下这些线索：{knowledge_text}。")
-    _append_summary_sentence(parts, f"提问中的{focus_text}，可在展柜、展签和遗迹位置继续核对。")
-    return "".join(parts)
+    scope = f"在{hall_text}" if hall_text else "在本次参观中"
+    questions = _compact_record_text(question_text, 150)
+    answers = _compact_record_text(answer_text, 210)
+    if answers:
+        return _compact_record_text(
+            f"{scope}，你实际提出了“{questions}”。导览记录中的回答包括：{answers}。",
+            400,
+        )
+    return _compact_record_text(
+        f"{scope}，你实际提出了“{questions}”。当前仅保留这条问题，不补充未记录的结论。",
+        400,
+    )
 
 
-def _record_point_from_answer(answer: str | None) -> str:
-    text = _compact_record_text(answer, 400)
-    if not text:
-        return "这条问题已经留下线索，后续可回到对应展厅核对可见证据。"
-    sentences = [
-        item.strip()
-        for item in re.split(r"[。！？；]", text)
-        if item.strip()
-    ]
-    markers = ("说明", "反映", "表明", "意味着", "可以看出", "证据", "关键")
-    for sentence in sentences:
-        if any(marker in sentence for marker in markers):
-            return _compact_record_text(sentence, 110)
-    return _compact_record_text(sentences[0] if sentences else text, 110)
-
-
-def _infer_record_topic(text: str) -> str:
-    if any(keyword in text for keyword in ("陶", "器", "工艺", "纹", "材料", "石器", "骨器", "工具", "用途")):
-        return "器物工艺"
-    if any(keyword in text for keyword in ("聚落", "房屋", "半地穴", "壕沟", "遗址", "空间", "布局", "墓葬")):
-        return "聚落空间"
-    if any(keyword in text for keyword in ("社会", "组织", "分工", "共同体", "协作", "规则", "公共")):
-        return "社会组织"
-    if any(keyword in text for keyword in ("生活", "食物", "农业", "居住", "日常", "生产")):
-        return "日常生活"
-    return "证据线索"
-
-
-def _persona_record_frame(persona: str | None) -> tuple[str, str]:
-    frames = {
-        "A": ("考古研究员", "这段记录更像一份考古观察：它把问题压回到可核对的遗迹、材料和推断边界上，也提醒后续回到展厅时继续区分直接证据与合理解释。"),
-        "B": ("研学记录员", "这段记录更像一份研学笔记：它把展厅见闻整理成后续还能复盘的学习线索，也帮助你把“看过什么”转成“为什么这样判断”。"),
-        "C": ("历史追问者", "这段记录更像一次历史追问：它把展厅内容和半坡社会、共同生活的问题连接起来，也保留了继续追问制度、分工和日常秩序的入口。"),
-        "D": ("器物研究员", "这段记录更像一份器物观察：它从材料、器形、用途和工艺痕迹进入半坡生活，也把器物细节和生产、使用场景联系起来。"),
-    }
-    return frames.get(persona or "A", frames["A"])
-
-
-def _build_report_record_notes(events=None, persona: str | None = None) -> list[dict[str, str]]:
+def _build_report_record_notes(
+    events=None,
+    persona: str | None = None,
+    hall_name_map: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
     answered_entries: list[dict[str, str]] = []
     question_entries: list[dict[str, str]] = []
     seen_answer_ids: set[str] = set()
@@ -482,18 +791,26 @@ def _build_report_record_notes(events=None, persona: str | None = None) -> list[
 
     hall_names = []
     for entry in entries:
-        hall_name = hall_display_name(entry["hall"]) if entry["hall"] else ""
+        hall_name = (
+            (hall_name_map or {}).get(entry["hall"])
+            if entry["hall"]
+            else ""
+        )
         if hall_name and hall_name not in hall_names:
             hall_names.append(hall_name)
-    hall_text = "、".join(hall_names) if hall_names else "半坡遗址"
+    hall_text = "、".join(hall_names)
     questions_text = "”“".join(entry["question"] for entry in entries)
     answer_text = " ".join(entry["answer"] for entry in entries if entry["answer"])
-    topic = _infer_record_topic(" ".join([questions_text, answer_text]))
-    point = _build_record_summary_point(hall_text, questions_text, answer_text, topic)
+    point = _build_record_summary_point(hall_text, questions_text, answer_text)
     return [{"question": "游览记录摘要", "point": point}]
 
 
-def _format_report(report, tour_session=None, events=None) -> dict:
+def _format_report(
+    report,
+    tour_session=None,
+    events=None,
+    hall_name_map: dict[str, str] | None = None,
+) -> dict:
     eid = report.most_viewed_exhibit_id
     halls_visited = _collect_visited_halls(tour_session, events)
     report_stats = {
@@ -510,6 +827,7 @@ def _format_report(report, tour_session=None, events=None) -> dict:
             events or [],
             stats=report_stats,
             radar_scores=report.radar_scores,
+            hall_name_map=hall_name_map,
         )
         if tour_session is not None
         else None
@@ -521,7 +839,11 @@ def _format_report(report, tour_session=None, events=None) -> dict:
             "point": _compact_record_text(record_summary, 400),
         }]
     else:
-        record_notes = _build_report_record_notes(events, getattr(tour_session, "persona", None))
+        record_notes = _build_report_record_notes(
+            events,
+            getattr(tour_session, "persona", None),
+            hall_name_map,
+        )
     return {
         "id": (
             report.id.value if hasattr(report.id, "value") else report.id
@@ -557,40 +879,31 @@ def _format_report(report, tour_session=None, events=None) -> dict:
 @router.post("/sessions", summary="Create tour session")
 async def create_tour_session(
     body: TourSessionCreate,
+    _create_rate_limit: TourSessionCreateRateLimitDep,
     session: SessionDep,
-    user: OptionalUser = None,
 ):
-    user_id = user["id"] if user else None
-    guest_id = body.guest_id if not user else None
-
-    if user:
-        existing = await find_active_session_by_user(session, user_id)
-        if existing:
-            if existing.status in ("onboarding", "opening"):
-                updated = await re_onboard_session(
-                    session,
-                    existing.id.value,
-                    interest_type=body.interest_type,
-                    persona=body.persona,
-                    assumption=body.assumption,
-                )
-                return _format_session(updated)
-            updated = await update_session(
-                session,
-                existing.id.value,
-                interest_type=body.interest_type,
-                persona=body.persona,
-                assumption=body.assumption,
-            )
-            return _format_session(updated)
-
+    guest_id = (body.guest_id or "").strip()[:64] or f"miniapp-{uuid.uuid4()}"
+    questionnaire = _normalized_questionnaire(
+        body.questionnaire, persona=body.persona, assumption=body.assumption
+    )
+    resume_state = _normalized_resume_state(
+        body.resume_state, persona=body.persona, assumption=body.assumption
+    )
+    tour_started_at = (
+        _validated_tour_started_at(body.resume_state.tour_started_at)
+        if body.resume_state.tour_started_at is not None
+        else None
+    )
     tour_session = await create_session(
         session,
         interest_type=body.interest_type,
         persona=body.persona,
         assumption=body.assumption,
-        user_id=user_id,
+        user_id=None,
         guest_id=guest_id,
+        questionnaire=questionnaire,
+        resume_state=resume_state,
+        tour_started_at=tour_started_at,
     )
     return _format_session(tour_session)
 
@@ -599,10 +912,9 @@ async def create_tour_session(
 async def get_tour_session(
     session_id: str,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    await _verify_ownership(session_id, x_session_token, session)
     try:
         tour_session = await get_session(session, session_id)
     except TourSessionNotFound:
@@ -616,27 +928,132 @@ async def get_tour_session(
 async def patch_tour_session(
     session_id: str,
     request: Request,
+    _write_rate_limit: TourSessionWriteRateLimitDep,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    owned_session = await _verify_ownership(session_id, x_session_token, session)
     raw = await request.body()
+    if len(raw) > MAX_SESSION_STATE_PATCH_BYTES:
+        raise HTTPException(status_code=413, detail="Session state patch is too large")
     try:
         data = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise HTTPException(status_code=422, detail="Invalid JSON body") from None
-    body = TourSessionUpdate.model_validate(data)
-    body_data = body.model_dump()
+    try:
+        body = TourSessionUpdate.model_validate(data)
+    except PydanticValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=exc.errors(include_url=False, include_context=False),
+        ) from None
+    body_data = body.model_dump(mode="json")
     updates = {k: body_data[k] for k in body.model_fields_set}
+    expected_state_version = updates.pop("expected_state_version", None)
+    if "persona" in updates or "interest_type" in updates:
+        requested_persona = updates.get("persona", updates.get("interest_type"))
+        if requested_persona is None:
+            raise HTTPException(status_code=422, detail="persona cannot be null")
+        if (
+            "persona" in updates
+            and "interest_type" in updates
+            and updates["persona"] != updates["interest_type"]
+        ):
+            raise HTTPException(status_code=422, detail="interest_type must match persona")
+        if requested_persona not in {owned_session.persona, owned_session.interest_type}:
+            raise HTTPException(
+                status_code=422,
+                detail="persona is immutable; create a new tour session",
+            )
+        updates["persona"] = requested_persona
+        updates["interest_type"] = requested_persona
+    if "assumption" in updates and updates["assumption"] is None:
+        raise HTTPException(status_code=422, detail="assumption cannot be null")
+    effective_persona = updates.get("persona", owned_session.persona)
+    effective_assumption = updates.get("assumption", owned_session.assumption)
+    if {"persona", "assumption", "questionnaire"} & updates.keys():
+        updates["questionnaire"] = _normalized_questionnaire(
+            updates.get("questionnaire", owned_session.questionnaire),
+            persona=effective_persona,
+            assumption=effective_assumption,
+        )
+    if "resume_state" in updates:
+        updates["resume_state"] = _normalized_resume_state(
+            updates["resume_state"],
+            persona=effective_persona,
+            assumption=effective_assumption,
+        )
     if "current_hall" in updates and updates["current_hall"] is not None:
         updates["current_hall"] = normalize_hall(updates["current_hall"])
+        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
+        if not updates["current_hall"] or updates["current_hall"] not in valid_halls:
+            raise HTTPException(status_code=422, detail="Unknown current_hall")
+    effective_exhibit_id = updates.get(
+        "current_exhibit_id", owned_session.current_exhibit_id
+    )
+    if hasattr(effective_exhibit_id, "value"):
+        effective_exhibit_id = effective_exhibit_id.value
+    effective_exhibit_id = str(effective_exhibit_id or "").strip()
+    if effective_exhibit_id:
+        exhibit = await session.get(Exhibit, effective_exhibit_id)
+        if exhibit is None or not exhibit.is_active:
+            raise HTTPException(
+                status_code=422,
+                detail="Unknown or inactive current_exhibit_id",
+            )
+        effective_hall = normalize_hall(
+            updates.get("current_hall", owned_session.current_hall)
+        )
+        if effective_hall and normalize_hall(exhibit.hall) != effective_hall:
+            raise HTTPException(
+                status_code=422,
+                detail="current_exhibit_id does not belong to current_hall",
+            )
+    if "hall_chat_history" in updates:
+        updates["hall_chat_history"] = _validated_hall_chat_history(
+            updates["hall_chat_history"]
+        )
+        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
+        unknown_halls = set(updates["hall_chat_history"]) - valid_halls
+        if unknown_halls:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Unknown hall_chat_history halls: {', '.join(sorted(unknown_halls))}",
+            )
+    if "tour_started_at" in updates and updates["tour_started_at"] is not None:
+        if owned_session.tour_started_at is not None:
+            requested_start = _parsed_tour_started_at(updates["tour_started_at"])
+            current_start = owned_session.tour_started_at
+            if current_start.tzinfo is None:
+                current_start = current_start.replace(tzinfo=UTC)
+            if abs((requested_start - current_start).total_seconds()) > 1:
+                raise HTTPException(status_code=409, detail="tour_started_at is immutable")
+            updates.pop("tour_started_at")
+        else:
+            updates["tour_started_at"] = _validated_tour_started_at(
+                updates["tour_started_at"]
+            )
     try:
-        tour_session = await update_session(session, session_id, **updates)
+        tour_session = await update_session(
+            session,
+            session_id,
+            expected_state_version=expected_state_version,
+            **updates,
+        )
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
     except TourSessionExpired:
         raise HTTPException(status_code=410, detail="Tour session expired") from None
+    except TourSessionStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "STATE_VERSION_CONFLICT",
+                "message": str(exc),
+                "expected_state_version": exc.expected_state_version,
+                "current_state_version": exc.current_state_version,
+            },
+        ) from None
     return _format_session(tour_session)
 
 
@@ -644,15 +1061,67 @@ async def patch_tour_session(
 async def post_tour_events(
     session_id: str,
     body: TourEventBatch,
+    _write_rate_limit: TourSessionWriteRateLimitDep,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    tour_session = await _verify_ownership(session_id, x_session_token, session)
     payload_events = [e.model_dump() for e in body.events]
+    valid_halls = {
+        normalize_hall(hall.slug)
+        for hall in await _load_tour_halls(session)
+        if normalize_hall(hall.slug)
+    }
+    exhibit_ids = {
+        str(event.get("exhibit_id") or "").strip()
+        for event in payload_events
+        if event.get("exhibit_id")
+    }
+    if any(
+        exhibit_id.startswith(("local-", "mock-"))
+        for exhibit_id in exhibit_ids
+    ):
+        raise HTTPException(status_code=422, detail="Local exhibit IDs cannot be recorded")
+    exhibit_by_id: dict[str, Exhibit] = {}
+    if exhibit_ids:
+        result = await session.execute(
+            select(Exhibit).where(Exhibit.id.in_(exhibit_ids))
+        )
+        exhibit_by_id = {str(exhibit.id): exhibit for exhibit in result.scalars().all()}
+
     for event in payload_events:
         if event.get("hall"):
             event["hall"] = normalize_hall(event["hall"])
+            if not event["hall"] or event["hall"] not in valid_halls:
+                raise HTTPException(status_code=422, detail="Unknown event hall")
+        exhibit_id = str(event.get("exhibit_id") or "").strip()
+        if not exhibit_id:
+            continue
+        exhibit = exhibit_by_id.get(exhibit_id)
+        if exhibit is None or not exhibit.is_active:
+            raise HTTPException(status_code=422, detail="Unknown or inactive event exhibit_id")
+        exhibit_hall = normalize_hall(exhibit.hall)
+        if event.get("hall") and exhibit_hall != event["hall"]:
+            raise HTTPException(
+                status_code=422,
+                detail="event exhibit_id does not belong to event hall",
+            )
+        if not event.get("hall"):
+            event["hall"] = exhibit_hall
+    if any(event["event_type"] == "tour_start" for event in payload_events):
+        if tour_session.tour_started_at is None:
+            start_event = next(
+                event for event in payload_events if event["event_type"] == "tour_start"
+            )
+            start_at = _validated_tour_started_at(
+                (start_event.get("metadata") or {}).get("started_at")
+            )
+            await update_session(
+                session,
+                session_id,
+                tour_started_at=start_at,
+                status="touring",
+            )
     try:
         events = await record_events(
             session, session_id, payload_events
@@ -666,10 +1135,9 @@ async def post_tour_events(
 async def list_tour_events(
     session_id: str,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    await _verify_ownership(session_id, x_session_token, session)
     try:
         events = await get_events_by_session(session, session_id)
     except TourSessionNotFound:
@@ -699,11 +1167,11 @@ async def list_tour_events(
 @router.post("/sessions/{session_id}/complete-hall", summary="Complete hall visit")
 async def complete_hall(
     session_id: str,
+    _write_rate_limit: TourSessionWriteRateLimitDep,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    await _verify_ownership(session_id, x_session_token, session)
     try:
         tour_session = await get_session(session, session_id)
     except TourSessionNotFound:
@@ -718,7 +1186,7 @@ async def complete_hall(
     all_halls = [normalize_hall(h.slug) for h in hall_configs if normalize_hall(h.slug)]
     all_visited = all(h in visited_halls for h in all_halls)
 
-    new_status = "completed" if all_visited else "touring"
+    new_status = "touring"
     updated = await update_session(
         session, session_id, visited_halls=visited_halls, status=new_status
     )
@@ -733,50 +1201,64 @@ async def complete_hall(
 @router.post("/sessions/{session_id}/report", summary="Generate tour report")
 async def create_tour_report(
     session_id: str,
+    _report_rate_limit: TourReportRateLimitDep,
     session: SessionDep,
-    llm_provider: LLMProviderDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    await _verify_ownership(session_id, x_session_token, session)
 
     try:
         tour_session = await get_session(session, session_id)
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
 
-    if tour_session.status != "completed":
-        await update_session(session, session_id, status="completed")
-
+    hall_name_map = await _load_hall_name_map(session)
     try:
         report = await generate_report(
-            session, session_id, llm_provider=llm_provider
+            session,
+            session_id,
+            hall_name_map=hall_name_map,
         )
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
 
     events = await get_events_by_session(session, session_id)
-    return _format_report(report, tour_session=tour_session, events=events)
+    return _format_report(
+        report,
+        tour_session=tour_session,
+        events=events,
+        hall_name_map=hall_name_map,
+    )
 
 
 @router.get("/sessions/{session_id}/report", summary="Get tour report")
 async def get_tour_report(
     session_id: str,
     session: SessionDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    await _verify_ownership(session_id, x_session_token, session)
     report = await get_report(session, session_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found") from None
+    hall_name_map = await _load_hall_name_map(session)
+    report = await generate_report(
+        session,
+        session_id,
+        hall_name_map=hall_name_map,
+    )
     try:
         tour_session = await get_session(session, session_id)
         events = await get_events_by_session(session, session_id)
     except TourSessionNotFound:
         tour_session = None
         events = []
-    return _format_report(report, tour_session=tour_session, events=events)
+    return _format_report(
+        report,
+        tour_session=tour_session,
+        events=events,
+        hall_name_map=hall_name_map,
+    )
 
 
 @router.post("/sessions/{session_id}/chat/stream", summary="Stream tour chat (SSE)")
@@ -784,14 +1266,14 @@ async def tour_chat_stream(
     session_id: str,
     body: TourChatRequest,
     request: Request,
+    _chat_rate_limit: TourChatRateLimitDep,
     session: SessionDep,
     session_maker: SessionMakerDep,
     rag_agent: RagAgentDep,
     llm_provider: LLMProviderDep,
-    user: OptionalUser = None,
     x_session_token: str | None = Header(None),
 ):
-    await _verify_ownership(session_id, user, x_session_token, session)
+    tour_session = await _verify_ownership(session_id, x_session_token, session)
 
     degraded = set()
     if hasattr(request.app.state, "degraded"):
@@ -804,15 +1286,61 @@ async def tour_chat_stream(
     persona = None
     if body.tts:
         try:
-            tour_session_obj = await get_session(session, session_id)
-            persona = tour_session_obj.persona
+            persona = tour_session.persona
         except (TourSessionNotFound, TourSessionExpired):
             pass  # Will fall back to session persona in ask_stream_tour
 
+    requested_hall = normalize_hall(body.hall_id)
+    trusted_hall = normalize_hall(tour_session.current_hall)
+    exhibit_row = None
+    requested_exhibit_id = str(body.exhibit_id or "").strip()
+    if requested_exhibit_id and not requested_exhibit_id.startswith(("local-", "mock-")):
+        exhibit_row = await session.get(Exhibit, requested_exhibit_id)
+        if exhibit_row is None or not exhibit_row.is_active:
+            raise HTTPException(status_code=422, detail="Unknown exhibit_id")
+        exhibit_hall = normalize_hall(exhibit_row.hall)
+        if requested_hall and exhibit_hall and requested_hall != exhibit_hall:
+            raise HTTPException(status_code=422, detail="exhibit_id does not belong to hall_id")
+        requested_hall = exhibit_hall or requested_hall
+
+    session_updates: dict[str, str | None] = {}
+    if requested_hall:
+        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
+        if requested_hall not in valid_halls:
+            raise HTTPException(status_code=422, detail="Unknown hall_id")
+        if requested_hall != trusted_hall:
+            session_updates["current_hall"] = requested_hall
+            # A hall switch without a trusted exhibit must not retain the
+            # previous hall's foreign key.
+            session_updates["current_exhibit_id"] = (
+                exhibit_row.id if exhibit_row is not None else None
+            )
+        elif exhibit_row is not None:
+            session_updates["current_exhibit_id"] = exhibit_row.id
+        elif requested_exhibit_id:
+            session_updates["current_exhibit_id"] = None
+        session_updates["status"] = "touring"
+
+    if session_updates:
+        tour_session = await update_session(
+            session,
+            session_id,
+            **session_updates,
+        )
+    trusted_exhibit_id = exhibit_row.id if exhibit_row is not None else None
     exhibit_context = await _resolve_chat_exhibit_context(
         session,
-        body.exhibit_id,
-        body.exhibit_context,
+        trusted_exhibit_id,
+    )
+    hall_context = await _resolve_chat_hall_context(
+        session, tour_session.current_hall
+    )
+    stored_history = (tour_session.hall_chat_history or {}).get(
+        normalize_hall(tour_session.current_hall) or "", []
+    )
+    conversation_history = stored_history[-8:] or (
+        [item.model_dump() for item in body.conversation_history]
+        if body.conversation_history else None
     )
 
     return StreamingResponse(
@@ -823,13 +1351,12 @@ async def tour_chat_stream(
             message=body.message,
             rag_agent=rag_agent,
             llm_provider=llm_provider,
-            exhibit_id=body.exhibit_id,
+            exhibit_id=trusted_exhibit_id,
             exhibit_context=exhibit_context,
+            hall_context=hall_context,
             client_event_id=body.client_event_id,
-            client_context=body.client_context,
-            conversation_history=[
-                item.model_dump() for item in body.conversation_history
-            ] if body.conversation_history else None,
+            client_context=None,
+            conversation_history=conversation_history,
             style=body.style,
             degraded_services=degraded,
             tts_provider=tts_provider if body.tts else None,
@@ -845,22 +1372,91 @@ async def tour_chat_stream(
     )
 
 
+@router.get(
+    "/sessions/{session_id}/suggestions",
+    response_model=TourSuggestionResponse,
+    summary="Get deterministic data-driven suggestions",
+)
+async def get_tour_suggestions(
+    session_id: str,
+    session: SessionDep,
+    x_session_token: str | None = Header(None),
+    hall_id: str | None = None,
+    exhibit_id: str | None = None,
+):
+    tour_session = await _verify_ownership(session_id, x_session_token, session)
+    persona = tour_session.persona if tour_session.persona in DETERMINISTIC_SUGGESTIONS else "default"
+
+    normalized_hall = normalize_hall(hall_id or tour_session.current_hall)
+    normalized_exhibit_id = str(exhibit_id or "").strip() or None
+    suggestions: list[str] = []
+    source: Literal["exhibit", "hall", "deterministic"] = "deterministic"
+
+    if normalized_exhibit_id and not normalized_exhibit_id.startswith(("local-", "mock-")):
+        exhibit = await session.get(Exhibit, normalized_exhibit_id)
+        if exhibit is not None and exhibit.is_active:
+            suggestions = [
+                str(item).strip()[:200]
+                for item in (exhibit.suggested_questions or [])
+                if str(item).strip()
+            ][:6]
+            if suggestions:
+                source = "exhibit"
+            normalized_hall = normalize_hall(exhibit.hall) or normalized_hall
+
+    if not suggestions and normalized_hall:
+        hall = await session.get(Hall, normalized_hall)
+        if hall is not None and hall.is_active:
+            suggestions = [
+                str(item).strip()[:200]
+                for item in (hall.suggested_questions or [])
+                if str(item).strip()
+            ][:6]
+            if suggestions:
+                source = "hall"
+
+    if not suggestions:
+        suggestions = DETERMINISTIC_SUGGESTIONS[persona]
+
+    return TourSuggestionResponse(
+        hall_id=normalized_hall,
+        exhibit_id=normalized_exhibit_id,
+        persona=persona,
+        suggestions=suggestions,
+        source=source,
+    )
+
+
 @router.get("/halls", summary="List tour halls")
 async def list_tour_halls(
     session: SessionDep,
 ):
     hall_configs = await _load_tour_halls(session)
     hall_slugs = [normalize_hall(h.slug) for h in hall_configs if normalize_hall(h.slug)]
+    if not hall_slugs:
+        return TourHallListResponse(halls=[])
+
     stmt = (
-        select(Exhibit.hall, func.count(Exhibit.id))
+        select(Exhibit.hall, Exhibit.name)
         .where(Exhibit.hall.in_(hall_slugs), Exhibit.is_active.is_(True))
-        .group_by(Exhibit.hall)
+        .order_by(
+            Exhibit.hall.asc(),
+            Exhibit.display_order.asc().nulls_last(),
+            Exhibit.importance.desc(),
+            Exhibit.created_at.asc(),
+            Exhibit.id.asc(),
+        )
     )
     result = await session.execute(stmt)
-    counts = {}
-    for hall, count in result.all():
+    counts: dict[str, int] = {}
+    highlights: dict[str, list[str]] = {}
+    for hall, exhibit_name in result.all():
         slug = normalize_hall(hall) or hall
-        counts[slug] = counts.get(slug, 0) + count
+        counts[slug] = counts.get(slug, 0) + 1
+        hall_highlights = highlights.setdefault(slug, [])
+        name = str(exhibit_name or "").strip()
+        if name and len(hall_highlights) < 3:
+            hall_highlights.append(name)
 
     halls = []
     seen = set()
@@ -872,10 +1468,12 @@ async def list_tour_halls(
         halls.append(
             TourHallItem(
                 slug=slug,
-                name=hall_display_name(slug),
+                name=h.name or hall_display_name(slug),
                 description=h.description,
                 exhibit_count=counts.get(slug, 0),
                 estimated_duration_minutes=h.estimated_duration_minutes,
+                highlights=highlights.get(slug, []),
+                focus=_short_hall_focus(h.description),
             )
         )
     return TourHallListResponse(halls=halls)

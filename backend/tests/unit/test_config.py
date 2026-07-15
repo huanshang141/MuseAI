@@ -1,5 +1,16 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
+
+
+def test_nginx_caps_all_tour_session_bodies_including_creation():
+    config = (
+        Path(__file__).resolve().parents[3] / "deploy" / "nginx.conf"
+    ).read_text(encoding="utf-8")
+
+    location = config.split("location /api/v1/tour/sessions {", 1)[1].split("}", 1)[0]
+    assert "client_max_body_size 2m;" in location
 
 
 def test_settings_requires_jwt_secret_in_production(monkeypatch):
@@ -139,56 +150,6 @@ def test_settings_validation_embedding_dims():
             ELASTICSEARCH_INDEX="test_index",
             EMBEDDING_DIMS=0,
         )
-
-
-def test_settings_has_admin_emails():
-    """Test that Settings has ADMIN_EMAILS field."""
-    from app.config.settings import Settings
-
-    settings = Settings()
-    assert hasattr(settings, "ADMIN_EMAILS")
-    assert isinstance(settings.ADMIN_EMAILS, str)
-
-
-def test_settings_parses_admin_emails_from_string():
-    """Test that ADMIN_EMAILS is parsed from comma-separated string via get_admin_emails()."""
-    from app.config.settings import Settings
-
-    settings = Settings(ADMIN_EMAILS="admin@example.com,another@example.com")
-    assert settings.get_admin_emails() == ["admin@example.com", "another@example.com"]
-
-
-def test_settings_admin_emails_defaults_to_empty():
-    """Test that ADMIN_EMAILS defaults to empty list via get_admin_emails()."""
-    from app.config.settings import Settings
-    settings = Settings(_env_file=None, ALLOW_INSECURE_DEV_DEFAULTS=True)
-    assert settings.get_admin_emails() == []
-
-
-def test_settings_admin_emails_from_env(monkeypatch):
-    """Test that ADMIN_EMAILS can be set from environment variable."""
-    monkeypatch.setenv("ADMIN_EMAILS", "admin1@example.com,admin2@example.com")
-    monkeypatch.setenv("ALLOW_INSECURE_DEV_DEFAULTS", "true")
-
-    from app.config.settings import Settings
-
-    settings = Settings(_env_file=None)
-    assert settings.get_admin_emails() == ["admin1@example.com", "admin2@example.com"]
-
-
-def test_settings_warns_admin_emails_deprecated_in_production(monkeypatch):
-    """ADMIN_EMAILS should emit a deprecation warning in production."""
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("JWT_SECRET", "a" * 32)
-    monkeypatch.setenv("LLM_API_KEY", "test-key")
-    monkeypatch.setenv("RERANK_PROVIDER", "mock")
-    monkeypatch.setenv("TTS_ENABLED", "false")
-    monkeypatch.setenv("ADMIN_EMAILS", "admin@example.com")
-
-    from app.config.settings import Settings
-
-    with pytest.warns(DeprecationWarning, match="ADMIN_EMAILS is deprecated"):
-        Settings(_env_file=None)
 
 
 def test_settings_rejects_wildcard_cors_in_production(monkeypatch):

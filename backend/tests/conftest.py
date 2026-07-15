@@ -1,6 +1,7 @@
 """Global shared fixtures for all tests."""
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -19,7 +20,7 @@ def stable_test_settings(monkeypatch):
 @pytest.fixture
 async def db_session():
     """SQLite in-memory async session for contract/integration tests."""
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     engine = create_async_engine(TEST_DATABASE_URL)
     session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

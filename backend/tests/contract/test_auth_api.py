@@ -2,9 +2,11 @@ import pytest
 from app.api.deps import check_auth_rate_limit
 from app.api.deps import get_db_session as original_get_db_session
 from app.infra.postgres.database import get_session, get_session_maker
-from app.infra.postgres.models import Base
+from app.infra.postgres.models import Base, User
+from app.infra.security.password import hash_password
 from app.main import app
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import delete
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -19,141 +21,122 @@ async def db_session(session_maker):
     async with get_session(session_maker) as session:
         engine = session_maker.kw.get("bind")
         if engine:
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-
+            async with engine.begin() as connection:
+                await connection.run_sync(Base.metadata.create_all)
+        await session.execute(delete(User))
+        await session.commit()
         yield session
 
 
-@pytest.mark.asyncio
-async def test_register_endpoint(db_session):
+def _override_auth_dependencies(db_session):
     async def override_get_db():
         yield db_session
 
     app.dependency_overrides[original_get_db_session] = override_get_db
-    # Override auth rate limit to allow tests to run without Redis
     app.dependency_overrides[check_auth_rate_limit] = lambda: None
 
+
+async def _add_user(db_session, *, user_id, email, password, role):
+    db_session.add(
+        User(
+            id=user_id,
+            email=email,
+            password_hash=hash_password(password),
+            role=role,
+        )
+    )
+    await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_public_registration_route_does_not_exist(db_session):
+    _override_auth_dependencies(db_session)
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.post(
                 "/api/v1/auth/register",
-                json={
-                    "email": "test@example.com",
-                    "password": "Password123!",
-                },
+                json={"email": "visitor@example.com", "password": "VisitorPass123!"},
             )
-
-        assert response.status_code == 201
-        data = response.json()
-        assert "id" in data
-        assert data["email"] == "test@example.com"
-        assert "role" in data
-        assert data["role"] == "user"
     finally:
         app.dependency_overrides = {}
 
+    assert response.status_code == 404
+    assert not any(
+        getattr(route, "path", None) == "/api/v1/auth/register"
+        for route in app.routes
+    )
+
 
 @pytest.mark.asyncio
-async def test_login_endpoint(db_session):
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    # Override auth rate limit to allow tests to run without Redis
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
+async def test_non_admin_cannot_login(db_session):
+    await _add_user(
+        db_session,
+        user_id="visitor-login-denied",
+        email="visitor-login-denied@example.com",
+        password="VisitorPass123!",
+        role="user",
+    )
+    _override_auth_dependencies(db_session)
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            await client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "login@example.com",
-                    "password": "LoginPass123!",
-                },
-            )
-
             response = await client.post(
                 "/api/v1/auth/login",
-                json={
-                    "email": "login@example.com",
-                    "password": "LoginPass123!",
-                },
+                json={"email": "visitor-login-denied@example.com", "password": "VisitorPass123!"},
             )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "access_token" in data
-        assert data["token_type"] == "bearer"
     finally:
         app.dependency_overrides = {}
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Incorrect email or password"
 
 
 @pytest.mark.asyncio
-async def test_login_wrong_password(db_session):
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    # Override auth rate limit to allow tests to run without Redis
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
+async def test_admin_can_login_with_bearer_token_and_no_cookie(db_session):
+    await _add_user(
+        db_session,
+        user_id="single-admin-login",
+        email="single-admin@example.com",
+        password="AdminPass123!",
+        role="admin",
+    )
+    _override_auth_dependencies(db_session)
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            await client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "wrong@example.com",
-                    "password": "WrongPass123!",
-                },
-            )
-
             response = await client.post(
                 "/api/v1/auth/login",
-                json={
-                    "email": "wrong@example.com",
-                    "password": "Wrongpassword1!",
-                },
+                json={"email": "single-admin@example.com", "password": "AdminPass123!"},
             )
-
-        assert response.status_code == 401
     finally:
         app.dependency_overrides = {}
+
+    assert response.status_code == 200
+    assert response.json()["role"] == "admin"
+    assert response.json()["token_type"] == "bearer"
+    assert response.json()["access_token"]
+    assert "access_token=" not in response.headers.get("set-cookie", "")
 
 
 @pytest.mark.asyncio
-async def test_login_does_not_set_cookie(db_session):
-    """Test that login does NOT set a cookie (bearer-only auth)."""
-    async def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[original_get_db_session] = override_get_db
-    app.dependency_overrides[check_auth_rate_limit] = lambda: None
-
+async def test_admin_wrong_password_is_rejected(db_session):
+    await _add_user(
+        db_session,
+        user_id="admin-wrong-password",
+        email="admin-wrong-password@example.com",
+        password="AdminPass123!",
+        role="admin",
+    )
+    _override_auth_dependencies(db_session)
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            await client.post(
-                "/api/v1/auth/register",
-                json={
-                    "email": "nocookie@example.com",
-                    "password": "NoCookiePass123!",
-                },
-            )
-
             response = await client.post(
                 "/api/v1/auth/login",
-                json={
-                    "email": "nocookie@example.com",
-                    "password": "NoCookiePass123!",
-                },
+                json={"email": "admin-wrong-password@example.com", "password": "WrongPass123!"},
             )
-
-        assert response.status_code == 200
-        cookie = response.headers.get("set-cookie", "")
-        assert "access_token=" not in cookie
     finally:
         app.dependency_overrides = {}
+
+    assert response.status_code == 401

@@ -64,10 +64,10 @@ class TourSessionModel(Base):
     user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, index=True)
     guest_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     session_token: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    interest_type: Mapped[str] = mapped_column(String(1), nullable=False)
-    persona: Mapped[str] = mapped_column(String(1), nullable=False)
+    interest_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    persona: Mapped[str] = mapped_column(String(10), nullable=False)
     assumption: Mapped[str] = mapped_column(String(1), nullable=False)
-    current_hall: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    current_hall: Mapped[str | None] = mapped_column(String(100), nullable=True)
     current_exhibit_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("exhibits.id"), nullable=True)
     visited_halls: Mapped[list] = mapped_column(JSON, default=list)
     visited_exhibit_ids: Mapped[list] = mapped_column(JSON, default=list)
@@ -75,6 +75,11 @@ class TourSessionModel(Base):
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    tour_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    questionnaire: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    resume_state: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    hall_chat_history: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     __table_args__ = (
@@ -101,6 +106,11 @@ class TourSessionModel(Base):
             started_at=self.started_at,
             completed_at=self.completed_at,
             created_at=self.created_at,
+            tour_started_at=self.tour_started_at,
+            questionnaire=self.questionnaire or {},
+            resume_state=self.resume_state or {},
+            hall_chat_history=self.hall_chat_history or {},
+            state_version=self.state_version or 1,
         )
 
     user: Mapped[User | None] = relationship(back_populates="tour_sessions")
@@ -117,7 +127,7 @@ class TourEventModel(Base):
     tour_session_id: Mapped[str] = mapped_column(String(36), ForeignKey("tour_sessions.id"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     exhibit_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("exhibits.id"), nullable=True)
-    hall: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    hall: Mapped[str | None] = mapped_column(String(100), nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     event_meta: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
@@ -153,7 +163,7 @@ class TourReportModel(Base):
     total_duration_minutes: Mapped[float] = mapped_column(Float, nullable=False)
     most_viewed_exhibit_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("exhibits.id"), nullable=True)
     most_viewed_exhibit_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    longest_hall: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    longest_hall: Mapped[str | None] = mapped_column(String(100), nullable=True)
     longest_hall_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_questions: Mapped[int] = mapped_column(Integer, nullable=False)
     total_exhibits_viewed: Mapped[int] = mapped_column(Integer, nullable=False)

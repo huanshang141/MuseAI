@@ -306,6 +306,155 @@ async def check_guest_rate_limit(
 GuestRateLimitDep = Annotated[None, Depends(check_guest_rate_limit)]
 
 
+async def check_tour_chat_rate_limit(
+    request: Request,
+    session_id: str,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Limit mini-program chat per tour session plus a Wi-Fi-safe IP ceiling."""
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    trusted_proxies = settings.get_trusted_proxies()
+    client_ip = extract_client_ip(request, trusted_proxies)
+    try:
+        session_allowed = await redis.check_rate_limit(
+            f"tour_chat_session:{session_id}",
+            max_requests=settings.TOUR_CHAT_SESSION_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        ip_allowed = await redis.check_rate_limit(
+            f"tour_chat_ip:{client_ip}",
+            max_requests=settings.TOUR_CHAT_IP_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        if not session_allowed or not ip_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tour chat rate limit exceeded. Please try again later.",
+            )
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat temporarily unavailable. Please try again later.",
+        ) from exc
+
+
+TourChatRateLimitDep = Annotated[None, Depends(check_tour_chat_rate_limit)]
+
+
+async def check_tour_session_create_rate_limit(
+    request: Request,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Protect anonymous session creation with a shared-Wi-Fi-safe IP ceiling."""
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    client_ip = extract_client_ip(request, settings.get_trusted_proxies())
+    try:
+        allowed = await redis.check_rate_limit(
+            f"tour_session_create_ip:{client_ip}",
+            max_requests=settings.TOUR_SESSION_CREATE_IP_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tour session creation rate limit exceeded. Please try again later.",
+            )
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tour sessions are temporarily unavailable. Please try again later.",
+        ) from exc
+
+
+TourSessionCreateRateLimitDep = Annotated[
+    None,
+    Depends(check_tour_session_create_rate_limit),
+]
+
+
+async def check_tour_report_rate_limit(
+    request: Request,
+    session_id: str,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Limit report generation per session and across one public network."""
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    client_ip = extract_client_ip(request, settings.get_trusted_proxies())
+    try:
+        session_allowed = await redis.check_rate_limit(
+            f"tour_report_session:{session_id}",
+            max_requests=settings.TOUR_REPORT_SESSION_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        ip_allowed = await redis.check_rate_limit(
+            f"tour_report_ip:{client_ip}",
+            max_requests=settings.TOUR_REPORT_IP_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        if not session_allowed or not ip_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tour report rate limit exceeded. Please try again later.",
+            )
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tour reports are temporarily unavailable. Please try again later.",
+        ) from exc
+
+
+TourReportRateLimitDep = Annotated[None, Depends(check_tour_report_rate_limit)]
+
+
+async def check_tour_session_write_rate_limit(
+    request: Request,
+    session_id: str,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Protect large anonymous session-state writes without penalizing museum Wi-Fi."""
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    client_ip = extract_client_ip(request, settings.get_trusted_proxies())
+    try:
+        session_allowed = await redis.check_rate_limit(
+            f"tour_session_write_session:{session_id}",
+            max_requests=settings.TOUR_SESSION_WRITE_SESSION_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        ip_allowed = await redis.check_rate_limit(
+            f"tour_session_write_ip:{client_ip}",
+            max_requests=settings.TOUR_SESSION_WRITE_IP_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        if not session_allowed or not ip_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Tour session update rate limit exceeded. Please try again later.",
+            )
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tour session updates are temporarily unavailable. Please try again later.",
+        ) from exc
+
+
+TourSessionWriteRateLimitDep = Annotated[
+    None,
+    Depends(check_tour_session_write_rate_limit),
+]
+
+
 # ============================================================================
 # Strict app.state dependency accessors (no fallback construction)
 # ============================================================================

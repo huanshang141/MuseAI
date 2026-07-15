@@ -4,22 +4,20 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from app.application.tour_report_service import (
-    _generate_one_liner_llm,
+    _pick_one_liner,
     aggregate_stats,
+    build_record_summary,
     build_reflection_summary,
     calculate_radar_scores,
     collect_qa_pairs,
     detect_ceramic_question,
-    generate_record_summary_llm,
     get_report_theme,
     select_identity_tags,
 )
 from app.domain.entities import TourSession
 from app.domain.exceptions import TourSessionExpired, TourSessionNotFound, TourSessionTokenMismatch
 from app.domain.value_objects import TourSessionId
-from app.infra.providers.llm import LLMResponse
 from app.infra.postgres.models import TourEventModel, TourSessionModel
-
 
 # ---------------------------------------------------------------------------
 # Helpers: Tour Session Service
@@ -218,6 +216,92 @@ async def test_update_session():
 
 
 @pytest.mark.asyncio
+async def test_append_hall_chat_turn_merges_latest_history_and_caps_twenty():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    existing = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": str(index)}
+        for index in range(20)
+    ]
+    model = _make_model()
+    model.hall_chat_history = {
+        "site-protection-hall": [{"role": "user", "content": "保留我"}],
+        "basic-exhibition-hall": existing,
+    }
+    model.state_version = 4
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "新问题",
+        "新回答",
+    )
+
+    assert model.hall_chat_history["site-protection-hall"][0]["content"] == "保留我"
+    assert len(model.hall_chat_history["basic-exhibition-hall"]) == 20
+    assert model.hall_chat_history["basic-exhibition-hall"][-2:] == [
+        {"role": "user", "content": "新问题"},
+        {"role": "assistant", "content": "新回答"},
+    ]
+    assert model.state_version == 5
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_does_not_duplicate_frontend_synced_turn():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    completed_turn = [
+        {"role": "user", "content": "同一问题"},
+        {"role": "assistant", "content": "同一回答"},
+    ]
+    model = _make_model()
+    model.hall_chat_history = {"basic-exhibition-hall": completed_turn.copy()}
+    model.state_version = 8
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "同一问题",
+        "同一回答",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == completed_turn
+    assert model.state_version == 8
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_evicts_oldest_hall_when_tenth_is_added():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    model = _make_model()
+    model.hall_chat_history = {
+        f"hall-{index}": [{"role": "user", "content": str(index)}]
+        for index in range(9)
+    }
+    model.state_version = 2
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "hall-9",
+        "新展厅问题",
+        "新展厅回答",
+    )
+
+    assert len(model.hall_chat_history) == 9
+    assert "hall-0" not in model.hall_chat_history
+    assert "hall-9" in model.hall_chat_history
+
+
+@pytest.mark.asyncio
 async def test_update_session_ignores_disallowed_fields():
     from app.application.tour_session_service import update_session
 
@@ -274,6 +358,22 @@ async def test_verify_session_token_valid():
     result = await verify_session_token(mock_session, "test-session-id", "correct-token")
 
     assert result is not None
+    mock_session.commit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verify_session_token_throttles_activity_write_to_one_minute():
+    from app.application.tour_session_service import verify_session_token
+
+    old_active = datetime.now(UTC) - timedelta(minutes=2)
+    model = _make_model(session_token="correct-token", last_active_at=old_active)
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await verify_session_token(mock_session, "test-session-id", "correct-token")
+
+    mock_session.commit.assert_awaited_once()
+    assert model.last_active_at > old_active
 
 
 @pytest.mark.asyncio
@@ -595,7 +695,7 @@ def test_select_identity_tags_default():
         "ceramic_aesthetics": 1,
     }
     tags = select_identity_tags(scores)
-    assert tags == ["史前细节显微镜", "六千年前的干饭王", "史前第一眼光"]
+    assert tags == ["现场观察者", "好奇提问者", "参观记录者"]
 
 
 def test_select_identity_tags_all_S():
@@ -606,12 +706,11 @@ def test_select_identity_tags_all_S():
         "ceramic_aesthetics": 3,
     }
     tags = select_identity_tags(scores)
-    assert tags[0] == "冷酷无情的地层勘探机"
-    assert tags[1] == "母系氏族社交悍匪"
-    assert tags[2] == "彩陶纹饰解码者"
+    assert tags == ["沉浸参观者", "深度追问者", "细节发现者"]
 
 
 def test_get_report_theme():
+    assert get_report_theme("default") == "general"
     assert get_report_theme("A") == "archaeology"
     assert get_report_theme("B") == "field_study"
     assert get_report_theme("C") == "history_inquiry"
@@ -807,7 +906,7 @@ def test_aggregate_stats_counts_exhibit_view_without_duration():
     assert stats["most_viewed_exhibit_duration"] == 120
 
 
-def test_aggregate_stats_counts_named_local_exhibit_view():
+def test_aggregate_stats_ignores_name_only_exhibit_view():
     session = _make_session(started_at=datetime.now(UTC) - timedelta(minutes=5))
     events = [
         _make_event_model(
@@ -828,9 +927,44 @@ def test_aggregate_stats_counts_named_local_exhibit_view():
 
     stats = aggregate_stats(events, session)
 
-    assert stats["total_exhibits_viewed"] == 1
-    assert stats["most_viewed_exhibit_id"] == "name:石器工具"
-    assert stats["most_viewed_exhibit_duration"] == 50
+    assert stats["total_exhibits_viewed"] == 0
+    assert stats["most_viewed_exhibit_id"] is None
+    assert stats["most_viewed_exhibit_duration"] is None
+
+
+def test_aggregate_stats_uses_tour_start_and_ignores_completed_at():
+    now = datetime.now(UTC)
+    session = _make_session(
+        started_at=now - timedelta(minutes=30),
+        tour_started_at=now - timedelta(minutes=12),
+        completed_at=now - timedelta(minutes=8),
+    )
+
+    stats = aggregate_stats([], session)
+
+    assert 11.9 <= stats["total_duration_minutes"] <= 12.1
+
+
+def test_aggregate_stats_never_returns_negative_live_duration():
+    session = _make_session(tour_started_at=datetime.now(UTC) + timedelta(minutes=4))
+
+    stats = aggregate_stats([], session)
+
+    assert stats["total_duration_minutes"] == 0.0
+
+
+def test_report_fallback_one_liner_never_invents_an_exhibit_visit():
+    line = _pick_one_liner(
+        {
+            "total_duration_minutes": 0,
+            "total_questions": 0,
+            "total_exhibits_viewed": 0,
+        },
+        "default",
+    )
+
+    assert line == "这次参观记录正等待你的下一次发现"
+    assert "人面鱼纹盆" not in line
 
 
 def test_reflection_summary_detects_interest_shift():
@@ -858,6 +992,27 @@ def test_reflection_summary_detects_interest_shift():
     assert reflection["status"] == "shifted"
     assert "器物工艺" in reflection["change_summary"]
     assert "聚落空间" in reflection["change_summary"] or "社会组织" in reflection["change_summary"]
+
+
+def test_default_reflection_does_not_invent_questionnaire_assumption():
+    session = _make_session(persona="default", assumption="D")
+    events = [
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="basic-exhibition-hall",
+            event_meta={"message": "这项判断有哪些现场证据？"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="basic-exhibition-hall",
+            event_meta={"message": "展签和实物之间怎样相互印证？"},
+        ).to_entity(),
+    ]
+
+    reflection = build_reflection_summary(session, events)
+
+    assert "本次复盘按你的真实参观记录整理" in reflection["initial_assumption"]
+    assert "初始问题偏向" not in reflection["initial_assumption"]
 
 
 def test_reflection_summary_detects_stable_focus():
@@ -898,35 +1053,55 @@ def test_reflection_summary_insufficient_evidence():
     assert reflection["change_summary"]
 
 
-@pytest.mark.asyncio
-async def test_generate_one_liner_uses_report_model_override():
-    llm_provider = AsyncMock()
-    llm_provider.supports_model_override = True
-    llm_provider.report_model = "deepseek-v4-pro"
-    llm_provider.generate.return_value = LLMResponse(
-        content="从器物细节看见半坡生活",
-        model="deepseek-v4-pro",
-        prompt_tokens=10,
-        completion_tokens=8,
-        duration_ms=100,
+def test_report_copy_does_not_invent_legacy_museum_facts():
+    session = _make_session(persona="C", assumption="B")
+    events = [
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="future-real-hall",
+            event_meta={"message": "这项结论有哪些现场证据？"},
+        ).to_entity(),
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="future-real-hall",
+            event_meta={"message": "这段说明应当怎样核对证据？"},
+        ).to_entity(),
+    ]
+    stats = {
+        "total_duration_minutes": 90,
+        "total_questions": 20,
+        "total_exhibits_viewed": 15,
+        "site_hall_duration_minutes": 30,
+        "ceramic_questions": 5,
+    }
+    radar_scores = calculate_radar_scores(stats)
+    reflection = build_reflection_summary(
+        session,
+        events,
+        stats=stats,
+        radar_scores=radar_scores,
+        hall_name_map={"future-real-hall": "馆方真实展厅"},
+    )
+    copy = " ".join(
+        [
+            _pick_one_liner(stats, session.persona),
+            *select_identity_tags(radar_scores),
+            *(str(value) for value in reflection.values()),
+        ]
     )
 
-    result = await _generate_one_liner_llm(
-        llm_provider,
-        "D",
-        {
-            "total_duration_minutes": 30,
-            "total_questions": 2,
-            "total_exhibits_viewed": 1,
-        },
-    )
-
-    assert result == "从器物细节看见半坡生活"
-    _, kwargs = llm_provider.generate.call_args
-    assert kwargs["model"] == "deepseek-v4-pro"
-    messages = llm_provider.generate.call_args.args[0]
-    assert isinstance(messages, list)
-    assert messages[0]["role"] == "user"
+    for legacy_fact in (
+        "陶器",
+        "骨器",
+        "石器",
+        "房屋",
+        "壕沟",
+        "作坊",
+        "墓葬",
+        "人面鱼纹",
+        "母系",
+    ):
+        assert legacy_fact not in copy
 
 
 # ===================================================================
@@ -985,52 +1160,39 @@ def test_collect_qa_pairs_empty_without_answers():
     assert collect_qa_pairs(events) == []
 
 
-@pytest.mark.asyncio
-async def test_generate_record_summary_uses_report_model_and_trims():
-    llm_provider = AsyncMock()
-    llm_provider.supports_model_override = True
-    llm_provider.report_model = "deepseek-v4-pro"
-    # >400 chars, sentence-delimited, to exercise the non-truncating trim
-    llm_provider.generate.return_value = LLMResponse(
-        content="你重点了解了半坡陶器的烧制工艺。" * 40,
-        model="deepseek-v4-pro",
-        prompt_tokens=10,
-        completion_tokens=8,
-        duration_ms=100,
+def test_record_summary_quotes_only_real_qa_and_database_hall_name():
+    result = build_record_summary(
+        [
+            {
+                "hall": "new-special-hall",
+                "question": "这里展示什么？",
+                "answer": "展示馆方新导入的代表性展品。",
+            }
+        ],
+        hall_name_map={"new-special-hall": "馆方真实展厅"},
     )
 
-    result = await generate_record_summary_llm(
-        llm_provider,
-        "D",
-        [{"hall": "kiln-hall", "question": "陶器怎么烧？", "answer": "用陶窑控制火候。"}],
+    assert result == (
+        "在馆方真实展厅，你问了“这里展示什么？”，"
+        "导览记录回答：“展示馆方新导入的代表性展品”。"
     )
+    assert "new-special-hall" not in result
+
+
+def test_record_summary_stops_at_complete_qa_before_character_budget():
+    pairs = [
+        {
+            "hall": "future-real-hall",
+            "question": f"问题{index}" * 20,
+            "answer": f"回答{index}" * 40,
+        }
+        for index in range(10)
+    ]
+
+    result = build_record_summary(pairs)
 
     assert len(result) <= 400
-    assert result.endswith("。")  # complete sentence, not mid-word cut
-    assert not result.endswith("；")
-    _, kwargs = llm_provider.generate.call_args
-    assert kwargs["model"] == "deepseek-v4-pro"
-
-
-@pytest.mark.asyncio
-async def test_generate_record_summary_normalizes_semicolon_ending():
-    llm_provider = AsyncMock()
-    llm_provider.supports_model_override = False
-    llm_provider.generate.return_value = LLMResponse(
-        content="你重点关注了基本陈列展厅中文物类型和石器骨器用途；",
-        model="qwen-plus",
-        prompt_tokens=10,
-        completion_tokens=8,
-        duration_ms=100,
-    )
-
-    result = await generate_record_summary_llm(
-        llm_provider,
-        "B",
-        [{"hall": "basic-exhibition-hall", "question": "有哪些文物？", "answer": "主要包括陶器和工具。"}],
-    )
-
-    assert result == "你重点关注了基本陈列展厅中文物类型和石器骨器用途。"
+    assert result.endswith("。")
 
 
 # ===================================================================

@@ -43,3 +43,13 @@ class TourSessionExpired(DomainError):
 
 class TourSessionTokenMismatch(DomainError):
     pass
+
+
+class TourSessionStateConflict(DomainError):
+    def __init__(self, expected_state_version: int, current_state_version: int):
+        self.expected_state_version = expected_state_version
+        self.current_state_version = current_state_version
+        super().__init__(
+            "Expected state_version "
+            f"{expected_state_version}, current state_version is {current_state_version}"
+        )

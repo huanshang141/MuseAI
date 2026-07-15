@@ -1,53 +1,22 @@
 from fastapi import APIRouter, HTTPException, Request, status
 from loguru import logger
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr
 from redis.exceptions import RedisError
 
 from app.api.deps import AuthRateLimitDep, JWTHandlerDep, RedisCacheDep, SessionDep
 from app.application.auth_service import (
     authenticate_user,
     create_access_token,
-    get_user_by_email,
-    register_user,
 )
 from app.infra.postgres.adapters.auth_repository import PostgresUserRepository
-from app.infra.security import hash_password, verify_password
+from app.infra.security import verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class RegisterRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-    @field_validator('password')
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
-        if len(v) > 128:
-            raise ValueError('Password must be at most 128 characters')
-        if not any(c.isupper() for c in v):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in v):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in v):
-            raise ValueError('Password must contain at least one digit')
-        if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?/' for c in v):
-            raise ValueError('Password must contain at least one special character')
-        return v
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
-
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    role: str
-    created_at: str
 
 
 class TokenResponse(BaseModel):
@@ -57,37 +26,7 @@ class TokenResponse(BaseModel):
     role: str
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Register new user")
-async def register(
-    request: RegisterRequest,
-    session: SessionDep,
-    _: AuthRateLimitDep,  # Add rate limiting
-):
-    user_repo = PostgresUserRepository(session)
-    existing_user = await get_user_by_email(user_repo, request.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    user = await register_user(
-        user_repo=user_repo,
-        email=request.email,
-        password=request.password,
-        hash_password_func=hash_password,
-    )
-    await session.commit()
-
-    return UserResponse(
-        id=user.id,
-        email=user.email,
-        role=user.role,
-        created_at=user.created_at.isoformat(),
-    )
-
-
-@router.post("/login", response_model=TokenResponse, summary="Login user")
+@router.post("/login", response_model=TokenResponse, summary="Login administrator")
 async def login(
     request: LoginRequest,
     session: SessionDep,
@@ -109,6 +48,13 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = create_access_token(user.id, jwt_handler)
 
     return TokenResponse(
@@ -119,14 +65,14 @@ async def login(
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Logout user")
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, summary="Logout administrator")
 async def logout(
     request: Request,
     jwt_handler: JWTHandlerDep,
     redis: RedisCacheDep,
     _: AuthRateLimitDep,
 ):
-    """Logout user by blacklisting their current token."""
+    """Logout an administrator by blacklisting the current token."""
     auth_header = request.headers.get("Authorization")
     token = None
     if auth_header and auth_header.startswith("Bearer "):

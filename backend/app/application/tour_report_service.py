@@ -1,15 +1,14 @@
-import asyncio
 import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.hall_normalizer import normalize_hall
 from app.application.tour_event_service import get_events_by_session
-from app.application.hall_normalizer import hall_display_name, normalize_hall
 from app.application.tour_session_service import get_session
 from app.domain.entities import TourReport
 from app.infra.postgres.models import TourReportModel
@@ -21,19 +20,9 @@ CERAMIC_KEYWORDS = [
     "素面", "刻划", "彩绘",
 ]
 
-ONE_LINER_CANDIDATES = [
-    "今天，我用AI唤醒了沉睡六千年的半坡先民",
-    "我的博物馆向导来自公元前4000年",
-    "没有文字的时代，他们把不朽的灵魂画在彩陶上",
-    "凝视人面鱼纹盆的瞬间，六千年的风从浐河吹进了现实",
-    "我们在泥土里寻找的不是瓦罐，而是六千年前祖宗的倒影",
-    "半坡一日游达成：确认过了，如果回到6000年前，我的手艺只配负责吃",
-    "懂了，六千年前的先民不内卷，每天研究怎么抓鱼和捏泥巴",
-]
-
-HARDCORE_TAGS = ["史前细节显微镜", "碎片重构大师", "冷酷无情的地层勘探机"]
-FUN_TAGS = ["六千年前的干饭王", "母系氏族社交悍匪", "沉睡的部落大祭司"]
-AESTHETIC_TAGS = ["史前第一眼光", "彩陶纹饰解码者", "被文物选中的人"]
+OBSERVATION_TAGS = ["现场观察者", "展品探索者", "沉浸参观者"]
+QUESTION_TAGS = ["好奇提问者", "展厅漫游者", "深度追问者"]
+REVIEW_TAGS = ["参观记录者", "专注记录者", "细节发现者"]
 
 REFLECTION_TOPIC_LABELS = {
     "craft": "器物工艺",
@@ -45,44 +34,45 @@ REFLECTION_TOPIC_LABELS = {
 }
 
 PERSONA_REVIEW_ENTRY = {
+    "default": ("evidence", "本次复盘按你的真实参观记录整理：先保留现场看到的内容和问过的问题，再归纳可以确认的线索。"),
     "A": ("evidence", "本次复盘先按证据链整理：实物、展签和遗迹位置优先于现成结论。"),
     "B": ("evidence", "本次复盘先按研学笔记整理：保留可回看、可继续追问的现场线索。"),
-    "C": ("social", "本次复盘先按历史问题整理：半坡如何组织共同生活，是主要入口。"),
+    "C": ("social", "本次复盘先按历史问题整理：从实际问题和回答中核对变化与联系。"),
     "D": ("craft", "本次复盘先按器物细节整理：材料、器形、纹饰和使用痕迹是主要入口。"),
 }
 
 ASSUMPTION_REVIEW_HINTS = {
-    "A": "初始问题偏向共同体：平等、协作和公共生活能否从遗存中看出来。",
-    "B": "初始问题偏向日常生活：房屋、器具和食物怎样连成生活场景。",
-    "C": "初始问题偏向社会组织：分工、规则和群体秩序从哪里显形。",
+    "A": "初始问题偏向共同体：协作与公共生活能否由现场材料支持。",
+    "B": "初始问题偏向日常生活：实际生活如何从现场材料得到说明。",
+    "C": "初始问题偏向社会组织：组织与规则从哪些可核对线索显现。",
     "D": "初始问题偏向证据判断：先保留现场材料，再决定解释能走多远。",
 }
 
 REVIEW_TOPIC_LINES = {
     "craft": {
-        "focus": "关注点集中在器物如何被制作和使用：陶器、骨器、石器不只是展品，也对应火候、器形、磨损和用途。",
-        "evidence": "可回看{halls}中的器物与展签，把“怎么做、怎么用、留下什么痕迹”连成一条线。",
-        "next": "继续追问同类器物在不同场景中的用途差异，区分哪些判断来自实物，哪些仍是推测。",
+        "focus": "你的实际问题多次涉及展品如何制作、使用，以及哪些细节可以直接观察。",
+        "evidence": "可回看{halls}中与这些问题直接相关的展品和展签，并对照本次问答记录。",
+        "next": "继续区分哪些判断来自现场可见信息，哪些仍需要更多证据。",
     },
     "settlement": {
-        "focus": "关注点集中在聚落空间：房屋、壕沟、作坊和墓葬共同说明人群怎样住在一起。",
-        "evidence": "可回看{halls}中的位置关系，重点看居住、生产、边界和公共空间如何相互支撑。",
-        "next": "继续追问空间布局背后的规则：哪些区域属于日常生活，哪些可能承担保护、生产或仪式功能。",
+        "focus": "你的实际问题多次涉及展示对象之间的位置和空间关系。",
+        "evidence": "可回看{halls}中与问题直接相关的位置说明，并对照本次问答记录。",
+        "next": "继续核对空间判断来自哪些现场信息，避免把可能性写成确定结论。",
     },
     "social": {
-        "focus": "关注点集中在社会组织：协作、分工和公共规则没有直接写出，却能从器物、房屋和墓葬组合中推出来。",
-        "evidence": "可回看{halls}里与工具、墓葬、公共空间相关的线索，比较不同材料之间是否互相印证。",
-        "next": "继续追问半坡人的共同生活如何被组织起来，以及哪些证据足以支持这种判断。",
+        "focus": "你的实际问题多次涉及群体关系、协作或规则如何得到说明。",
+        "evidence": "可回看{halls}中与这些问题直接相关的说明，比较问答中的依据是否相互支持。",
+        "next": "继续追问每个判断需要哪些证据，并保留尚不能确认的部分。",
     },
     "spiritual": {
-        "focus": "关注点集中在精神文化：纹饰、图案和象征让器物超出实用层面，留下审美与观念线索。",
-        "evidence": "可回看{halls}中的人面、鱼纹、几何纹或相关图案，观察它们出现的位置和器物类型。",
-        "next": "继续追问图案是装饰、身份标记还是仪式表达，避免只停留在“好看”的判断。",
+        "focus": "你的实际问题多次涉及图案、象征或观念应当如何理解。",
+        "evidence": "可回看{halls}中问题所指的具体展示信息，并对照本次问答记录。",
+        "next": "继续区分直接可见的形式与解释性的判断，避免超出已有信息。",
     },
     "life": {
-        "focus": "关注点集中在日常生活：吃什么、住哪里、用什么工具，都能落到具体展品和空间中。",
-        "evidence": "可回看{halls}中的陶器、工具和房屋线索，把它们放回同一个生活场景里理解。",
-        "next": "继续追问这些器物分别服务饮食、居住、劳动还是储藏，补齐生活场景的细节。",
+        "focus": "你的实际问题多次涉及日常生活如何从现场信息得到说明。",
+        "evidence": "可回看{halls}中问题所指的展品或说明，并对照本次问答记录。",
+        "next": "继续从已确认的信息出发补充细节，不把未出现的内容加入结论。",
     },
     "evidence": {
         "focus": "关注点集中在证据推理：重要的不是记住结论，而是区分直接可见的材料和合理推断。",
@@ -124,30 +114,7 @@ TOPIC_KEYWORDS = {
     ],
 }
 
-HALL_TOPIC_WEIGHTS = {
-    "basic-exhibition-hall": {"craft": 1, "life": 1, "evidence": 1},
-    "site-protection-hall": {"settlement": 2, "social": 1, "evidence": 1},
-    "kiln-hall": {"craft": 2, "evidence": 1},
-    "prehistoric-workshop": {"craft": 1, "life": 1},
-    "education-center": {"evidence": 2},
-    "banpo-girl-sculpture": {"spiritual": 1, "social": 1},
-    "peony-garden": {"life": 1},
-}
-
-
 RECORD_SUMMARY_MAX_CHARS = 400
-RECORD_SUMMARY_MAX_PAIRS = 40
-RECORD_SUMMARY_ANSWER_CHARS = 320
-RECORD_SUMMARY_QUESTION_CHARS = 120
-
-PERSONA_SUMMARY_NAMES = {
-    "A": "考古研究员",
-    "B": "研学记录员",
-    "C": "历史追问者",
-    "D": "器物研究员",
-}
-
-
 def detect_ceramic_question(message: str) -> bool:
     return any(kw in message for kw in CERAMIC_KEYWORDS)
 
@@ -184,42 +151,47 @@ def select_identity_tags(radar_scores: dict) -> list[str]:
     aes = radar_scores.get("ceramic_aesthetics", 1)
 
     if civ == 3:
-        tags.append(HARDCORE_TAGS[2])
+        tags.append(OBSERVATION_TAGS[2])
     elif hist == 3:
-        tags.append(HARDCORE_TAGS[1])
+        tags.append(OBSERVATION_TAGS[1])
     else:
-        tags.append(HARDCORE_TAGS[0])
+        tags.append(OBSERVATION_TAGS[0])
 
     if img == 3:
-        tags.append(FUN_TAGS[1])
+        tags.append(QUESTION_TAGS[2])
     elif life == 3:
-        tags.append(FUN_TAGS[2])
+        tags.append(QUESTION_TAGS[1])
     else:
-        tags.append(FUN_TAGS[0])
+        tags.append(QUESTION_TAGS[0])
 
     if aes == 3:
-        tags.append(AESTHETIC_TAGS[1])
+        tags.append(REVIEW_TAGS[2])
     elif civ == 3:
-        tags.append(AESTHETIC_TAGS[2])
+        tags.append(REVIEW_TAGS[1])
     else:
-        tags.append(AESTHETIC_TAGS[0])
+        tags.append(REVIEW_TAGS[0])
 
     return tags
 
 
 def get_report_theme(persona: str) -> str:
     return {
+        "default": "general",
         "A": "archaeology",
         "B": "field_study",
         "C": "history_inquiry",
         "D": "artifact_study",
-    }.get(persona, "archaeology")
+    }.get(persona, "general")
 
 
-def _format_review_halls(halls: list[str]) -> str:
+def _format_review_halls(
+    halls: list[str], hall_name_map: dict[str, str] | None = None
+) -> str:
+    display_names = hall_name_map or {}
     names: list[str] = []
     for hall in halls:
-        name = hall_display_name(hall)
+        normalized = normalize_hall(hall) or hall
+        name = display_names.get(normalized)
         if name and name not in names:
             names.append(name)
     if not names:
@@ -232,14 +204,18 @@ def build_reflection_summary(
     events: list,
     stats: dict | None = None,
     radar_scores: dict | None = None,
+    hall_name_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build report review cues from existing session/events without an LLM call."""
     stats = stats or {}
-    radar_scores = radar_scores or {}
-    persona = getattr(tour_session, "persona", None) or "A"
+    persona = getattr(tour_session, "persona", None) or "default"
     assumption = getattr(tour_session, "assumption", None) or "D"
-    initial_topic, entry_line = PERSONA_REVIEW_ENTRY.get(persona, PERSONA_REVIEW_ENTRY["A"])
-    assumption_line = ASSUMPTION_REVIEW_HINTS.get(assumption, ASSUMPTION_REVIEW_HINTS["D"])
+    initial_topic, entry_line = PERSONA_REVIEW_ENTRY.get(persona, PERSONA_REVIEW_ENTRY["default"])
+    assumption_line = (
+        ""
+        if persona == "default"
+        else ASSUMPTION_REVIEW_HINTS.get(assumption, ASSUMPTION_REVIEW_HINTS["D"])
+    )
 
     question_count = 0
     deep_dive_count = 0
@@ -250,7 +226,7 @@ def build_reflection_summary(
         event_type = getattr(event, "event_type", "") or ""
         metadata = getattr(event, "metadata", None) or {}
         hall = normalize_hall(getattr(event, "hall", None)) or ""
-        text = _reflection_event_text(event, metadata, hall)
+        text = _reflection_event_text(metadata)
 
         if event_type == "exhibit_question":
             question_count += 1
@@ -265,11 +241,12 @@ def build_reflection_summary(
         else:
             weight = 0.5
 
-        if hall and event_type in {"exhibit_question", "exhibit_deep_dive", "exhibit_view"} and hall not in signal_halls:
+        if (
+            hall
+            and event_type in {"exhibit_question", "exhibit_deep_dive", "exhibit_view"}
+            and hall not in signal_halls
+        ):
             signal_halls.append(hall)
-
-        for topic, topic_weight in HALL_TOPIC_WEIGHTS.get(hall, {}).items():
-            scores[topic] += topic_weight * weight
 
         for topic in _match_reflection_topics(text):
             scores[topic] += weight
@@ -291,7 +268,7 @@ def build_reflection_summary(
     total_score = sum(scores.values()) or 1.0
     observed_label = REFLECTION_TOPIC_LABELS.get(top_topic, top_topic)
     initial_label = REFLECTION_TOPIC_LABELS.get(initial_topic, initial_topic)
-    hall_text = _format_review_halls(signal_halls)
+    hall_text = _format_review_halls(signal_halls, hall_name_map)
     topic_lines = REVIEW_TOPIC_LINES.get(
         top_topic,
         {
@@ -322,13 +299,6 @@ def build_reflection_summary(
         )
         status = "shifted"
 
-    if radar_scores:
-        strongest_radar = max(radar_scores, key=lambda key: radar_scores.get(key, 0))
-        if strongest_radar == "ceramic_aesthetics" and top_topic != "craft":
-            observed_focus += " 器物细节也可作为辅助线索保留。"
-        elif strongest_radar == "life_experience" and top_topic != "life":
-            observed_focus += " 日常生活场景也可作为辅助线索保留。"
-
     return {
         "initial_assumption": initial_assumption,
         "observed_focus": observed_focus,
@@ -340,17 +310,13 @@ def build_reflection_summary(
     }
 
 
-def _reflection_event_text(event, metadata: dict, hall: str) -> str:
+def _reflection_event_text(metadata: dict) -> str:
     parts = [
-        hall,
         str(metadata.get("question") or ""),
         str(metadata.get("message") or ""),
-        str(metadata.get("exhibit_name") or ""),
-        str(metadata.get("name") or ""),
+        str(metadata.get("query") or ""),
+        str(metadata.get("answer") or ""),
     ]
-    exhibit_id = getattr(event, "exhibit_id", None)
-    if exhibit_id:
-        parts.append(str(exhibit_id.value if hasattr(exhibit_id, "value") else exhibit_id))
     return " ".join(part for part in parts if part)
 
 
@@ -410,12 +376,14 @@ def _is_frontend_question_client_id(value: Any) -> bool:
 
 def aggregate_stats(events: list, tour_session) -> dict:
     total_duration = 0.0
-    started_at = _ensure_aware(tour_session.started_at)
-    completed_at = _ensure_aware(tour_session.completed_at)
-    if started_at and completed_at:
-        total_duration = (completed_at - started_at).total_seconds() / 60.0
-    elif started_at:
-        total_duration = (datetime.now(UTC) - started_at).total_seconds() / 60.0
+    started_at = _ensure_aware(
+        getattr(tour_session, "tour_started_at", None) or tour_session.started_at
+    )
+    if started_at:
+        total_duration = max(
+            0.0,
+            (datetime.now(UTC) - started_at).total_seconds() / 60.0,
+        )
 
     exhibit_durations: dict[str, int] = {}
     hall_durations: dict[str, int] = {}
@@ -429,13 +397,10 @@ def aggregate_stats(events: list, tour_session) -> dict:
     for event in events:
         metadata = _event_metadata(event)
         if event.event_type == "exhibit_view":
-            eid = ""
-            if event.exhibit_id:
-                eid = event.exhibit_id.value if hasattr(event.exhibit_id, 'value') else str(event.exhibit_id)
-            if not eid:
-                exhibit_name = str(metadata.get("exhibit_name") or metadata.get("name") or "").strip()
-                if exhibit_name:
-                    eid = f"name:{exhibit_name}"
+            exhibit_id = getattr(event, "exhibit_id", None)
+            eid = str(
+                exhibit_id.value if hasattr(exhibit_id, "value") else exhibit_id or ""
+            ).strip()
             if not eid:
                 continue
             viewed_exhibits.add(eid)
@@ -537,10 +502,36 @@ def aggregate_stats(events: list, tour_session) -> dict:
     }
 
 
+def _apply_report_snapshot(
+    model: TourReportModel,
+    *,
+    stats: dict,
+    identity_tags: list[str],
+    radar_scores: dict,
+    one_liner: str,
+    report_theme: dict,
+    record_summary: str | None,
+) -> None:
+    """Apply the latest live tour snapshot to an existing report row."""
+    model.total_duration_minutes = stats["total_duration_minutes"]
+    model.most_viewed_exhibit_id = stats["most_viewed_exhibit_id"]
+    model.most_viewed_exhibit_duration = stats["most_viewed_exhibit_duration"]
+    model.longest_hall = stats["longest_hall"]
+    model.longest_hall_duration = stats["longest_hall_duration"]
+    model.total_questions = stats["total_questions"]
+    model.total_exhibits_viewed = stats["total_exhibits_viewed"]
+    model.ceramic_questions = stats["ceramic_questions"]
+    model.identity_tags = identity_tags
+    model.radar_scores = radar_scores
+    model.one_liner = one_liner
+    model.report_theme = report_theme
+    model.record_summary = record_summary
+
+
 async def generate_report(
     session: AsyncSession,
     tour_session_id: str,
-    llm_provider: Any = None,
+    hall_name_map: dict[str, str] | None = None,
 ) -> TourReport:
     stmt = select(TourReportModel).where(TourReportModel.tour_session_id == tour_session_id)
     result = await session.execute(stmt)
@@ -554,54 +545,25 @@ async def generate_report(
     identity_tags = select_identity_tags(radar_scores)
     report_theme = get_report_theme(tour_session.persona)
 
-    one_liner = existing.one_liner if existing is not None else _pick_one_liner(stats, tour_session.persona)
-    record_summary = existing.record_summary if existing is not None else None
-    previous_question_count = existing.total_questions if existing is not None else None
-    should_refresh_record_summary = (
-        existing is None
-        or not record_summary
-        or previous_question_count != stats["total_questions"]
-    )
-
-    # ── LLM enrichment (one-liner + record summary) ─────────────────────────────
-    # Both are independent LLM calls; run them concurrently so report generation
-    # pays one round-trip instead of two. The record summary is only attempted
-    # when we captured answered Q&A — otherwise the API falls back to the keyword
-    # template (no regression). Failures degrade to the non-LLM fallback per task.
-    if llm_provider:
-        qa_pairs = collect_qa_pairs(events) if should_refresh_record_summary else []
-        tasks: dict[str, Any] = {}
-        if existing is None:
-            tasks["one_liner"] = _generate_one_liner_llm(llm_provider, tour_session.persona, stats)
-        if qa_pairs:
-            tasks["record_summary"] = generate_record_summary_llm(
-                llm_provider, tour_session.persona, qa_pairs
-            )
-        if tasks:
-            outcomes = await asyncio.gather(*tasks.values(), return_exceptions=True)
-            for key, outcome in zip(tasks.keys(), outcomes):
-                if isinstance(outcome, Exception):
-                    logger.warning(f"Failed to generate {key} via LLM, using fallback: {outcome}")
-                    continue
-                if key == "one_liner" and outcome:
-                    one_liner = outcome
-                elif key == "record_summary":
-                    record_summary = outcome or None
+    one_liner = _pick_one_liner(stats, tour_session.persona)
+    # Report copy must be reproducible from persisted facts. Rebuild it on every
+    # open so an older generated snapshot cannot keep unverified museum claims.
+    qa_pairs = collect_qa_pairs(events)
+    record_summary = build_record_summary(
+        qa_pairs,
+        hall_name_map=hall_name_map,
+    ) or None
 
     if existing is not None:
-        existing.total_duration_minutes = stats["total_duration_minutes"]
-        existing.most_viewed_exhibit_id = stats["most_viewed_exhibit_id"]
-        existing.most_viewed_exhibit_duration = stats["most_viewed_exhibit_duration"]
-        existing.longest_hall = stats["longest_hall"]
-        existing.longest_hall_duration = stats["longest_hall_duration"]
-        existing.total_questions = stats["total_questions"]
-        existing.total_exhibits_viewed = stats["total_exhibits_viewed"]
-        existing.ceramic_questions = stats["ceramic_questions"]
-        existing.identity_tags = identity_tags
-        existing.radar_scores = radar_scores
-        existing.one_liner = one_liner
-        existing.report_theme = report_theme
-        existing.record_summary = record_summary
+        _apply_report_snapshot(
+            existing,
+            stats=stats,
+            identity_tags=identity_tags,
+            radar_scores=radar_scores,
+            one_liner=one_liner,
+            report_theme=report_theme,
+            record_summary=record_summary,
+        )
         await session.commit()
         await session.refresh(existing)
         return existing.to_entity()
@@ -626,7 +588,28 @@ async def generate_report(
         created_at=datetime.now(UTC),
     )
     session.add(model)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Two first-open report requests may race on the unique session id.
+        # Reuse the committed winner and refresh it with this live snapshot.
+        await session.rollback()
+        result = await session.execute(
+            select(TourReportModel).where(
+                TourReportModel.tour_session_id == tour_session_id
+            )
+        )
+        model = result.scalar_one()
+        _apply_report_snapshot(
+            model,
+            stats=stats,
+            identity_tags=identity_tags,
+            radar_scores=radar_scores,
+            one_liner=one_liner,
+            report_theme=report_theme,
+            record_summary=record_summary,
+        )
+        await session.commit()
     await session.refresh(model)
     return model.to_entity()
 
@@ -639,8 +622,18 @@ async def get_report(session: AsyncSession, tour_session_id: str) -> TourReport 
 
 
 def _pick_one_liner(stats: dict, persona: str) -> str:
-    import random
-    return random.choice(ONE_LINER_CANDIDATES)
+    questions = max(0, int(stats.get("total_questions") or 0))
+    exhibits = max(0, int(stats.get("total_exhibits_viewed") or 0))
+    minutes = max(0, round(float(stats.get("total_duration_minutes") or 0)))
+    if questions and exhibits:
+        return f"你用{questions}次提问串起了{exhibits}件展品"
+    if questions:
+        return f"你为这次参观留下了{questions}个真实问题"
+    if exhibits:
+        return f"你已经认真看过{exhibits}件展品"
+    if minutes:
+        return f"你为这次参观留下了{minutes}分钟现场记录"
+    return "这次参观记录正等待你的下一次发现"
 
 
 def _clean_record_text(value: str | None) -> str:
@@ -651,28 +644,6 @@ def _clean_record_text(value: str | None) -> str:
     text = re.sub(r"[*_`#>]+", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-def _finish_summary_sentence(text: str) -> str:
-    """Normalize summary ending to a complete Chinese sentence."""
-    cleaned = text.strip().rstrip("，、；;：:,. ")
-    if not cleaned:
-        return ""
-    if cleaned[-1] in "。！？":
-        return cleaned
-    return cleaned + "。"
-
-
-def _trim_summary(text: str, max_chars: int = RECORD_SUMMARY_MAX_CHARS) -> str:
-    """Keep the summary within the budget without cutting mid-sentence."""
-    cleaned = _clean_record_text(text)
-    if len(cleaned) <= max_chars:
-        return _finish_summary_sentence(cleaned)
-    window = cleaned[:max_chars]
-    cut = max(window.rfind(sep) for sep in "。！？")
-    if cut >= int(max_chars * 0.6):
-        return _finish_summary_sentence(window[: cut + 1])
-    return _finish_summary_sentence(window)
 
 
 def collect_qa_pairs(events: list) -> list[dict[str, str]]:
@@ -735,68 +706,22 @@ def collect_qa_pairs(events: list) -> list[dict[str, str]]:
     return pairs
 
 
-def _build_summary_prompt(persona: str, qa_pairs: list[dict[str, str]]) -> str:
-    persona_name = PERSONA_SUMMARY_NAMES.get(persona, "考古研究员")
-    lines: list[str] = []
-    for index, pair in enumerate(qa_pairs[:RECORD_SUMMARY_MAX_PAIRS], 1):
-        hall = hall_display_name(pair["hall"]) if pair["hall"] else ""
-        prefix = f"（{hall}）" if hall else ""
-        question = pair["question"][:RECORD_SUMMARY_QUESTION_CHARS]
-        answer = pair["answer"][:RECORD_SUMMARY_ANSWER_CHARS]
-        lines.append(f"{index}. {prefix}游客问：{question}\n   导览答：{answer}")
-    transcript = "\n".join(lines)
-    return (
-        "你正在为一次西安半坡博物馆的AI导览生成「记录摘要」。\n"
-        "以下是本次游客与AI导览员的真实问答记录（按时间顺序）：\n\n"
-        f"{transcript}\n\n"
-        f"请以{persona_name}的视角，把上面这段真实对话提炼成一段连贯的中文「记录摘要」，要求：\n"
-        "1. 必须基于上面真实问答的具体内容，准确写出游客实际关心的问题，"
-        "以及对话中得到的关键信息或结论；不要套用与本次对话无关的通用说辞，也不要编造未提到的展品。\n"
-        "2. 用第二人称「你」称呼游客，像在帮游客复盘这次参观。\n"
-        "3. 输出一段完整的话，建议180到320字，最多400字；必须覆盖上面全部问答涉及的展厅、展品或主题，"
-        "可以压缩关键词，但不要只总结前几条，也不要堆叠全部展品名称、痕迹和细节。\n"
-        "4. 用2到3个短句完成，句末只能用句号、问号或感叹号，不要用分号收尾。\n"
-        "5. 不要写标题、列表、编号或Markdown符号，只输出摘要正文本身，不要任何前后缀、引号或解释。"
-    )
-
-
-async def generate_record_summary_llm(
-    llm_provider: Any,
-    persona: str,
+def build_record_summary(
     qa_pairs: list[dict[str, str]],
+    hall_name_map: dict[str, str] | None = None,
 ) -> str:
-    """Summarize the real tour conversation into a concise record summary."""
-    prompt = _build_summary_prompt(persona, qa_pairs)
-    messages = [{"role": "user", "content": prompt}]
-    model = getattr(llm_provider, "report_model", None)
-    if getattr(llm_provider, "supports_model_override", False) is True and model:
-        result = await llm_provider.generate(messages, model=model)
-    else:
-        result = await llm_provider.generate(messages)
-    content = getattr(result, "content", result)
-    return _trim_summary(str(content or ""))
-
-
-async def _generate_one_liner_llm(llm_provider: Any, persona: str, stats: dict) -> str:
-    persona_names = {
-        "A": "考古研究员",
-        "B": "研学记录员",
-        "C": "历史追问者",
-        "D": "器物研究员",
-    }
-    prompt = (
-        f"根据以下游览数据，生成一句有感染力的'游览一句话'（15字以内），"
-        f"风格要符合{persona_names.get(persona, '考古研究员')}的身份：\n"
-        f"- 游览时长：{stats.get('total_duration_minutes', 0):.0f}分钟\n"
-        f"- 提问次数：{stats.get('total_questions', 0)}\n"
-        f"- 参观展品数：{stats.get('total_exhibits_viewed', 0)}\n"
-        f"只输出一句话，不要其他内容。"
-    )
-    messages = [{"role": "user", "content": prompt}]
-    model = getattr(llm_provider, "report_model", None)
-    if getattr(llm_provider, "supports_model_override", False) is True and model:
-        result = await llm_provider.generate(messages, model=model)
-    else:
-        result = await llm_provider.generate(messages)
-    content = getattr(result, "content", result)
-    return str(content).strip()[:50] if content else _pick_one_liner(stats, persona)
+    display_names = hall_name_map or {}
+    segments: list[str] = []
+    for pair in qa_pairs:
+        question = _clean_record_text(pair.get("question"))[:80]
+        answer = _clean_record_text(pair.get("answer"))[:160].rstrip("。！？")
+        if not question or not answer:
+            continue
+        normalized_hall = normalize_hall(pair.get("hall"))
+        hall_name = display_names.get(normalized_hall, "") if normalized_hall else ""
+        prefix = f"在{hall_name}，" if hall_name else ""
+        segment = f"{prefix}你问了“{question}”，导览记录回答：“{answer}”。"
+        if len("".join(segments)) + len(segment) > RECORD_SUMMARY_MAX_CHARS:
+            break
+        segments.append(segment)
+    return "".join(segments)

@@ -240,6 +240,11 @@ class TourSession:
     started_at: datetime
     completed_at: datetime | None
     created_at: datetime
+    tour_started_at: datetime | None = None
+    questionnaire: dict[str, Any] | None = None
+    resume_state: dict[str, Any] | None = None
+    hall_chat_history: dict[str, list[dict[str, str]]] | None = None
+    state_version: int = 1
 
     def start_tour(self) -> None:
         if self.status != "onboarding":

@@ -7,7 +7,6 @@ Combines tests from:
 """
 
 import json
-from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,14 +15,15 @@ from app.api.tour import TourChatRequest
 from app.application.tour_chat_service import (
     ASSUMPTION_CONTEXTS,
     CHALLENGE_PROMPTS,
+    DEFAULT_PERSONA_PROMPT,
     HALL_DESCRIPTIONS,
     PERSONA_PROMPTS,
+    _filter_trusted_rag_documents,
     _stream_rag,
     ask_stream_tour,
     build_system_prompt,
 )
 from app.infra.providers.tts.base import TTSConfig
-
 
 # ---------------------------------------------------------------------------
 # Helpers: Tour Chat Stream
@@ -175,8 +175,8 @@ def test_build_system_prompt_with_client_context():
         hall="临展厅二",
         client_context="当前身份：研学记录员\n当前展厅：临展厅二",
     )
-    assert "前端导览上下文" in prompt
-    assert "当前身份：研学记录员" in prompt
+    assert "前端导览上下文" not in prompt
+    assert "当前身份：研学记录员" not in prompt
     assert "临展厅回答规则" in prompt
     assert "不要编造当期展品" in prompt
 
@@ -229,9 +229,17 @@ def test_build_system_prompt_all_parts():
     assert "exhibit-1" in prompt
 
 
-def test_build_system_prompt_default_persona():
-    prompt = build_system_prompt(persona="X", assumption="A")
-    assert PERSONA_PROMPTS["A"] in prompt
+def test_build_system_prompt_default_persona_is_not_any_specialized_persona():
+    prompt = build_system_prompt(
+        persona="default",
+        persona_id="default",
+        assumption="D",
+        exhibit_context="馆方可信展品信息",
+    )
+    assert DEFAULT_PERSONA_PROMPT in prompt
+    assert all(persona_prompt not in prompt for persona_prompt in PERSONA_PROMPTS.values())
+    assert all(context not in prompt for context in ASSUMPTION_CONTEXTS.values())
+    assert "研学记录员" not in prompt
 
 
 def test_persona_prompts_have_all_keys():
@@ -252,6 +260,71 @@ def test_hall_descriptions_have_expected_slugs():
     assert "peony-garden" in HALL_DESCRIPTIONS
     assert "temporary-hall-1" in HALL_DESCRIPTIONS
     assert "temporary-hall-2" in HALL_DESCRIPTIONS
+
+
+@pytest.mark.asyncio
+async def test_rag_allowlist_applies_exhibit_visibility_to_linked_documents():
+    active_current = SimpleNamespace(
+        page_content="当前展厅启用展品",
+        metadata={"source_type": "exhibit", "source_id": "active-current"},
+    )
+    active_other_hall = SimpleNamespace(
+        page_content="其他展厅启用展品",
+        metadata={"source_type": "exhibit", "source_id": "active-other"},
+    )
+    inactive = SimpleNamespace(
+        page_content="已停用或部分索引展品",
+        metadata={"source_type": "exhibit", "source_id": "inactive"},
+    )
+    ordinary_document = SimpleNamespace(
+        page_content="普通馆方文档",
+        metadata={"source_type": "document", "source_id": "document-1"},
+    )
+    active_current_document = SimpleNamespace(
+        page_content="当前展厅启用展品的旧文档分片",
+        metadata={"source_type": "document", "source_id": "doc-active-current"},
+    )
+    inactive_document = SimpleNamespace(
+        page_content="已停用展品的旧文档分片",
+        metadata={"source_type": "document", "source_id": "doc-inactive"},
+    )
+    other_hall_document = SimpleNamespace(
+        page_content="其他展厅展品的旧文档分片",
+        metadata={"source_type": "document", "source_id": "doc-other-hall"},
+    )
+    result = MagicMock()
+    result.all.return_value = [
+        ("active-current", "basic-exhibition-hall", True, None),
+        ("active-other", "site-protection-hall", True, None),
+        ("inactive", "basic-exhibition-hall", False, None),
+        (
+            "owner-active-current",
+            "basic-exhibition-hall",
+            True,
+            "doc-active-current",
+        ),
+        ("owner-inactive", "basic-exhibition-hall", False, "doc-inactive"),
+        ("owner-other", "site-protection-hall", True, "doc-other-hall"),
+    ]
+    session = AsyncMock()
+    session.execute.return_value = result
+
+    filtered = await _filter_trusted_rag_documents(
+        session,
+        [
+            active_current,
+            active_other_hall,
+            inactive,
+            ordinary_document,
+            active_current_document,
+            inactive_document,
+            other_hall_document,
+        ],
+        "basic-exhibition-hall",
+    )
+
+    assert filtered == [active_current, ordinary_document, active_current_document]
+    session.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

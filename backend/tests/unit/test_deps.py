@@ -27,7 +27,6 @@ from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from redis.exceptions import RedisError
 
-
 # ---------------------------------------------------------------------------
 # Fixtures (shared across tests)
 # ---------------------------------------------------------------------------
@@ -765,6 +764,118 @@ class TestDependencySignatureStyle:
         assert "redis: RedisCacheDep" in source
 
 
+class TestTourResourceRateLimits:
+    @staticmethod
+    def _request(ip: str = "192.0.2.10") -> MagicMock:
+        request = MagicMock()
+        request.client = MagicMock()
+        request.client.host = ip
+        request.headers = {}
+        return request
+
+    @pytest.mark.asyncio
+    async def test_session_creation_uses_high_shared_ip_ceiling(self):
+        from app.api.deps import check_tour_session_create_rate_limit
+
+        redis = MagicMock()
+        redis.check_rate_limit = AsyncMock(return_value=True)
+        settings = MagicMock()
+        settings.RATE_LIMIT_ENABLED = True
+        settings.TOUR_SESSION_CREATE_IP_RATE_LIMIT_PER_MINUTE = 300
+        settings.get_trusted_proxies.return_value = set()
+
+        with patch("app.api.deps.get_settings", return_value=settings):
+            await check_tour_session_create_rate_limit(
+                request=self._request(),
+                redis=redis,
+            )
+
+        redis.check_rate_limit.assert_awaited_once_with(
+            "tour_session_create_ip:192.0.2.10",
+            max_requests=300,
+            window_seconds=60,
+        )
+
+    @pytest.mark.asyncio
+    async def test_report_limit_is_per_session_with_shared_ip_ceiling(self):
+        from app.api.deps import check_tour_report_rate_limit
+
+        redis = MagicMock()
+        redis.check_rate_limit = AsyncMock(side_effect=[True, True])
+        settings = MagicMock()
+        settings.RATE_LIMIT_ENABLED = True
+        settings.TOUR_REPORT_SESSION_RATE_LIMIT_PER_MINUTE = 6
+        settings.TOUR_REPORT_IP_RATE_LIMIT_PER_MINUTE = 120
+        settings.get_trusted_proxies.return_value = set()
+
+        with patch("app.api.deps.get_settings", return_value=settings):
+            await check_tour_report_rate_limit(
+                request=self._request(),
+                session_id="tour-123",
+                redis=redis,
+            )
+
+        assert redis.check_rate_limit.await_args_list[0].args[0] == (
+            "tour_report_session:tour-123"
+        )
+        assert redis.check_rate_limit.await_args_list[0].kwargs["max_requests"] == 6
+        assert redis.check_rate_limit.await_args_list[1].args[0] == (
+            "tour_report_ip:192.0.2.10"
+        )
+        assert redis.check_rate_limit.await_args_list[1].kwargs["max_requests"] == 120
+
+    @pytest.mark.asyncio
+    async def test_report_limit_rejects_a_hot_session(self):
+        from app.api.deps import check_tour_report_rate_limit
+
+        redis = MagicMock()
+        redis.check_rate_limit = AsyncMock(side_effect=[False, True])
+        settings = MagicMock()
+        settings.RATE_LIMIT_ENABLED = True
+        settings.TOUR_REPORT_SESSION_RATE_LIMIT_PER_MINUTE = 6
+        settings.TOUR_REPORT_IP_RATE_LIMIT_PER_MINUTE = 120
+        settings.get_trusted_proxies.return_value = set()
+
+        with (
+            patch("app.api.deps.get_settings", return_value=settings),
+            pytest.raises(HTTPException) as exc_info,
+        ):
+            await check_tour_report_rate_limit(
+                request=self._request(),
+                session_id="tour-123",
+                redis=redis,
+            )
+
+        assert exc_info.value.status_code == 429
+
+    @pytest.mark.asyncio
+    async def test_session_write_limit_is_per_session_with_high_ip_ceiling(self):
+        from app.api.deps import check_tour_session_write_rate_limit
+
+        redis = MagicMock()
+        redis.check_rate_limit = AsyncMock(side_effect=[True, True])
+        settings = MagicMock()
+        settings.RATE_LIMIT_ENABLED = True
+        settings.TOUR_SESSION_WRITE_SESSION_RATE_LIMIT_PER_MINUTE = 60
+        settings.TOUR_SESSION_WRITE_IP_RATE_LIMIT_PER_MINUTE = 600
+        settings.get_trusted_proxies.return_value = set()
+
+        with patch("app.api.deps.get_settings", return_value=settings):
+            await check_tour_session_write_rate_limit(
+                request=self._request(),
+                session_id="tour-123",
+                redis=redis,
+            )
+
+        assert redis.check_rate_limit.await_args_list[0].args[0] == (
+            "tour_session_write_session:tour-123"
+        )
+        assert redis.check_rate_limit.await_args_list[0].kwargs["max_requests"] == 60
+        assert redis.check_rate_limit.await_args_list[1].args[0] == (
+            "tour_session_write_ip:192.0.2.10"
+        )
+        assert redis.check_rate_limit.await_args_list[1].kwargs["max_requests"] == 600
+
 # ---------------------------------------------------------------------------
 # Tests from test_deps_security.py
 # ---------------------------------------------------------------------------
@@ -938,8 +1049,8 @@ def test_login_endpoint_has_rate_limiting():
     # This is a structural check - the actual rate limiting is in deps
 
 
-def test_register_endpoint_has_rate_limiting():
-    """Register endpoint should check rate limit."""
+def test_register_endpoint_does_not_exist():
+    """Public visitor registration is not part of the production API."""
     from app.api.auth import router
 
     register_route = None
@@ -948,7 +1059,7 @@ def test_register_endpoint_has_rate_limiting():
             register_route = route
             break
 
-    assert register_route is not None, "Register route not found"
+    assert register_route is None
 
 
 def test_logout_endpoint_has_rate_limiting():

@@ -101,13 +101,22 @@ async def update_session(
         "visited_exhibit_ids", "interest_type", "persona", "assumption",
         "tour_started_at", "questionnaire", "resume_state", "hall_chat_history",
     }
+    changed = False
     for key, value in updates.items():
         if key in allowed_fields:
             if key == "tour_started_at" and model.tour_started_at is not None:
                 if value != model.tour_started_at:
                     raise ValueError("tour_started_at is immutable")
                 continue
-            setattr(model, key, value)
+            if getattr(model, key) != value:
+                setattr(model, key, value)
+                changed = True
+    if not changed:
+        # Release the row lock without advancing the OCC version. Repeated
+        # frontend snapshots are common and must not create false conflicts.
+        await session.commit()
+        await session.refresh(model)
+        return model.to_entity()
     model.state_version = current_version + 1
     model.last_active_at = datetime.now(UTC)
     await session.commit()

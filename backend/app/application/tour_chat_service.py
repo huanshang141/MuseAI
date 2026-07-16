@@ -305,6 +305,12 @@ def _build_style_prompt(style: Any) -> str | None:
     return "\n".join(lines) if lines else None
 
 
+def _assistant_client_event_id(question_client_event_id: str | None) -> str | None:
+    """Mirror the mini-program's stable answer ID for cross-side deduplication."""
+    question_id = str(question_client_event_id or "").strip()
+    return f"{question_id[:110]}:assistant" if question_id else None
+
+
 async def ask_stream_tour(
     db_session: AsyncSession,
     session_maker: async_sessionmaker,
@@ -456,59 +462,79 @@ async def ask_stream_tour(
     async for audio_event in tts_mgr.flush():
         yield audio_event
 
+    answer = "".join(full_content_parts).strip()
+    final_state_version = int(getattr(tour_session, "state_version", 1) or 1)
+    event_metadata = {"question": message, "is_ceramic_question": is_ceramic}
+    if client_event_id:
+        event_metadata["client_event_id"] = client_event_id
+    exhibit_name = _context_field(exhibit_context, "名称")
+    if exhibit_name:
+        event_metadata["exhibit_name"] = exhibit_name
+    events = [
+        {
+            "event_type": "exhibit_question",
+            "exhibit_id": exhibit_id,
+            "hall": tour_session.current_hall,
+            "metadata": event_metadata,
+        }
+    ]
+    if answer:
+        answer_metadata = {
+            "question": message,
+            "answer": answer[:6000],
+            "question_client_event_id": client_event_id,
+            "is_ceramic_question": is_ceramic,
+        }
+        answer_event_id = _assistant_client_event_id(client_event_id)
+        if answer_event_id:
+            answer_metadata["client_event_id"] = answer_event_id
+        events.append(
+            {
+                "event_type": "assistant_answer",
+                "exhibit_id": exhibit_id,
+                "hall": tour_session.current_hall,
+                "metadata": answer_metadata,
+            }
+        )
+
+    # Event persistence is best-effort. The frontend records the same stable
+    # client IDs, so a later batch can fill a transient backend failure without
+    # duplicating either side's events.
+    try:
+        async with session_maker() as event_session:
+            await record_events(event_session, tour_session_id, events)
+    except Exception as e:
+        log.error("Failed to record tour events after retries: {}", e)
+
+    hall_key = normalize_hall(tour_session.current_hall)
+    if hall_key and answer:
+        try:
+            async with session_maker() as history_session:
+                persisted_session = await append_hall_chat_turn(
+                    history_session,
+                    tour_session_id,
+                    hall_key,
+                    message,
+                    answer,
+                )
+                final_state_version = persisted_session.state_version
+        except Exception as e:
+            log.error("Failed to persist tour chat history: {}", e)
+
+    # Persistence is attempted before the terminal event. The OCC version is
+    # the last successfully persisted chat version, or the original version if
+    # best-effort persistence failed and the frontend must compensate later.
     yield sse_tour_event(
         "done",
         trace_id=trace_id,
         is_ceramic_question=is_ceramic,
+        state_version=final_state_version,
     )
 
     _total_ms = int((time.perf_counter() - t_total) * 1000)
     log.bind(stage="total", duration_ms=_total_ms, ok=True, perf=True).info(
         "[perf] total  duration_ms={}ms", _total_ms
     )
-
-    try:
-        async with session_maker() as event_session:
-            event_metadata = {"question": message, "is_ceramic_question": is_ceramic}
-            if client_event_id:
-                event_metadata["client_event_id"] = client_event_id
-            exhibit_name = _context_field(exhibit_context, "名称")
-            if exhibit_name:
-                event_metadata["exhibit_name"] = exhibit_name
-            answer = "".join(full_content_parts).strip()
-            events = [
-                {
-                    "event_type": "exhibit_question",
-                    "exhibit_id": exhibit_id,
-                    "hall": tour_session.current_hall,
-                    "metadata": event_metadata,
-                }
-            ]
-            if answer:
-                events.append({
-                    "event_type": "assistant_answer",
-                    "exhibit_id": exhibit_id,
-                    "hall": tour_session.current_hall,
-                    "metadata": {
-                        "question": message,
-                        "answer": answer[:6000],
-                        "question_client_event_id": client_event_id,
-                        "is_ceramic_question": is_ceramic,
-                    },
-                })
-            await record_events(event_session, tour_session_id, events)
-
-            hall_key = normalize_hall(tour_session.current_hall)
-            if hall_key and answer:
-                await append_hall_chat_turn(
-                    event_session,
-                    tour_session_id,
-                    hall_key,
-                    message,
-                    answer,
-                )
-    except Exception as e:
-        log.error("Failed to record tour event after retries: {}", e)
 
 
 async def _filter_trusted_rag_documents(

@@ -18,6 +18,7 @@ from app.application.tour_chat_service import (
     DEFAULT_PERSONA_PROMPT,
     HALL_DESCRIPTIONS,
     PERSONA_PROMPTS,
+    _assistant_client_event_id,
     _filter_trusted_rag_documents,
     _stream_rag,
     ask_stream_tour,
@@ -65,6 +66,7 @@ def _make_mock_tour_session():
     session.assumption = "A"
     session.current_hall = "relic-hall"
     session.visited_exhibit_ids = []
+    session.state_version = 1
     return session
 
 
@@ -86,6 +88,7 @@ def fake_tour_session():
         persona="A",
         assumption="A",
         current_hall="relic-hall",
+        state_version=1,
     )
 
 
@@ -418,10 +421,24 @@ async def test_stream_emits_chunk_then_done_on_success(
     monkeypatch.setattr(
         "app.application.tour_chat_service.get_session", fake_get_session
     )
-    async def fake_record_events(*args, **kwargs):
+    persistence_order = []
+    recorded_events = []
+
+    async def fake_record_events(_session, _session_id, events):
+        persistence_order.append("events")
+        recorded_events.extend(events)
         return None
     monkeypatch.setattr(
         "app.application.tour_chat_service.record_events", fake_record_events
+    )
+
+    async def fake_append_hall_chat_turn(*args, **kwargs):
+        persistence_order.append("history")
+        return SimpleNamespace(state_version=5)
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.append_hall_chat_turn",
+        fake_append_hall_chat_turn,
     )
 
     rag_agent = MagicMock()
@@ -436,11 +453,27 @@ async def test_stream_emits_chunk_then_done_on_success(
         message="q?",
         rag_agent=rag_agent,
         llm_provider=fake_llm_provider,
+        client_event_id="question-1",
     ):
         events.append(event)
 
     types = _collect_event_types(events)
     assert types == ["chunk", "chunk", "chunk", "done"]
+    done = json.loads(events[-1].removeprefix("data: ").removesuffix("\n\n"))
+    assert done["state_version"] == 5
+    assert persistence_order == ["events", "history"]
+    answer_event = next(
+        event for event in recorded_events if event["event_type"] == "assistant_answer"
+    )
+    assert answer_event["metadata"]["client_event_id"] == "question-1:assistant"
+    assert answer_event["metadata"]["question_client_event_id"] == "question-1"
+
+
+def test_assistant_client_event_id_matches_frontend_contract_and_is_bounded():
+    assert _assistant_client_event_id(" question-1 ") == "question-1:assistant"
+    assert _assistant_client_event_id(None) is None
+    assert _assistant_client_event_id("q" * 120) == ("q" * 110) + ":assistant"
+    assert len(_assistant_client_event_id("q" * 120)) == 120
 
 
 @pytest.mark.asyncio
@@ -497,6 +530,14 @@ async def test_stream_logs_error_when_event_persistence_fails(
         "app.application.tour_chat_service.record_events", failing_record_events
     )
 
+    async def fake_append_hall_chat_turn(*args, **kwargs):
+        return SimpleNamespace(state_version=6)
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.append_hall_chat_turn",
+        fake_append_hall_chat_turn,
+    )
+
     mock_bound_logger = MagicMock()
     mock_logger = MagicMock()
     mock_logger.bind.return_value = mock_bound_logger
@@ -519,6 +560,64 @@ async def test_stream_logs_error_when_event_persistence_fails(
 
     types = _collect_event_types(events)
     assert types == ["chunk", "chunk", "chunk", "done"]
+    done = json.loads(events[-1].removeprefix("data: ").removesuffix("\n\n"))
+    assert done["state_version"] == 6
+    mock_bound_logger.error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_history_persistence_failure_still_emits_done_with_original_version(
+    monkeypatch,
+    fake_tour_session,
+    fake_session_maker,
+    fake_llm_provider,
+):
+    fake_tour_session.state_version = 4
+
+    async def fake_get_session(db, sid):
+        return fake_tour_session
+
+    async def fake_record_events(*args, **kwargs):
+        return None
+
+    async def failing_append_hall_chat_turn(*args, **kwargs):
+        raise RuntimeError("history unavailable")
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.get_session",
+        fake_get_session,
+    )
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.record_events",
+        fake_record_events,
+    )
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.append_hall_chat_turn",
+        failing_append_hall_chat_turn,
+    )
+    mock_bound_logger = MagicMock()
+    mock_logger = MagicMock()
+    mock_logger.bind.return_value = mock_bound_logger
+    monkeypatch.setattr("app.application.tour_chat_service.logger", mock_logger)
+
+    rag_agent = MagicMock()
+    rag_agent.run = AsyncMock(return_value={"answer": "hello", "documents": []})
+    rag_agent.prompt_gateway = None
+
+    events = []
+    async for event in ask_stream_tour(
+        db_session=MagicMock(),
+        session_maker=fake_session_maker,
+        tour_session_id="tour-1",
+        message="q?",
+        rag_agent=rag_agent,
+        llm_provider=fake_llm_provider,
+    ):
+        events.append(event)
+
+    assert _collect_event_types(events) == ["chunk", "chunk", "chunk", "done"]
+    done = json.loads(events[-1].removeprefix("data: ").removesuffix("\n\n"))
+    assert done["state_version"] == 4
     mock_bound_logger.error.assert_called_once()
 
 
@@ -538,6 +637,11 @@ class TestTourChatRequestTTSField:
     def test_exhibit_context_accepted(self):
         req = TourChatRequest(message="这是什么东西", exhibit_context="名称：横穴窑")
         assert req.exhibit_context == "名称：横穴窑"
+
+    def test_message_is_trimmed_and_cannot_be_blank(self):
+        assert TourChatRequest(message="  这是什么？  ").message == "这是什么？"
+        with pytest.raises(ValueError):
+            TourChatRequest(message="   ")
 
 
 # ===================================================================
@@ -577,6 +681,11 @@ class TestTourStreamTTSEvents:
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),
             patch("app.application.tour_chat_service.record_events", new_callable=AsyncMock),
+            patch(
+                "app.application.tour_chat_service.append_hall_chat_turn",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(state_version=2),
+            ),
         ):
             events = []
             async for event in ask_stream_tour(
@@ -621,6 +730,11 @@ class TestTourStreamTTSEvents:
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),
             patch("app.application.tour_chat_service.record_events", new_callable=AsyncMock),
+            patch(
+                "app.application.tour_chat_service.append_hall_chat_turn",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(state_version=2),
+            ),
         ):
             events = []
             async for event in ask_stream_tour(
@@ -669,6 +783,11 @@ class TestTourStreamTTSEvents:
         with (
             patch("app.application.tour_chat_service.get_session", return_value=_make_mock_tour_session()),
             patch("app.application.tour_chat_service.record_events", new_callable=AsyncMock),
+            patch(
+                "app.application.tour_chat_service.append_hall_chat_turn",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(state_version=2),
+            ),
         ):
             events = []
             async for event in ask_stream_tour(

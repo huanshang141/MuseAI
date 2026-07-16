@@ -173,6 +173,7 @@ class TourReportModel(Base):
     one_liner: Mapped[str] = mapped_column(Text, nullable=False)
     report_theme: Mapped[str] = mapped_column(String(20), nullable=False)
     record_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    record_summary_source_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     def to_entity(self):
@@ -194,6 +195,7 @@ class TourReportModel(Base):
             one_liner=self.one_liner,
             report_theme=self.report_theme,
             record_summary=self.record_summary,
+            record_summary_source_hash=self.record_summary_source_hash,
             created_at=self.created_at,
         )
 

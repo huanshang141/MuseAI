@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,8 +17,17 @@ from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
 )
 from app.application.hall_normalizer import CANONICAL_HALL_ORDER
+from app.application.tour_event_service import record_events
+from app.application.tour_report_service import generate_report
 from app.infra.postgres.database import get_session, get_session_maker
-from app.infra.postgres.models import Base, Exhibit, Hall, TourSessionModel, User
+from app.infra.postgres.models import (
+    Base,
+    Exhibit,
+    Hall,
+    TourReportModel,
+    TourSessionModel,
+    User,
+)
 from app.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -24,6 +35,14 @@ from sqlalchemy import select
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 TEST_USER_ID = "test-tour-user-001"
 TEST_ADMIN_ID = "test-tour-admin-001"
+
+
+def _sse_payloads(response) -> list[dict]:
+    return [
+        json.loads(line.removeprefix("data: "))
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
 
 
 @pytest.fixture
@@ -455,6 +474,37 @@ async def test_frontend_resume_contract_and_optimistic_state_version(
 
 
 @pytest.mark.asyncio
+async def test_identical_session_patch_does_not_advance_state_version(
+    override_dependencies,
+):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={"interest_type": "A", "persona": "A", "assumption": "D"},
+            )
+        ).json()
+        url = f"/api/v1/tour/sessions/{created['id']}"
+        headers = {"X-Session-Token": created["session_token"]}
+        unchanged = await client.patch(
+            url,
+            headers=headers,
+            json={"expected_state_version": 1, "status": "onboarding"},
+        )
+        changed = await client.patch(
+            url,
+            headers=headers,
+            json={"expected_state_version": 1, "status": "touring"},
+        )
+
+    assert unchanged.status_code == 200
+    assert unchanged.json()["state_version"] == 1
+    assert changed.status_code == 200
+    assert changed.json()["state_version"] == 2
+
+
+@pytest.mark.asyncio
 async def test_quick_start_persists_independent_default_persona(override_dependencies):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -572,12 +622,12 @@ async def test_session_patch_enforces_history_and_body_limits(override_dependenc
                 }
             },
         )
-        unknown_hall = await client.patch(
+        invalid_hall_slug = await client.patch(
             url,
             headers=headers,
             json={
                 "hall_chat_history": {
-                    "not-imported-hall": [{"role": "user", "content": "问题"}]
+                    "not imported hall": [{"role": "user", "content": "问题"}]
                 }
             },
         )
@@ -605,9 +655,63 @@ async def test_session_patch_enforces_history_and_body_limits(override_dependenc
     assert too_many_halls.status_code == 422
     assert too_many_messages.status_code == 422
     assert too_long_message.status_code == 422
-    assert unknown_hall.status_code == 422
+    assert invalid_hall_slug.status_code == 422
     assert legal_large_snapshot.status_code == 200
     assert oversized.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_session_history_accepts_inactive_hall_slug_but_current_hall_stays_strict(
+    override_dependencies,
+    db_session,
+):
+    db_session.add(
+        Hall(
+            slug="retired-real-hall",
+            name="已停用真实展厅",
+            description="历史记录仍需恢复",
+            estimated_duration_minutes=20,
+            display_order=1,
+            is_active=False,
+        )
+    )
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={"interest_type": "A", "persona": "A", "assumption": "D"},
+            )
+        ).json()
+        url = f"/api/v1/tour/sessions/{created['id']}"
+        headers = {"X-Session-Token": created["session_token"]}
+        history_response = await client.patch(
+            url,
+            headers=headers,
+            json={
+                "hall_chat_history": {
+                    "retired-real-hall": [
+                        {"role": "user", "content": "保留旧展厅问题"},
+                        {"role": "assistant", "content": "保留旧展厅回答"},
+                    ]
+                }
+            },
+        )
+        current_hall_response = await client.patch(
+            url,
+            headers=headers,
+            json={"current_hall": "retired-real-hall"},
+        )
+
+    assert history_response.status_code == 200
+    assert history_response.json()["hall_chat_history"]["retired-real-hall"] == [
+        {"role": "user", "content": "保留旧展厅问题"},
+        {"role": "assistant", "content": "保留旧展厅回答"},
+    ]
+    assert current_hall_response.status_code == 422
+    assert current_hall_response.json()["detail"] == "Unknown current_hall"
 
 
 @pytest.mark.asyncio
@@ -1210,6 +1314,50 @@ async def test_generate_tour_report(override_dependencies):
 
 
 @pytest.mark.asyncio
+async def test_get_tour_report_uses_report_rate_limit(
+    override_dependencies,
+    mock_redis,
+):
+    app.dependency_overrides[original_get_llm_provider] = lambda: SimpleNamespace(
+        generate=AsyncMock(),
+        supports_model_override=False,
+        report_model=None,
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={
+                    "interest_type": "D",
+                    "persona": "D",
+                    "assumption": "D",
+                    "guest_id": "guest-report-get-limit",
+                },
+            )
+        ).json()
+        session_id, token = created["id"], created["session_token"]
+        generated = await client.post(
+            f"/api/v1/tour/sessions/{session_id}/report",
+            headers={"X-Session-Token": token},
+        )
+        assert generated.status_code == 200
+
+        mock_redis.check_rate_limit.reset_mock()
+        mock_redis.check_rate_limit.side_effect = [False, True]
+        blocked = await client.get(
+            f"/api/v1/tour/sessions/{session_id}/report",
+            headers={"X-Session-Token": token},
+        )
+
+    assert blocked.status_code == 429
+    calls = mock_redis.check_rate_limit.await_args_list
+    assert calls[0].args[0] == f"tour_report_session:{session_id}"
+    assert calls[1].args[0].startswith("tour_report_ip:")
+    app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
 async def test_generate_tour_report_counts_halls_with_user_message_or_exhibit_view(
     override_dependencies,
     db_session,
@@ -1242,7 +1390,8 @@ async def test_generate_tour_report_counts_halls_with_user_message_or_exhibit_vi
     )
     await db_session.commit()
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="不得进入报告的模型补写内容")
+    expected_summary = "本次对话聚焦研学记录方法，已有回答建议整理工具、材料和操作步骤。"
+    mock_llm.generate = AsyncMock(return_value=expected_summary)
 
     app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
 
@@ -1312,21 +1461,28 @@ async def test_generate_tour_report_counts_halls_with_user_message_or_exhibit_vi
     assert data["total_exhibits_viewed"] == 1
     assert data["record_notes"]
     assert data["record_notes"][0]["question"] == "游览记录摘要"
-    assert "这里适合怎么做研学记录？" in data["record_notes"][0]["point"]
-    assert "可以把工具、材料和操作步骤整理成观察记录" in data["record_notes"][0]["point"]
-    assert "不得进入报告" not in data["record_notes"][0]["point"]
-    assert not data["record_notes"][0]["point"].startswith("以")
-    assert "你提出的问题包括" not in data["record_notes"][0]["point"]
+    assert data["record_notes"][0]["point"] == expected_summary
+    assert "你问了" not in data["record_notes"][0]["point"]
+    assert "导览记录回答" not in data["record_notes"][0]["point"]
     assert len(data["record_notes"][0]["point"]) <= 400
-    mock_llm.generate.assert_not_awaited()
+    mock_llm.generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_tour_report_uses_deterministic_real_qa_summary(
+async def test_generate_tour_report_summarizes_structured_real_qa(
     override_dependencies,
+    db_session,
 ):
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="模型不得补写未记录的馆藏事实")
+    expected_summary = (
+        "本次对话围绕陶器烧制与窑炉结构展开，记录表明制坯后需要入窑并控制火候，"
+        "窑室、火膛和排烟位置会影响升温、通风与温度分布。"
+    )
+    async def generate_without_open_db_transaction(_messages):
+        assert not db_session.in_transaction()
+        return expected_summary
+
+    mock_llm.generate = AsyncMock(side_effect=generate_without_open_db_transaction)
 
     app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
 
@@ -1350,7 +1506,6 @@ async def test_generate_tour_report_uses_deterministic_real_qa_summary(
             json={"current_hall": "kiln-hall", "status": "touring"},
             headers={"X-Session-Token": token},
         )
-        # A real answered Q&A pair is what unlocks the LLM summary path.
         await client.post(
             f"/api/v1/tour/sessions/{session_id}/events",
             json={
@@ -1368,6 +1523,19 @@ async def test_generate_tour_report_uses_deterministic_real_qa_summary(
                             "answer": "半坡人用陶窑控制火候，先制坯再入窑烧成红陶。",
                         },
                     },
+                    {
+                        "event_type": "exhibit_question",
+                        "hall": "kiln-hall",
+                        "metadata": {"message": "窑炉结构怎样影响火候？"},
+                    },
+                    {
+                        "event_type": "assistant_answer",
+                        "hall": "kiln-hall",
+                        "metadata": {
+                            "question": "窑炉结构怎样影响火候？",
+                            "answer": "窑室、火膛和排烟位置会影响升温、通风与温度分布。",
+                        },
+                    },
                 ]
             },
             headers={"X-Session-Token": token},
@@ -1381,19 +1549,33 @@ async def test_generate_tour_report_uses_deterministic_real_qa_summary(
 
     assert report_resp.status_code == 200
     data = report_resp.json()
-    assert "半坡陶器是怎么烧制的？" in data["record_summary"]
-    assert "半坡人用陶窑控制火候，先制坯再入窑烧成红陶" in data["record_summary"]
-    assert "模型不得补写" not in data["record_summary"]
+    assert data["record_summary"] == expected_summary
+    assert "你问了" not in data["record_summary"]
+    assert "导览记录回答" not in data["record_summary"]
     assert data["record_notes"][0]["question"] == "游览记录摘要"
     assert data["record_notes"][0]["point"] == data["record_summary"]
     assert len(data["record_notes"][0]["point"]) <= 400
-    mock_llm.generate.assert_not_awaited()
+    mock_llm.generate.assert_awaited_once()
+    messages = mock_llm.generate.await_args.args[0]
+    assert [message["role"] for message in messages] == ["system", "user"]
+    assert "半坡陶器是怎么烧制的？" not in messages[0]["content"]
+    payload = json.loads(messages[1]["content"])
+    assert payload["data_type"] == "untrusted_persisted_tour_qa"
+    assert [item["question"] for item in payload["qa_pairs"]] == [
+        "半坡陶器是怎么烧制的？",
+        "窑炉结构怎样影响火候？",
+    ]
 
 
 @pytest.mark.asyncio
 async def test_generate_tour_report_refreshes_record_summary_when_questions_change(override_dependencies):
     mock_llm = AsyncMock()
-    mock_llm.generate = AsyncMock(return_value="模型生成内容不得使用")
+    mock_llm.generate = AsyncMock(
+        side_effect=[
+            "摘要版本一：对话聚焦陶器烧制，记录表明制坯后需入窑并控制火候。",
+            "摘要版本二：关注点扩展到窑炉结构，已有记录说明其会影响通风和温度分布。",
+        ]
+    )
 
     app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
 
@@ -1440,8 +1622,40 @@ async def test_generate_tour_report_refreshes_record_summary_when_questions_chan
             )
             assert first_report.status_code == 200
             first_summary = first_report.json()["record_summary"]
-            assert "半坡陶器是怎么烧制的？" in first_summary
-            assert "先制坯，再入窑，通过火候控制完成烧成" in first_summary
+            assert first_summary.startswith("摘要版本一")
+
+            unchanged_report = await client.get(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert unchanged_report.status_code == 200
+            assert unchanged_report.json()["record_summary"] == first_summary
+            assert mock_llm.generate.await_count == 1
+
+            await client.post(
+                f"/api/v1/tour/sessions/{session_id}/events",
+                json={
+                    "events": [
+                        {
+                            "event_type": "exhibit_question",
+                            "hall": "kiln-hall",
+                            "metadata": {"message": "这件展品还有哪些未解问题？"},
+                        }
+                    ]
+                },
+                headers={"X-Session-Token": token},
+            )
+            unanswered_report = await client.get(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert unanswered_report.status_code == 200
+            assert unanswered_report.json()["record_summary"] == first_summary
+            assert (
+                unanswered_report.json()["total_questions"]
+                > unchanged_report.json()["total_questions"]
+            )
+            assert mock_llm.generate.await_count == 1
 
             await client.post(
                 f"/api/v1/tour/sessions/{session_id}/events",
@@ -1472,15 +1686,409 @@ async def test_generate_tour_report_refreshes_record_summary_when_questions_chan
         assert second_report.status_code == 200
         second_summary = second_report.json()["record_summary"]
         assert second_summary != first_summary
-        assert "窑炉结构怎样影响火候？" in second_summary
-        assert "窑室、火膛和排烟位置会影响升温、通风与温度分布" in second_summary
-        mock_llm.generate.assert_not_awaited()
+        assert second_summary.startswith("摘要版本二")
+        assert mock_llm.generate.await_count == 2
+    finally:
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
+async def test_report_refreshes_legacy_transcript_with_same_source_hash(
+    override_dependencies,
+    db_session,
+):
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(return_value="首次归纳摘要。")
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "D",
+                        "persona": "D",
+                        "assumption": "D",
+                        "guest_id": "guest-legacy-summary",
+                    },
+                )
+            ).json()
+            session_id, token = created["id"], created["session_token"]
+            await client.post(
+                f"/api/v1/tour/sessions/{session_id}/events",
+                json={
+                    "events": [
+                        {
+                            "event_type": "assistant_answer",
+                            "hall": "kiln-hall",
+                            "metadata": {
+                                "question": "陶器怎么烧制？",
+                                "answer": "制坯后入窑并控制火候。",
+                            },
+                        }
+                    ]
+                },
+                headers={"X-Session-Token": token},
+            )
+            assert (
+                await client.post(
+                    f"/api/v1/tour/sessions/{session_id}/report",
+                    headers={"X-Session-Token": token},
+                )
+            ).status_code == 200
+
+            model = (
+                await db_session.execute(
+                    select(TourReportModel).where(
+                        TourReportModel.tour_session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            source_hash = model.record_summary_source_hash
+            model.record_summary = (
+                "在陶窑展厅，你问了“陶器怎么烧制？”，"
+                "导览记录回答：“制坯后入窑并控制火候”。"
+            )
+            await db_session.commit()
+
+            mock_llm.generate.reset_mock()
+            mock_llm.generate.return_value = "对话聚焦陶器烧制，记录指出制坯后需入窑并控制火候。"
+            refreshed = await client.get(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+
+        assert refreshed.status_code == 200
+        assert refreshed.json()["record_summary"].startswith("对话聚焦陶器烧制")
+        assert "你问了" not in refreshed.json()["record_summary"]
+        mock_llm.generate.assert_awaited_once()
+        refreshed_model = (
+            await db_session.execute(
+                select(TourReportModel).where(
+                    TourReportModel.tour_session_id == session_id
+                )
+            )
+        ).scalar_one()
+        assert refreshed_model.record_summary_source_hash == source_hash
+    finally:
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
+async def test_report_fingerprint_refreshes_same_count_content_and_hall_name(
+    override_dependencies,
+    db_session,
+):
+    hall = Hall(
+        slug="summary-hash-hall",
+        name="摘要原展厅",
+        description="用于摘要指纹测试",
+        estimated_duration_minutes=10,
+        is_active=True,
+    )
+    db_session.add(hall)
+    await db_session.commit()
+    hall_slug = hall.slug
+    mock_llm = AsyncMock()
+    mock_llm.generate = AsyncMock(side_effect=["摘要一。", "摘要二。", "摘要三。"])
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "B",
+                        "persona": "B",
+                        "assumption": "B",
+                        "guest_id": "guest-summary-fingerprint",
+                    },
+                )
+            ).json()
+            session_id, token = created["id"], created["session_token"]
+            await client.post(
+                f"/api/v1/tour/sessions/{session_id}/events",
+                json={
+                    "events": [
+                            {
+                                "event_type": "assistant_answer",
+                                "hall": hall_slug,
+                            "metadata": {
+                                "question": "这里有什么线索？",
+                                "answer": "原回答只说明工具留下了使用痕迹。",
+                            },
+                        }
+                    ]
+                },
+                headers={"X-Session-Token": token},
+            )
+            first = await client.post(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert first.json()["record_summary"] == "摘要一。"
+            first_model = (
+                await db_session.execute(
+                    select(TourReportModel).where(
+                        TourReportModel.tour_session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            first_count = first_model.total_questions
+            first_hash = first_model.record_summary_source_hash
+
+            await client.post(
+                f"/api/v1/tour/sessions/{session_id}/events",
+                json={
+                    "events": [
+                            {
+                                "event_type": "assistant_answer",
+                                "hall": hall_slug,
+                            "metadata": {
+                                "question": "这里有什么线索？",
+                                "answer": "补充记录说明石器表面存在磨损。",
+                            },
+                        }
+                    ]
+                },
+                headers={"X-Session-Token": token},
+            )
+            second = await client.post(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert second.json()["record_summary"] == "摘要二。"
+            first_model = (
+                await db_session.execute(
+                    select(TourReportModel).where(
+                        TourReportModel.tour_session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            assert first_model.total_questions == first_count
+            assert first_model.record_summary_source_hash != first_hash
+            second_hash = first_model.record_summary_source_hash
+
+            hall = await db_session.get(Hall, hall_slug)
+            hall.name = "摘要更名展厅"
+            await db_session.commit()
+            third = await client.get(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert third.json()["record_summary"] == "摘要三。"
+            first_model = (
+                await db_session.execute(
+                    select(TourReportModel).where(
+                        TourReportModel.tour_session_id == session_id
+                    )
+                )
+            ).scalar_one()
+            assert first_model.record_summary_source_hash != second_hash
+            assert mock_llm.generate.await_count == 3
+    finally:
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
+async def test_report_does_not_overwrite_newer_source_while_llm_is_in_flight(
+    override_dependencies,
+    db_session,
+    session_maker,
+):
+    outer_llm = SimpleNamespace(
+        generate=AsyncMock(return_value="初始P1摘要。"),
+        supports_model_override=False,
+        report_model=None,
+    )
+    app.dependency_overrides[original_get_llm_provider] = lambda: outer_llm
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "D",
+                        "persona": "D",
+                        "assumption": "D",
+                        "guest_id": "guest-report-concurrent-source",
+                    },
+                )
+            ).json()
+            session_id, token = created["id"], created["session_token"]
+
+            async def add_answer(question, answer):
+                response = await client.post(
+                    f"/api/v1/tour/sessions/{session_id}/events",
+                    json={
+                        "events": [
+                            {
+                                "event_type": "assistant_answer",
+                                "hall": "kiln-hall",
+                                "metadata": {"question": question, "answer": answer},
+                            }
+                        ]
+                    },
+                    headers={"X-Session-Token": token},
+                )
+                assert response.status_code == 200
+
+            await add_answer("问题P1是什么？", "结论P1来自第一条记录。")
+            initial = await client.post(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+            assert initial.json()["record_summary"] == "初始P1摘要。"
+            await add_answer("问题P2是什么？", "结论P2来自第二条记录。")
+
+            newer_llm = SimpleNamespace(
+                generate=AsyncMock(),
+                supports_model_override=False,
+                report_model=None,
+            )
+
+            async def commit_newer_report_while_outer_waits(_messages):
+                assert not db_session.in_transaction()
+                async with get_session(session_maker) as concurrent_session:
+                    concurrent_tour = await concurrent_session.get(
+                        TourSessionModel,
+                        session_id,
+                    )
+                    concurrent_tour.persona = "B"
+                    await concurrent_session.commit()
+                    await record_events(
+                        concurrent_session,
+                        session_id,
+                        [
+                            {
+                                "event_type": "assistant_answer",
+                                "hall": "kiln-hall",
+                                "metadata": {
+                                    "client_event_id": "concurrent-answer-p3",
+                                    "question": "问题P3是什么？",
+                                    "answer": "结论P3来自并发新增的最新记录。",
+                                },
+                            }
+                        ],
+                    )
+
+                    async def generate_newer(_newer_messages):
+                        assert not concurrent_session.in_transaction()
+                        return "并发提交的最新P3摘要。"
+
+                    newer_llm.generate.side_effect = generate_newer
+                    newer_report = await generate_report(
+                        concurrent_session,
+                        session_id,
+                        llm_provider=newer_llm,
+                    )
+                    assert newer_report.record_summary == "并发提交的最新P3摘要。"
+                return "不得回写的过期P2摘要。"
+
+            outer_llm.generate.reset_mock()
+            outer_llm.generate.side_effect = commit_newer_report_while_outer_waits
+            refreshed = await client.get(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+
+        assert refreshed.status_code == 200
+        assert refreshed.json()["record_summary"] == "并发提交的最新P3摘要。"
+        assert refreshed.json()["total_questions"] == 3
+        assert refreshed.json()["report_theme"] == "field_study"
+        assert "过期P2" not in refreshed.json()["record_summary"]
+        outer_llm.generate.assert_awaited_once()
+        newer_llm.generate.assert_awaited_once()
+        stored = (
+            await db_session.execute(
+                select(TourReportModel)
+                .where(TourReportModel.tour_session_id == session_id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        assert stored.record_summary == "并发提交的最新P3摘要。"
+    finally:
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("llm_shape", ["list", "title", "error"])
+async def test_report_summary_rejected_or_failed_llm_uses_merged_fallback(
+    override_dependencies,
+    llm_shape,
+):
+    mock_llm = AsyncMock()
+    if llm_shape == "list":
+        mock_llm.generate = AsyncMock(return_value="- 主题：陶器\n- 结论：凭空内容")
+    elif llm_shape == "title":
+        mock_llm.generate = AsyncMock(return_value="摘要：凭空内容")
+    else:
+        mock_llm.generate = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "D",
+                        "persona": "D",
+                        "assumption": "D",
+                        "guest_id": f"guest-fallback-{llm_shape}",
+                    },
+                )
+            ).json()
+            session_id, token = created["id"], created["session_token"]
+            await client.post(
+                f"/api/v1/tour/sessions/{session_id}/events",
+                json={
+                    "events": [
+                        {
+                            "event_type": "assistant_answer",
+                            "hall": "kiln-hall",
+                            "metadata": {
+                                "question": "陶器怎么烧制的？",
+                                "answer": "先制坯，再入窑并控制火候。",
+                            },
+                        },
+                        {
+                            "event_type": "assistant_answer",
+                            "hall": "kiln-hall",
+                            "metadata": {
+                                "question": "窑炉怎样影响温度？",
+                                "answer": "窑室和火膛结构会影响通风与温度分布。",
+                            },
+                        },
+                    ]
+                },
+                headers={"X-Session-Token": token},
+            )
+            response = await client.post(
+                f"/api/v1/tour/sessions/{session_id}/report",
+                headers={"X-Session-Token": token},
+            )
+
+        summary = response.json()["record_summary"]
+        assert "本次对话主要围绕" in summary
+        assert "关键结论" in summary
+        assert "你问了" not in summary
+        assert "导览记录回答" not in summary
+        assert len(summary) <= 400
     finally:
         app.dependency_overrides.pop(original_get_llm_provider, None)
 
 
 @pytest.mark.asyncio
 async def test_get_tour_report_not_found(override_dependencies):
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post(
@@ -1502,6 +2110,7 @@ async def test_get_tour_report_not_found(override_dependencies):
         )
 
     assert get_resp.status_code == 404
+    app.dependency_overrides.pop(original_get_llm_provider, None)
 
 
 @pytest.mark.asyncio
@@ -1685,6 +2294,39 @@ async def test_tour_suggestions_prefer_imported_hall_data(
 
 
 @pytest.mark.asyncio
+async def test_tour_chat_stream_rejects_blank_message(override_dependencies):
+    mock_rag = AsyncMock()
+    mock_llm = AsyncMock()
+    app.dependency_overrides[original_get_rag_agent] = lambda: mock_rag
+    app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={
+                    "interest_type": "A",
+                    "persona": "A",
+                    "assumption": "A",
+                    "guest_id": "guest-chat-blank",
+                },
+            )
+        ).json()
+        response = await client.post(
+            f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+            json={"message": "   "},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+
+    assert response.status_code == 422
+    mock_rag.run.assert_not_awaited()
+    mock_llm.generate_stream.assert_not_called()
+    app.dependency_overrides.pop(original_get_rag_agent, None)
+    app.dependency_overrides.pop(original_get_llm_provider, None)
+
+
+@pytest.mark.asyncio
 async def test_tour_chat_stream(override_dependencies):
     mock_rag_agent = MagicMock()
     mock_rag_agent.run = AsyncMock(return_value={
@@ -1845,9 +2487,31 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
             switched_hall = await client.post(
                 f"{url}/chat/stream",
                 headers=headers,
-                json={"message": "介绍乙厅", "hall_id": "chat-hall-b"},
+                json={
+                    "message": "介绍乙厅",
+                    "hall_id": "chat-hall-b",
+                    "client_event_id": "question-hall-switch-1",
+                },
             )
             after_hall_switch = await client.get(url, headers=headers)
+            duplicate_frontend_answer = await client.post(
+                f"{url}/events",
+                headers=headers,
+                json={
+                    "events": [
+                        {
+                            "event_type": "assistant_answer",
+                            "hall": "chat-hall-b",
+                            "metadata": {
+                                "client_event_id": "question-hall-switch-1:assistant",
+                                "question_client_event_id": "question-hall-switch-1",
+                                "question": "介绍乙厅",
+                                "answer": "回答",
+                            },
+                        }
+                    ]
+                },
+            )
             switched_exhibit = await client.post(
                 f"{url}/chat/stream",
                 headers=headers,
@@ -1855,9 +2519,11 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
                     "message": "介绍乙厅展品",
                     "hall_id": "chat-hall-b",
                     "exhibit_id": "chat-exhibit-b",
+                    "client_event_id": "question-exhibit-switch-2",
                 },
             )
             after_exhibit_switch = await client.get(url, headers=headers)
+            recorded_events = await client.get(f"{url}/events", headers=headers)
     finally:
         app.dependency_overrides.pop(original_get_rag_agent, None)
         app.dependency_overrides.pop(original_get_llm_provider, None)
@@ -1866,8 +2532,28 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
     assert switched_hall.status_code == 200
     assert after_hall_switch.json()["current_hall"] == "chat-hall-b"
     assert after_hall_switch.json()["current_exhibit_id"] is None
+    hall_done = next(
+        payload for payload in reversed(_sse_payloads(switched_hall))
+        if payload.get("event") == "done"
+    )
+    assert hall_done["state_version"] == after_hall_switch.json()["state_version"]
+    assert duplicate_frontend_answer.json() == {"recorded": 0}
     assert switched_exhibit.status_code == 200
     assert after_exhibit_switch.json()["current_exhibit_id"] == "chat-exhibit-b"
+    exhibit_done = next(
+        payload for payload in reversed(_sse_payloads(switched_exhibit))
+        if payload.get("event") == "done"
+    )
+    assert exhibit_done["state_version"] == after_exhibit_switch.json()["state_version"]
+    assistant_events = [
+        event
+        for event in recorded_events.json()["events"]
+        if event["event_type"] == "assistant_answer"
+    ]
+    assert [event["metadata"]["client_event_id"] for event in assistant_events] == [
+        "question-hall-switch-1:assistant",
+        "question-exhibit-switch-2:assistant",
+    ]
 
 
 @pytest.mark.asyncio

@@ -2,7 +2,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -10,6 +10,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
     field_validator,
     model_validator,
 )
@@ -351,7 +352,10 @@ class TourChatHistoryItem(BaseModel):
 class TourChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    message: str = Field(..., max_length=2000)
+    message: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
+    ]
     hall_id: str | None = Field(default=None, max_length=100)
     exhibit_id: str | None = Field(default=None, max_length=36)
     # Deprecated compatibility fields. They are accepted during the mini-program
@@ -591,9 +595,13 @@ async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None
 def _validated_hall_chat_history(value: dict | None) -> dict[str, list[dict[str, str]]]:
     normalized: dict[str, list[dict[str, str]]] = {}
     for raw_hall, raw_messages in (value or {}).items():
-        hall = normalize_hall(raw_hall)
-        if not hall:
-            continue
+        raw_hall_slug = str(raw_hall).strip()
+        hall = normalize_hall(raw_hall_slug)
+        if not hall or raw_hall_slug != hall:
+            raise HTTPException(
+                status_code=422,
+                detail="hall_chat_history keys must be normalized hall slugs",
+            )
         messages = []
         for raw in list(raw_messages or [])[-20:]:
             if hasattr(raw, "model_dump"):
@@ -726,11 +734,11 @@ def _build_record_summary_point(
     answers = _compact_record_text(answer_text, 210)
     if answers:
         return _compact_record_text(
-            f"{scope}，你实际提出了“{questions}”。导览记录中的回答包括：{answers}。",
+            f"{scope}，对话主题集中在：{questions}。现有记录中的关键结论包括：{answers}。",
             400,
         )
     return _compact_record_text(
-        f"{scope}，你实际提出了“{questions}”。当前仅保留这条问题，不补充未记录的结论。",
+        f"{scope}，对话主题集中在：{questions}。目前尚无完整回答可供提炼。",
         400,
     )
 
@@ -1013,13 +1021,6 @@ async def patch_tour_session(
         updates["hall_chat_history"] = _validated_hall_chat_history(
             updates["hall_chat_history"]
         )
-        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
-        unknown_halls = set(updates["hall_chat_history"]) - valid_halls
-        if unknown_halls:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Unknown hall_chat_history halls: {', '.join(sorted(unknown_halls))}",
-            )
     if "tour_started_at" in updates and updates["tour_started_at"] is not None:
         if owned_session.tour_started_at is not None:
             requested_start = _parsed_tour_started_at(updates["tour_started_at"])
@@ -1203,6 +1204,7 @@ async def create_tour_report(
     session_id: str,
     _report_rate_limit: TourReportRateLimitDep,
     session: SessionDep,
+    llm_provider: LLMProviderDep,
     x_session_token: str | None = Header(None),
 ):
     await _verify_ownership(session_id, x_session_token, session)
@@ -1218,6 +1220,7 @@ async def create_tour_report(
             session,
             session_id,
             hall_name_map=hall_name_map,
+            llm_provider=llm_provider,
         )
     except TourSessionNotFound:
         raise HTTPException(status_code=404, detail="Tour session not found") from None
@@ -1234,7 +1237,9 @@ async def create_tour_report(
 @router.get("/sessions/{session_id}/report", summary="Get tour report")
 async def get_tour_report(
     session_id: str,
+    _report_rate_limit: TourReportRateLimitDep,
     session: SessionDep,
+    llm_provider: LLMProviderDep,
     x_session_token: str | None = Header(None),
 ):
     await _verify_ownership(session_id, x_session_token, session)
@@ -1246,6 +1251,7 @@ async def get_tour_report(
         session,
         session_id,
         hall_name_map=hall_name_map,
+        llm_provider=llm_provider,
     )
     try:
         tour_session = await get_session(session, session_id)

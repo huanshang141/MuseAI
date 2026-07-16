@@ -1,27 +1,46 @@
 """Merged TTS core tests: provider, service, settings, and API."""
 
 import base64
+import hashlib
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from pydantic import ValidationError
-
+from app.api.deps import get_redis_cache
 from app.application.tts_service import DEFAULT_TTS_STYLE, DEFAULT_TTS_VOICE, TTSService
 from app.config.settings import Settings
 from app.domain.entities import Prompt
 from app.domain.value_objects import PromptId
-from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig
+from app.infra.providers.tts.base import BaseTTSProvider, TTSConfig, is_valid_wav
 from app.infra.providers.tts.factory import create_tts_provider
 from app.infra.providers.tts.mock import MockTTSProvider
 from app.infra.providers.tts.xiaomi import XiaomiTTSProvider
 from app.main import app
-
+from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
+from redis.exceptions import RedisError
 
 # ---------------------------------------------------------------------------
 # Helpers (deduplicated)
 # ---------------------------------------------------------------------------
+
+
+def _valid_wav(pcm: bytes = b"\x00\x00") -> bytes:
+    fmt = (
+        (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
+        + (24_000).to_bytes(4, "little")
+        + (48_000).to_bytes(4, "little")
+        + (2).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+    )
+    body = b"fmt " + len(fmt).to_bytes(4, "little") + fmt
+    body += b"data" + len(pcm).to_bytes(4, "little") + pcm
+    return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WAVE" + body
+
+
+VALID_WAV = _valid_wav()
+
 
 def _make_prompt(
     key: str,
@@ -93,21 +112,21 @@ class TestBaseTTSProvider:
 
 class TestMockTTSProvider:
     @pytest.mark.asyncio
-    async def test_synthesize_stream_yields_empty_chunk(self):
+    async def test_synthesize_stream_yields_valid_pcm16_chunk(self):
         provider = MockTTSProvider()
         config = TTSConfig(voice="冰糖")
         chunks = []
         async for chunk in provider.synthesize_stream("hello", config):
             chunks.append(chunk)
         assert len(chunks) == 1
-        assert chunks[0] == ""
+        assert base64.b64decode(chunks[0], validate=True)
 
     @pytest.mark.asyncio
-    async def test_synthesize_returns_empty_bytes(self):
+    async def test_synthesize_returns_valid_wav(self):
         provider = MockTTSProvider()
         config = TTSConfig(voice="冰糖")
         result = await provider.synthesize("hello", config)
-        assert result == b""
+        assert is_valid_wav(result)
 
     @pytest.mark.asyncio
     async def test_close(self):
@@ -308,7 +327,12 @@ class TestTTSService:
 
     @pytest.mark.asyncio
     async def test_get_tour_tts_config_all_personas(self):
-        for persona, voice in [("A", DEFAULT_TTS_VOICE), ("B", DEFAULT_TTS_VOICE), ("C", DEFAULT_TTS_VOICE), ("D", DEFAULT_TTS_VOICE)]:
+        for persona, voice in [
+            ("A", DEFAULT_TTS_VOICE),
+            ("B", DEFAULT_TTS_VOICE),
+            ("C", DEFAULT_TTS_VOICE),
+            ("D", DEFAULT_TTS_VOICE),
+        ]:
             gateway = AsyncMock()
             prompt = _make_prompt(
                 f"tour_tts_persona_{persona.lower()}",
@@ -346,7 +370,7 @@ class TestTTSSettings:
         assert settings.TTS_VOICE_DESIGN_MODEL == "mimo-v2.5-tts-voicedesign"
 
     def test_production_requires_tts_api_key_when_provider_set(self):
-        try:
+        with pytest.raises(ValueError, match="TTS_API_KEY"):
             Settings(
                 JWT_SECRET="test-secret-that-is-long-enough-32chars",
                 LLM_API_KEY="test-key",
@@ -355,9 +379,6 @@ class TestTTSSettings:
                 TTS_API_KEY="",
                 CORS_ORIGINS="https://example.com",
             )
-            assert False, "Should have raised"
-        except ValueError as e:
-            assert "TTS_API_KEY" in str(e)
 
     def test_production_allows_empty_tts_key_when_disabled(self):
         settings = Settings(
@@ -391,30 +412,69 @@ class TestTTSSettings:
 def mock_tts_service():
     service = AsyncMock()
     service.provider = AsyncMock()
-    service.provider.synthesize = AsyncMock(return_value=b"RIFF_WAV_DATA")
+    service.provider.synthesize = AsyncMock(return_value=VALID_WAV)
     return service
 
 
+@pytest.fixture
+def tts_rate_redis():
+    redis = AsyncMock()
+    redis.check_rate_limit = AsyncMock(return_value=True)
+    app.dependency_overrides[get_redis_cache] = lambda: redis
+    yield redis
+    app.dependency_overrides.pop(get_redis_cache, None)
+
+
 @pytest.mark.asyncio
-async def test_synthesize_endpoint(mock_tts_service):
+async def test_synthesize_endpoint(mock_tts_service, tts_rate_redis):
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": " 你好 ", "voice": DEFAULT_TTS_VOICE},
+            )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "audio" in data
+    assert data["format"] == "wav"
+    assert base64.b64decode(data["audio"]) == VALID_WAV
+    args, _ = mock_tts_service.provider.synthesize.call_args
+    assert args[0] == "你好"
+    assert args[1].voice == DEFAULT_TTS_VOICE
+    rate_call = tts_rate_redis.check_rate_limit.await_args
+    assert rate_call.args[0].startswith("tts_synthesize_ip:")
+    assert not rate_call.args[0].startswith("guest:")
+    assert rate_call.kwargs == {"max_requests": 300, "window_seconds": 60}
+
+
+@pytest.mark.asyncio
+async def test_synthesize_uses_hashed_session_and_shared_ip_limits(
+    mock_tts_service,
+    tts_rate_redis,
+):
+    session_token = "secret-session-token"
     with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.post(
                 "/api/v1/tts/synthesize",
                 json={"text": "你好", "voice": DEFAULT_TTS_VOICE},
+                headers={"X-Session-Token": session_token},
             )
+
     assert resp.status_code == 200
-    data = resp.json()
-    assert "audio" in data
-    assert data["format"] == "wav"
-    assert base64.b64decode(data["audio"]) == b"RIFF_WAV_DATA"
-    args, _ = mock_tts_service.provider.synthesize.call_args
-    assert args[1].voice == DEFAULT_TTS_VOICE
+    token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+    calls = tts_rate_redis.check_rate_limit.await_args_list
+    assert calls[0].args[0] == f"tts_synthesize_session:{token_hash}"
+    assert session_token not in calls[0].args[0]
+    assert calls[0].kwargs == {"max_requests": 30, "window_seconds": 60}
+    assert calls[1].args[0].startswith("tts_synthesize_ip:")
+    assert calls[1].kwargs == {"max_requests": 300, "window_seconds": 60}
 
 
 @pytest.mark.asyncio
-async def test_synthesize_returns_503_when_tts_unavailable():
+async def test_synthesize_returns_503_when_tts_unavailable(tts_rate_redis):
     with patch("app.api.tts._get_tts_service", return_value=None):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -423,3 +483,120 @@ async def test_synthesize_returns_503_when_tts_unavailable():
                 json={"text": "你好", "voice": "冰糖"},
             )
     assert resp.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_synthesize_returns_502_for_invalid_wav(mock_tts_service, tts_rate_redis):
+    mock_tts_service.provider.synthesize = AsyncMock(return_value=b"PCMDATA")
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": "你好", "voice": DEFAULT_TTS_VOICE},
+            )
+
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "TTS synthesis failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["", "   ", "字" * 501])
+async def test_synthesize_rejects_invalid_text_length(
+    mock_tts_service,
+    tts_rate_redis,
+    text,
+):
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": text, "voice": DEFAULT_TTS_VOICE},
+            )
+
+    assert resp.status_code == 422
+    mock_tts_service.provider.synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("voice", "声" * 65),
+        ("style", "风" * 501),
+        ("persona", "E"),
+        ("persona", "a"),
+    ],
+)
+async def test_synthesize_rejects_unbounded_or_unknown_config(
+    mock_tts_service,
+    tts_rate_redis,
+    field,
+    value,
+):
+    body = {"text": "你好", field: value}
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post("/api/v1/tts/synthesize", json=body)
+
+    assert resp.status_code == 422
+    mock_tts_service.provider.synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_synthesize_keeps_empty_voice_compatibility(
+    mock_tts_service,
+    tts_rate_redis,
+):
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": "你好", "voice": ""},
+            )
+
+    assert resp.status_code == 200
+    config = mock_tts_service.provider.synthesize.await_args.args[1]
+    assert config.voice == DEFAULT_TTS_VOICE
+
+
+@pytest.mark.asyncio
+async def test_synthesize_returns_429_for_isolated_tts_limit(
+    mock_tts_service,
+    tts_rate_redis,
+):
+    tts_rate_redis.check_rate_limit.return_value = False
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": "你好", "voice": DEFAULT_TTS_VOICE},
+            )
+
+    assert resp.status_code == 429
+    assert tts_rate_redis.check_rate_limit.await_args.args[0].startswith(
+        "tts_synthesize_ip:"
+    )
+    mock_tts_service.provider.synthesize.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_synthesize_rate_limit_fails_closed_when_redis_unavailable(
+    mock_tts_service,
+    tts_rate_redis,
+):
+    tts_rate_redis.check_rate_limit.side_effect = RedisError("offline")
+    with patch("app.api.tts._get_tts_service", return_value=mock_tts_service):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.post(
+                "/api/v1/tts/synthesize",
+                json={"text": "你好", "voice": DEFAULT_TTS_VOICE},
+            )
+
+    assert resp.status_code == 503
+    mock_tts_service.provider.synthesize.assert_not_awaited()

@@ -298,3 +298,4 @@ class TourReport:
     report_theme: str
     created_at: datetime
     record_summary: str | None = None
+    record_summary_source_hash: str | None = None

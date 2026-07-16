@@ -5,16 +5,41 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.api.deps import SessionDep
 from app.application.exhibit_service import ExhibitService
-from app.application.hall_normalizer import normalize_hall
+from app.application.hall_normalizer import hall_display_name, normalize_hall
 from app.infra.postgres.adapters import PostgresExhibitRepository
+from app.infra.postgres.models import Hall
 
 router = APIRouter(prefix="/exhibits", tags=["exhibits"])
 
 def _normalize_response_hall(value: str | None) -> str:
     return normalize_hall(value) or value or ""
+
+
+async def _load_hall_names(session: SessionDep, halls: list[str]) -> dict[str, str]:
+    slugs = {
+        normalized
+        for value in halls
+        if (normalized := normalize_hall(value))
+    }
+    if not slugs:
+        return {}
+    result = await session.execute(
+        select(Hall.slug, Hall.name).where(Hall.slug.in_(slugs))
+    )
+    return {
+        normalized: str(name)
+        for slug, name in result.all()
+        if (normalized := normalize_hall(slug)) and str(name or "").strip()
+    }
+
+
+def _response_hall_name(hall: str, hall_names: dict[str, str]) -> str:
+    slug = _normalize_response_hall(hall)
+    return hall_names.get(slug) or hall_display_name(slug)
 
 
 # ============================================================================
@@ -29,6 +54,7 @@ class ExhibitListItem(BaseModel):
     name: str
     category: str
     hall: str
+    hall_name: str
     floor: int
     era: str
     importance: int
@@ -47,6 +73,7 @@ class ExhibitDetail(BaseModel):
     location_y: float
     floor: int
     hall: str
+    hall_name: str
     category: str
     era: str
     importance: int
@@ -150,6 +177,7 @@ async def list_exhibits(
             floor=floor,
         )
 
+    hall_names = await _load_hall_names(session, [e.hall for e in exhibits])
     return ExhibitListResponse(
         exhibits=[
             ExhibitListItem(
@@ -157,6 +185,7 @@ async def list_exhibits(
                 name=e.name,
                 category=e.category,
                 hall=_normalize_response_hall(e.hall),
+                hall_name=_response_hall_name(e.hall, hall_names),
                 floor=e.location.floor,
                 era=e.era,
                 importance=e.importance,
@@ -260,6 +289,7 @@ async def get_exhibit(
             detail=f"Exhibit not found: {exhibit_id}",
         )
 
+    hall_names = await _load_hall_names(session, [exhibit.hall])
     return ExhibitDetail(
         id=exhibit.id.value,
         name=exhibit.name,
@@ -268,6 +298,7 @@ async def get_exhibit(
         location_y=exhibit.location.y,
         floor=exhibit.location.floor,
         hall=_normalize_response_hall(exhibit.hall),
+        hall_name=_response_hall_name(exhibit.hall, hall_names),
         category=exhibit.category,
         era=exhibit.era,
         importance=exhibit.importance,

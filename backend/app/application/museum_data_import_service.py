@@ -17,8 +17,11 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
+from xml.etree.ElementTree import ParseError as XMLParseError
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,6 +58,7 @@ EXHIBIT_HEADERS = (
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
 EXHIBIT_ID_NAMESPACE = uuid.UUID("d7864da1-b507-5fb6-bb2d-c8de1dadbf58")
+MAX_ACTIVE_EXHIBITS = 2_000
 
 
 class MuseumDataValidationError(ValueError):
@@ -199,16 +203,28 @@ def _read_csv_pair(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
 
 
 def _read_csv_table(path: Path, expected_headers: tuple[str, ...], label: str) -> list[dict[str, Any]]:
-    with path.open("r", encoding="utf-8-sig", newline="") as file:
-        rows = list(csv.reader(file))
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as file:
+            reader = csv.reader(file, strict=True)
+            try:
+                rows = list(reader)
+            except csv.Error as exc:
+                raise MuseumDataValidationError(
+                    [f"{label} is malformed near line {reader.line_num}: {exc}"]
+                ) from None
+    except UnicodeDecodeError as exc:
+        raise MuseumDataValidationError(
+            [f"{label} must be UTF-8 encoded (decode failed near byte {exc.start})"]
+        ) from None
     if not rows:
         raise MuseumDataValidationError([f"{label} is empty"])
     return _table_to_dicts(rows[0], rows[1:], expected_headers, label)
 
 
 def _read_xlsx(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    workbook = load_workbook(path, read_only=True, data_only=True)
+    workbook = None
     try:
+        workbook = load_workbook(path, read_only=True, data_only=True)
         expected = {"halls", "exhibits"}
         actual = set(workbook.sheetnames)
         missing = sorted(expected - actual)
@@ -227,8 +243,13 @@ def _read_xlsx(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                 raise MuseumDataValidationError([f"sheet '{sheet_name}' is empty"])
             parsed[sheet_name] = _table_to_dicts(rows[0], rows[1:], headers, f"sheet '{sheet_name}'")
         return parsed["halls"], parsed["exhibits"]
+    except MuseumDataValidationError:
+        raise
+    except (BadZipFile, InvalidFileException, KeyError, XMLParseError, ValueError) as exc:
+        raise MuseumDataValidationError([f"workbook is not a valid .xlsx file: {exc}"]) from None
     finally:
-        workbook.close()
+        if workbook is not None:
+            workbook.close()
 
 
 def _table_to_dicts(
@@ -288,6 +309,8 @@ def _validate_rows(
     issues.extend(_duplicate_issues(exhibit_source_ids, "duplicate exhibit source_record_id"))
     if sum(1 for row in halls if row.is_active) > 9:
         issues.append("at most 9 active halls can be imported")
+    if sum(1 for row in exhibits if row.is_active) > MAX_ACTIVE_EXHIBITS:
+        issues.append(f"at most {MAX_ACTIVE_EXHIBITS} active exhibits can be imported")
     hall_map = {row.slug: row for row in halls}
     for row in exhibits:
         if row.hall not in hall_map:
@@ -562,6 +585,38 @@ class MuseumDataImportService:
                 "import would leave more than 9 active halls in the database; "
                 "explicitly include and deactivate obsolete halls first"
             )
+        existing_active_exhibit_ids = set(
+            (
+                await self.session.execute(
+                    select(Exhibit.id).where(Exhibit.is_active.is_(True))
+                )
+            ).scalars()
+        )
+        imported_existing_exhibit_ids = {
+            model.id
+            for row in dataset.exhibits
+            if (model := exhibit_by_source.get(row.source_record_id)) is not None
+        }
+        authoritative_exhibit_ids = {model.id for model in authoritative_exhibits}
+        imported_active_exhibit_ids = {
+            (
+                model.id
+                if (model := exhibit_by_source.get(row.source_record_id)) is not None
+                else deterministic_exhibit_id(source_name, row.source_record_id)
+            )
+            for row in dataset.exhibits
+            if row.is_active
+        }
+        resulting_active_exhibit_ids = (
+            existing_active_exhibit_ids
+            - imported_existing_exhibit_ids
+            - authoritative_exhibit_ids
+        ) | imported_active_exhibit_ids
+        if len(resulting_active_exhibit_ids) > MAX_ACTIVE_EXHIBITS:
+            collision_issues.append(
+                f"import would leave more than {MAX_ACTIVE_EXHIBITS} active exhibits "
+                "in the database; explicitly include and deactivate obsolete exhibits first"
+            )
         for row in dataset.halls:
             by_slug = hall_by_slug.get(row.slug)
             by_source = hall_by_source.get(row.source_record_id)
@@ -591,7 +646,6 @@ class MuseumDataImportService:
         inactive_hall_slugs = {
             row.slug for row in dataset.halls if not row.is_active
         } | authoritative_hall_slugs
-        authoritative_exhibit_ids = {model.id for model in authoritative_exhibits}
         if inactive_hall_slugs:
             planned_exhibits = {
                 (source_name, row.source_record_id): row for row in dataset.exhibits

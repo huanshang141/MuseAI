@@ -1,6 +1,6 @@
 """Contract tests for api/exhibits.py — public (unauthenticated) endpoints."""
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from app.api.deps import get_db_session
@@ -12,14 +12,18 @@ from fastapi.testclient import TestClient
 VALID_UUID = "00000000-0000-0000-0000-000000000001"
 
 
-def _make_exhibit(id_: str = VALID_UUID, name: str = "青铜鼎") -> Exhibit:
+def _make_exhibit(
+    id_: str = VALID_UUID,
+    name: str = "青铜鼎",
+    hall: str = "main",
+) -> Exhibit:
     now = datetime.now(UTC)
     return Exhibit(
         id=ExhibitId(id_),
         name=name,
         description="desc",
         location=Location(x=1.0, y=2.0, floor=1),
-        hall="main",
+        hall=hall,
         category="bronze",
         era="shang",
         importance=3,
@@ -60,12 +64,15 @@ def override_db():
     mock_session.commit = AsyncMock()
     mock_session.rollback = AsyncMock()
     mock_session.close = AsyncMock()
+    hall_result = MagicMock()
+    hall_result.all.return_value = [("main", "主展厅")]
+    mock_session.execute.return_value = hall_result
 
     async def _get_mock_session():
         yield mock_session
 
     app.dependency_overrides[get_db_session] = _get_mock_session
-    yield
+    yield mock_session
     app.dependency_overrides.pop(get_db_session, None)
 
 
@@ -79,6 +86,35 @@ def test_list_exhibits_returns_200_with_pagination(override_db, patch_exhibit_se
     assert "total" in body
     assert body["skip"] == 0
     assert body["limit"] == 10
+    assert body["exhibits"][0]["hall_name"] == "主展厅"
+
+
+def test_list_exhibits_resolves_real_hall_names_in_one_batch(
+    override_db,
+    patch_exhibit_service,
+):
+    patch_exhibit_service.list_exhibits.return_value = [
+        _make_exhibit(hall="future-hall-a"),
+        _make_exhibit(
+            id_="00000000-0000-0000-0000-000000000002",
+            hall="future-hall-b",
+        ),
+    ]
+    patch_exhibit_service.count_exhibits.return_value = 2
+    override_db.execute.return_value.all.return_value = [
+        ("future-hall-a", "未来真实展厅甲"),
+        ("future-hall-b", "未来真实展厅乙"),
+    ]
+
+    client = TestClient(app)
+    response = client.get("/api/v1/exhibits?skip=0&limit=10")
+
+    assert response.status_code == 200
+    assert [item["hall_name"] for item in response.json()["exhibits"]] == [
+        "未来真实展厅甲",
+        "未来真实展厅乙",
+    ]
+    override_db.execute.assert_awaited_once()
 
 
 def test_list_exhibits_keeps_real_records_with_legacy_placeholder_names(
@@ -135,6 +171,7 @@ def test_get_exhibit_detail_returns_200(override_db, patch_exhibit_service):
     body = response.json()
     assert body["id"] == VALID_UUID
     assert body["name"] == "青铜鼎"
+    assert body["hall_name"] == "主展厅"
 
 
 def test_get_exhibit_detail_returns_404_when_missing(override_db, patch_exhibit_service):

@@ -6,10 +6,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from redis.exceptions import RedisError
-
 from app.api.admin.tts_persona import router
 from app.api.deps import get_current_admin_user, get_db_session, get_prompt_cache
 from app.application.tts_streaming import TTSStreamManager, extract_sentences
@@ -20,7 +16,9 @@ from app.infra.postgres.adapters.prompt import PostgresPromptRepository
 from app.infra.providers.tts.base import TTSConfig
 from app.infra.providers.tts.cached import CachedTTSProvider
 from app.infra.providers.tts.mock import MockTTSProvider
-
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from redis.exceptions import RedisError
 
 # ---------------------------------------------------------------------------
 # Helpers (deduplicated)
@@ -73,13 +71,31 @@ def _create_app():
     return app, mock_cache
 
 
+def _valid_wav(pcm: bytes = b"\x00\x00") -> bytes:
+    fmt = (
+        (1).to_bytes(2, "little")
+        + (1).to_bytes(2, "little")
+        + (24_000).to_bytes(4, "little")
+        + (48_000).to_bytes(4, "little")
+        + (2).to_bytes(2, "little")
+        + (16).to_bytes(2, "little")
+    )
+    body = b"fmt " + len(fmt).to_bytes(4, "little") + fmt
+    body += b"data" + len(pcm).to_bytes(4, "little") + pcm
+    return b"RIFF" + (len(body) + 4).to_bytes(4, "little") + b"WAVE" + body
+
+
+VALID_WAV = _valid_wav()
+
+
 class FakeProvider:
     """A TTS provider that records calls and returns configurable chunks."""
 
-    def __init__(self, chunks=None):
+    def __init__(self, chunks=None, wav=VALID_WAV):
         self.call_count = 0
         self.last_text = None
         self.chunks = chunks or ["AAAA", "BBBB"]
+        self.wav = wav
 
     async def synthesize_stream(self, text, config):
         self.call_count += 1
@@ -90,7 +106,7 @@ class FakeProvider:
     async def synthesize(self, text, config):
         self.call_count += 1
         self.last_text = text
-        return b"WAV_DATA"
+        return self.wav
 
     async def close(self):
         pass
@@ -101,7 +117,27 @@ def _mock_redis(get_return=None):
     redis = AsyncMock()
     redis.get = AsyncMock(return_value=get_return)
     redis.setex = AsyncMock()
+    redis.delete = AsyncMock()
     return redis
+
+
+def _memory_redis():
+    store = {}
+    redis = AsyncMock()
+
+    async def get(key):
+        return store.get(key)
+
+    async def setex(key, _ttl, value):
+        store[key] = value.encode() if isinstance(value, str) else value
+
+    async def delete(key):
+        return int(store.pop(key, None) is not None)
+
+    redis.get = AsyncMock(side_effect=get)
+    redis.setex = AsyncMock(side_effect=setex)
+    redis.delete = AsyncMock(side_effect=delete)
+    return redis, store
 
 
 async def _collect(gen):
@@ -246,37 +282,37 @@ class TestTTSStreamManager:
 class TestCachedTTSProvider:
     @pytest.mark.asyncio
     async def test_cache_miss_calls_upstream_and_writes(self):
-        inner = FakeProvider(chunks=["AA", "BB"])
+        inner = FakeProvider(chunks=["QUE=", "QkI="])
         redis = _mock_redis(get_return=None)
         cached = CachedTTSProvider(inner, redis=redis)
 
         result = await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
 
-        assert result == ["AA", "BB"]
+        assert result == ["QUE=", "QkI="]
         assert inner.call_count == 1
         redis.get.assert_awaited_once()
         redis.setex.assert_awaited_once()
         # Verify the cached value is a JSON list of chunks
         args = redis.setex.call_args
-        assert json.loads(args[0][2]) == ["AA", "BB"]
+        assert json.loads(args[0][2]) == ["QUE=", "QkI="]
 
     @pytest.mark.asyncio
     async def test_cache_hit_skips_upstream(self):
-        cached_chunks = ["CC", "DD"]
+        cached_chunks = ["Q0M=", "REQ="]
         redis = _mock_redis(get_return=json.dumps(cached_chunks).encode())
-        inner = FakeProvider(chunks=["AA", "BB"])
+        inner = FakeProvider(chunks=["QUE=", "QkI="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         result = await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
 
-        assert result == ["CC", "DD"]
+        assert result == ["Q0M=", "REQ="]
         assert inner.call_count == 0  # Upstream not called
         redis.setex.assert_not_awaited()  # No write needed
 
     @pytest.mark.asyncio
     async def test_different_text_uses_different_key(self):
         redis = _mock_redis(get_return=None)
-        inner = FakeProvider(chunks=["AA"])
+        inner = FakeProvider(chunks=["QUE="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
@@ -292,7 +328,7 @@ class TestCachedTTSProvider:
     @pytest.mark.asyncio
     async def test_same_voice_same_text_can_share_key(self):
         redis = _mock_redis(get_return=None)
-        inner = FakeProvider(chunks=["AA"])
+        inner = FakeProvider(chunks=["QUE="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
@@ -306,7 +342,7 @@ class TestCachedTTSProvider:
     @pytest.mark.asyncio
     async def test_different_style_uses_different_key(self):
         redis = _mock_redis(get_return=None)
-        inner = FakeProvider(chunks=["AA"])
+        inner = FakeProvider(chunks=["QUE="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖", style="A")))
@@ -317,28 +353,42 @@ class TestCachedTTSProvider:
         key2 = redis.get.call_args_list[1][0][0]
         assert key1 != key2
 
+    def test_cache_key_has_no_pipe_field_collision(self):
+        first = CachedTTSProvider._cache_key(
+            "a|b",
+            TTSConfig(voice="c", style="d"),
+            "file:wav",
+        )
+        second = CachedTTSProvider._cache_key(
+            "a",
+            TTSConfig(voice="b", style="c|d"),
+            "file:wav",
+        )
+
+        assert first != second
+
     @pytest.mark.asyncio
     async def test_redis_read_error_falls_through(self):
         redis = _mock_redis()
         redis.get = AsyncMock(side_effect=RedisError("connection lost"))
-        inner = FakeProvider(chunks=["AA", "BB"])
+        inner = FakeProvider(chunks=["QUE=", "QkI="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         result = await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
 
-        assert result == ["AA", "BB"]
+        assert result == ["QUE=", "QkI="]
         assert inner.call_count == 1  # Falls through to upstream
 
     @pytest.mark.asyncio
     async def test_redis_write_error_still_returns_audio(self):
         redis = _mock_redis(get_return=None)
         redis.setex = AsyncMock(side_effect=RedisError("connection lost"))
-        inner = FakeProvider(chunks=["AA", "BB"])
+        inner = FakeProvider(chunks=["QUE=", "QkI="])
         cached = CachedTTSProvider(inner, redis=redis)
 
         result = await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
 
-        assert result == ["AA", "BB"]
+        assert result == ["QUE=", "QkI="]
         assert inner.call_count == 1  # Upstream still called
 
     @pytest.mark.asyncio
@@ -349,32 +399,93 @@ class TestCachedTTSProvider:
 
         result = await cached.synthesize("你好", TTSConfig(voice="冰糖"))
 
-        assert result == b"WAV_DATA"
+        assert result == VALID_WAV
         assert inner.call_count == 1
         redis.setex.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_synthesize_non_streaming_cache_hit(self):
-        cached_wav = base64.b64encode(b"WAV_DATA").decode()
+        cached_wav = base64.b64encode(VALID_WAV).decode()
         redis = _mock_redis(get_return=cached_wav.encode())
         inner = FakeProvider()
         cached = CachedTTSProvider(inner, redis=redis)
 
         result = await cached.synthesize("你好", TTSConfig(voice="冰糖"))
 
-        assert result == b"WAV_DATA"
+        assert result == VALID_WAV
         assert inner.call_count == 0
 
     @pytest.mark.asyncio
     async def test_ttl_is_passed_to_setex(self):
         redis = _mock_redis(get_return=None)
-        inner = FakeProvider(chunks=["AA"])
+        inner = FakeProvider(chunks=["QUE="])
         cached = CachedTTSProvider(inner, redis=redis, ttl=7200)
 
         await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖")))
 
         args = redis.setex.call_args[0]
         assert args[1] == 7200  # TTL
+
+    @pytest.mark.asyncio
+    async def test_stream_then_file_uses_distinct_format_cache(self):
+        redis, store = _memory_redis()
+        inner = FakeProvider(chunks=["UENN"])
+        cached = CachedTTSProvider(inner, redis=redis)
+        config = TTSConfig(voice="冰糖")
+
+        assert await _collect(cached.synthesize_stream("同一句", config)) == ["UENN"]
+        assert await cached.synthesize("同一句", config) == VALID_WAV
+
+        assert inner.call_count == 2
+        assert len(store) == 2
+        stream_key, file_key = [call.args[0] for call in redis.get.await_args_list]
+        assert stream_key != file_key
+
+    @pytest.mark.asyncio
+    async def test_file_then_stream_uses_distinct_format_cache(self):
+        redis, store = _memory_redis()
+        inner = FakeProvider(chunks=["UENN"])
+        cached = CachedTTSProvider(inner, redis=redis)
+        config = TTSConfig(voice="冰糖")
+
+        assert await cached.synthesize("同一句", config) == VALID_WAV
+        assert await _collect(cached.synthesize_stream("同一句", config)) == ["UENN"]
+
+        assert inner.call_count == 2
+        assert len(store) == 2
+        file_key, stream_key = [call.args[0] for call in redis.get.await_args_list]
+        assert file_key != stream_key
+
+    @pytest.mark.asyncio
+    async def test_invalid_file_cache_is_deleted_and_refetched(self):
+        redis = _mock_redis(get_return=base64.b64encode(b"PCMDATA").decode().encode())
+        inner = FakeProvider()
+        cached = CachedTTSProvider(inner, redis=redis)
+
+        assert await cached.synthesize("你好", TTSConfig(voice="冰糖")) == VALID_WAV
+        assert inner.call_count == 1
+        redis.delete.assert_awaited_once()
+        redis.setex.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_stream_cache_is_deleted_and_refetched(self):
+        redis = _mock_redis(get_return=base64.b64encode(VALID_WAV))
+        inner = FakeProvider(chunks=["UENN"])
+        cached = CachedTTSProvider(inner, redis=redis)
+
+        assert await _collect(cached.synthesize_stream("你好", TTSConfig(voice="冰糖"))) == ["UENN"]
+        assert inner.call_count == 1
+        redis.delete.assert_awaited_once()
+        redis.setex.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invalid_upstream_wav_is_not_cached(self):
+        redis = _mock_redis(get_return=None)
+        cached = CachedTTSProvider(FakeProvider(wav=b"not-a-wav"), redis=redis)
+
+        with pytest.raises(ValueError, match="invalid RIFF/WAVE"):
+            await cached.synthesize("你好", TTSConfig(voice="冰糖"))
+        redis.setex.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_close_delegates(self):
@@ -546,7 +657,7 @@ class TestUpdateWithVariables:
         ])
 
         new_vars = [{"name": "__voice_description__", "description": "test voice"}]
-        result = await repo.update_with_variables(
+        await repo.update_with_variables(
             key="tour_tts_persona_a",
             content="new content",
             variables=new_vars,

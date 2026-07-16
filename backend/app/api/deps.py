@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
@@ -304,6 +305,49 @@ async def check_guest_rate_limit(
 
 
 GuestRateLimitDep = Annotated[None, Depends(check_guest_rate_limit)]
+
+
+async def check_tts_synthesize_rate_limit(
+    request: Request,
+    redis: RedisCache = Depends(get_redis_cache),  # noqa: B008
+) -> None:
+    """Protect standalone TTS with a per-token bucket and shared-IP ceiling."""
+    settings = get_settings()
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+
+    client_ip = extract_client_ip(request, settings.get_trusted_proxies())
+    try:
+        session_allowed = True
+        session_token = request.headers.get("X-Session-Token")
+        if session_token:
+            token_hash = hashlib.sha256(session_token.encode("utf-8")).hexdigest()
+            session_allowed = await redis.check_rate_limit(
+                f"tts_synthesize_session:{token_hash}",
+                max_requests=settings.TTS_SYNTHESIZE_SESSION_RATE_LIMIT_PER_MINUTE,
+                window_seconds=60,
+            )
+        ip_allowed = await redis.check_rate_limit(
+            f"tts_synthesize_ip:{client_ip}",
+            max_requests=settings.TTS_SYNTHESIZE_IP_RATE_LIMIT_PER_MINUTE,
+            window_seconds=60,
+        )
+        if not session_allowed or not ip_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="TTS synthesis rate limit exceeded. Please try again later.",
+            )
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="TTS synthesis is temporarily unavailable. Please try again later.",
+        ) from exc
+
+
+TTSSynthesizeRateLimitDep = Annotated[
+    None,
+    Depends(check_tts_synthesize_rate_limit),
+]
 
 
 async def check_tour_chat_rate_limit(

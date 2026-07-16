@@ -1,11 +1,13 @@
 import csv
 from dataclasses import replace
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 from app.application.museum_data_import_service import (
     EXHIBIT_HEADERS,
     HALL_HEADERS,
+    MAX_ACTIVE_EXHIBITS,
     ExhibitImportRow,
     HallImportRow,
     MuseumDataImportService,
@@ -150,6 +152,25 @@ def test_loads_utf8_sig_csv_pair_and_pipe_or_json_questions(tmp_path):
     assert dataset.exhibits[0].suggested_questions == ["纹样能说明什么？"]
 
 
+def test_rejects_non_utf8_csv_as_structured_validation_error(tmp_path):
+    (tmp_path / "halls.csv").write_bytes(b"\xff\xfe\x00\x00")
+    _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [_exhibit_values()])
+
+    with pytest.raises(MuseumDataValidationError, match="must be UTF-8 encoded"):
+        load_museum_dataset(tmp_path)
+
+
+def test_rejects_malformed_csv_as_structured_validation_error(tmp_path):
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    values = _exhibit_values()
+    row_prefix = ",".join(str(values[header]) for header in EXHIBIT_HEADERS[:-1])
+    malformed = f"{','.join(EXHIBIT_HEADERS)}\n{row_prefix},\"unterminated"
+    (tmp_path / "exhibits.csv").write_text(malformed, encoding="utf-8")
+
+    with pytest.raises(MuseumDataValidationError, match="is malformed near line 2"):
+        load_museum_dataset(tmp_path)
+
+
 def test_loads_exact_two_sheet_xlsx(tmp_path):
     path = tmp_path / "museum_data.xlsx"
     workbook = Workbook()
@@ -166,6 +187,50 @@ def test_loads_exact_two_sheet_xlsx(tmp_path):
 
     assert len(dataset.halls) == 1
     assert dataset.exhibits[0].name == "人面鱼纹彩陶盆"
+
+
+def test_rejects_corrupt_xlsx_as_structured_validation_error(tmp_path):
+    path = tmp_path / "museum_data.xlsx"
+    path.write_bytes(b"not-a-valid-xlsx")
+
+    with pytest.raises(MuseumDataValidationError, match="not a valid .xlsx file"):
+        load_museum_dataset(path)
+
+
+def test_rejects_xlsx_zip_missing_content_types_as_validation_error(tmp_path):
+    path = tmp_path / "museum_data.xlsx"
+    with ZipFile(path, "w"):
+        pass
+
+    with pytest.raises(MuseumDataValidationError, match="not a valid .xlsx file"):
+        load_museum_dataset(path)
+
+
+def test_rejects_malformed_xlsx_xml_as_validation_error(tmp_path):
+    path = tmp_path / "museum_data.xlsx"
+    with ZipFile(path, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types>")
+
+    with pytest.raises(MuseumDataValidationError, match="not a valid .xlsx file"):
+        load_museum_dataset(path)
+
+
+def test_wraps_explicit_openpyxl_value_error_but_not_os_errors(tmp_path, monkeypatch):
+    path = tmp_path / "museum_data.xlsx"
+    path.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        "app.application.museum_data_import_service.load_workbook",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("invalid metadata")),
+    )
+    with pytest.raises(MuseumDataValidationError, match="invalid metadata"):
+        load_museum_dataset(path)
+
+    monkeypatch.setattr(
+        "app.application.museum_data_import_service.load_workbook",
+        lambda *args, **kwargs: (_ for _ in ()).throw(PermissionError("access denied")),
+    )
+    with pytest.raises(PermissionError, match="access denied"):
+        load_museum_dataset(path)
 
 
 @pytest.mark.parametrize(
@@ -221,6 +286,22 @@ def test_rejects_more_than_nine_active_halls(tmp_path):
     _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [])
 
     with pytest.raises(MuseumDataValidationError, match="at most 9 active halls"):
+        load_museum_dataset(tmp_path)
+
+
+def test_rejects_more_than_two_thousand_active_exhibits(tmp_path):
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    exhibit_rows = [
+        _exhibit_values(
+            source_record_id=f"exhibit-{index}",
+            name=f"真实展品{index}",
+            display_order=index,
+        )
+        for index in range(MAX_ACTIVE_EXHIBITS + 1)
+    ]
+    _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, exhibit_rows)
+
+    with pytest.raises(MuseumDataValidationError, match="at most 2000 active exhibits"):
         load_museum_dataset(tmp_path)
 
 
@@ -353,6 +434,39 @@ async def test_import_rejects_more_than_nine_resulting_database_halls(import_ses
         )
 
     assert await import_session.get(Hall, "basic-hall") is None
+
+
+@pytest.mark.asyncio
+async def test_import_rejects_more_than_two_thousand_resulting_active_exhibits(
+    import_session,
+):
+    import_session.add_all(
+        [
+            Exhibit(
+                id=f"legacy-{index}",
+                name=f"旧展品{index}",
+                hall="legacy-hall",
+                is_active=True,
+            )
+            for index in range(MAX_ACTIVE_EXHIBITS)
+        ]
+    )
+    await import_session.commit()
+
+    with pytest.raises(
+        MuseumDataValidationError,
+        match="more than 2000 active exhibits in the database",
+    ):
+        await MuseumDataImportService(import_session, FakeIndexer()).import_dataset(
+            _dataset(), source_name="banpo-2026"
+        )
+
+    assert await import_session.get(Hall, "basic-hall") is None
+    assert (
+        await import_session.scalar(
+            select(func.count()).select_from(Exhibit).where(Exhibit.is_active.is_(True))
+        )
+    ) == MAX_ACTIVE_EXHIBITS
 
 
 @pytest.mark.asyncio

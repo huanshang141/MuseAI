@@ -31,3 +31,16 @@
 - 部署说明补充每次切换提交后先执行 `uv sync --frozen`，确保 systemd 使用的虚拟环境与目标提交一致。
 - PostgreSQL、Redis 与 Elasticsearch 的 Compose 端口只绑定 `127.0.0.1`，避免无认证基础服务暴露到公网。
 - 修复生产依赖不可复现：停止忽略并提交 `uv.lock`，部署时先执行 `uv lock --check`、`uv sync --frozen` 和 `uv pip check`，避免服务器旧锁遗漏 `openpyxl` 等运行时依赖。
+- 会话恢复允许保留已经下线展厅的历史聊天（每厅仍限制最近 20 条、总计最多 9 厅），但当前展厅和当前展品继续按启用数据严格校验。
+- 会话 PATCH 对同值快照和不可写字段不再推进 `state_version` 或刷新活动时间，避免重复异步同步制造无意义的 OCC 冲突。
+- 导览 SSE 在 `done` 前分别尝试持久化问答事件和展厅历史，返回最后成功写入的 `state_version`；助手事件使用与小程序一致的稳定 ID，支持前后端跨侧去重，单项持久化失败仍保持流式响应可完成。
+- Excel/CSV 导入把非 UTF-8、畸形 CSV、损坏 XLSX 和缺失工作簿结构统一转换为结构化校验失败；单次文件及导入后的数据库最多保留 2000 个启用展品。
+- 公开展品列表和详情新增数据库驱动的 `hall_name`；列表使用单次批量查询，未知展厅名退回规范化展示名。
+- 数据导入 CLI 已分别验证 CSV、权威 CSV、XLSX 正常 dry-run，以及非法来源名、非 UTF-8 CSV、畸形 CSV、损坏 XLSX 的非零结构化失败。
+- 最终验证：完整后端串行测试 `1088 passed, 23 skipped, 17 warnings`；23 项均因本机未启动 PostgreSQL、Elasticsearch、Ollama 或 Redis 而跳过，小程序核心测试无跳过。Python 3.11 与 3.12 变更组合各 `174 passed`；`uv lock --check`、两版本 `pip check`/`compileall`、scoped Ruff、mypy、Alembic 单一 head 和 `git diff --check` 均通过。
+- 报告记录摘要改为受约束的单次报告模型归纳：system 仅保存规则，后端持久化问答与数据库展厅名作为不可信结构化 JSON；按截断后的规范输入 SHA-256 指纹更新，模型失败或输出逐轮复述时回退为确定性的主题/结论语义合并。
+- 新增 `tour_reports.record_summary_source_hash` 迁移；未回答问题只更新报告统计，不触发摘要 LLM。POST/GET 报告共用限流，调用 LLM 前释放事务，返回后按 session→report 锁序重读最新状态，过期摘要不得覆盖并发的新事件、session 字段或较新报告。
+- `record_events` 在查重与插入前锁定 session 行，预生成稳定事件 UUID，并把加锁、重查、重建和提交作为完整重试单元；即使提交结果不明也能按主键/client ID 收敛，离线补传不会重复。
+- TTS 流式 PCM16 与文件 WAV 缓存按规范 JSON 模式键隔离；缓存和上游 WAV/PCM 均做格式校验。独立接口使用 token 哈希 30/min + 共享 IP 300/min 双层限流，无 token 时保留 IP 桶；文本、voice、style、persona 均加边界，失败日志不记录文本/token。
+- 小程序聊天 message 去除首尾空白并要求 1–2000 字，纯空白在进入付费 LLM 前返回 422。
+- 本轮定向组合验证 `230 passed`（7 条既有 warning）；最终全后端串行测试 `1124 passed, 23 skipped, 13 warnings`，跳过项均因本机未启动 PostgreSQL、Elasticsearch、Ollama 或 Redis。scoped Ruff、Alembic 单一 head `20260716_report_summary_hash` 与 `git diff --check` 通过。

@@ -28,6 +28,7 @@ source_record_id,name,description,hall,floor,category,era,importance,estimated_v
 - `importance` 为 0–100；`estimated_visit_time` 单位为秒，可留空。
 - `location_x/location_y` 可留空，用于后续馆内路线与定位。
 - `source_record_id` 与命令行 `--source-name` 共同生成稳定展品 UUID。
+- 单次文件以及导入完成后的数据库最多保留 2000 个启用展品；超出时校验失败，需先显式停用旧展品。
 - 小程序普通展品列表、筛选和名称搜索按 `display_order` 从小到大展示；空值排在显式顺序之后，同序时依次按创建时间和稳定 ID 排序。
 
 ## 执行流程

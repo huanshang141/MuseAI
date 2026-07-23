@@ -86,7 +86,7 @@ frontend/node_modules/
 # codex
 codex.md
 /AGENTS.md
-/DESIGN.md
-/CURRENT_TASK.md
+/docs/DESIGN.md
+/docs/CURRENT_TASK.md
 
 !docs/reference/展品.md

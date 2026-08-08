@@ -175,6 +175,21 @@ def test_versioned_museum_template_has_trusted_nine_halls_and_no_fake_exhibits()
     assert dataset.exhibits == []
 
 
+def test_versioned_test_dataset_is_explicit_and_covers_all_nine_halls():
+    dataset_dir = Path(__file__).resolve().parents[3] / "data" / "museum_test_data"
+
+    dataset = load_museum_dataset(dataset_dir)
+
+    assert len(dataset.halls) == 9
+    assert len(dataset.exhibits) == 46
+    assert {exhibit.hall for exhibit in dataset.exhibits} == {hall.slug for hall in dataset.halls}
+    assert all(exhibit.source_record_id.startswith("legacy-test-") for exhibit in dataset.exhibits)
+    assert all(exhibit.name.startswith("【测试】") for exhibit in dataset.exhibits)
+    assert all(exhibit.description.startswith("【测试数据，非馆方真实展品信息】") for exhibit in dataset.exhibits)
+    assert all(exhibit.category == "测试数据" for exhibit in dataset.exhibits)
+    assert all(exhibit.floor is None and exhibit.era is None for exhibit in dataset.exhibits)
+
+
 def test_rejects_non_utf8_csv_as_structured_validation_error(tmp_path):
     (tmp_path / "halls.csv").write_bytes(b"\xff\xfe\x00\x00")
     _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [_exhibit_values()])
@@ -187,7 +202,7 @@ def test_rejects_malformed_csv_as_structured_validation_error(tmp_path):
     _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
     values = _exhibit_values()
     row_prefix = ",".join(str(values[header]) for header in EXHIBIT_HEADERS[:-1])
-    malformed = f"{','.join(EXHIBIT_HEADERS)}\n{row_prefix},\"unterminated"
+    malformed = f'{",".join(EXHIBIT_HEADERS)}\n{row_prefix},"unterminated'
     (tmp_path / "exhibits.csv").write_text(malformed, encoding="utf-8")
 
     with pytest.raises(MuseumDataValidationError, match="is malformed near line 2"):
@@ -256,9 +271,7 @@ def test_wraps_explicit_openpyxl_value_error_but_not_os_errors(tmp_path, monkeyp
         load_museum_dataset(path)
 
 
-@pytest.mark.parametrize(
-    "problem", ["missing_header", "unknown_hall", "duplicate_key", "duplicate_hall_name"]
-)
+@pytest.mark.parametrize("problem", ["missing_header", "unknown_hall", "duplicate_key", "duplicate_hall_name"])
 def test_rejects_invalid_csv_before_import(tmp_path, problem):
     hall_headers = list(HALL_HEADERS)
     hall_rows = [_hall_values()]
@@ -270,9 +283,7 @@ def test_rejects_invalid_csv_before_import(tmp_path, problem):
     elif problem == "duplicate_key":
         exhibit_rows.append(_exhibit_values(name="重复稳定键"))
     else:
-        hall_rows.append(
-            _hall_values(source_record_id="hall-002", slug="second-hall")
-        )
+        hall_rows.append(_hall_values(source_record_id="hall-002", slug="second-hall"))
     _write_csv(tmp_path / "halls.csv", hall_headers, hall_rows)
     _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, exhibit_rows)
 
@@ -330,9 +341,7 @@ def test_rejects_more_than_two_thousand_active_exhibits(tmp_path):
 
 @pytest.mark.asyncio
 async def test_dry_run_needs_no_database_or_indexer():
-    summary = await MuseumDataImportService().import_dataset(
-        _dataset(), source_name="banpo-2026", dry_run=True
-    )
+    summary = await MuseumDataImportService().import_dataset(_dataset(), source_name="banpo-2026", dry_run=True)
 
     assert summary.dry_run is True
     assert summary.pending_index == ["exhibit-001"]
@@ -360,9 +369,7 @@ async def test_idempotent_upsert_indexes_only_new_or_changed(import_session):
 
     first = await service.import_dataset(_dataset(), source_name="banpo-2026")
     second = await service.import_dataset(_dataset(), source_name="banpo-2026")
-    changed = await service.import_dataset(
-        _dataset(exhibit_description="更新后的真实介绍"), source_name="banpo-2026"
-    )
+    changed = await service.import_dataset(_dataset(exhibit_description="更新后的真实介绍"), source_name="banpo-2026")
 
     assert first.halls_created == 1
     assert first.exhibits_created == 1
@@ -371,15 +378,9 @@ async def test_idempotent_upsert_indexes_only_new_or_changed(import_session):
     assert changed.exhibits_updated == 1
     assert changed.exhibits_indexed == 1
     assert len(indexer.indexed) == 2
-    assert (
-        await import_session.scalar(select(func.count()).select_from(Hall))
-    ) == 1
-    assert (
-        await import_session.scalar(select(func.count()).select_from(Exhibit))
-    ) == 1
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    assert (await import_session.scalar(select(func.count()).select_from(Hall))) == 1
+    assert (await import_session.scalar(select(func.count()).select_from(Exhibit))) == 1
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     assert exhibit.description == "更新后的真实介绍"
     assert exhibit.is_active is True
 
@@ -486,9 +487,7 @@ async def test_import_rejects_more_than_two_thousand_resulting_active_exhibits(
 
     assert await import_session.get(Hall, "basic-hall") is None
     assert (
-        await import_session.scalar(
-            select(func.count()).select_from(Exhibit).where(Exhibit.is_active.is_(True))
-        )
+        await import_session.scalar(select(func.count()).select_from(Exhibit).where(Exhibit.is_active.is_(True)))
     ) == MAX_ACTIVE_EXHIBITS
 
 
@@ -500,9 +499,7 @@ async def test_omitted_rows_are_not_deleted(import_session):
 
     await service.import_dataset(halls_only, source_name="banpo-2026")
 
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     assert exhibit is not None
     assert exhibit.is_active is True
 
@@ -674,9 +671,7 @@ async def test_authoritative_delete_failure_keeps_failed_group_active(
         source_name="banpo-2026",
         source_record_id="exhibit-success-old",
     )
-    import_session.add_all(
-        [failed_hall, successful_hall, failed_exhibit, successful_exhibit]
-    )
+    import_session.add_all([failed_hall, successful_hall, failed_exhibit, successful_exhibit])
     await import_session.commit()
     indexer = FakeIndexer(fail_delete_ids={failed_exhibit.document_id})
 
@@ -714,9 +709,7 @@ async def test_inactive_hall_requires_explicit_exhibit_resolution(import_session
         )
 
     hall = await import_session.get(Hall, "basic-hall")
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     assert hall.is_active is True
     assert exhibit.is_active is True
 
@@ -736,9 +729,7 @@ async def test_inactive_hall_and_explicit_inactive_exhibit_are_consistent(import
     )
 
     hall = await import_session.get(Hall, "basic-hall")
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     assert hall.is_active is False
     assert exhibit.is_active is False
 
@@ -750,9 +741,7 @@ async def test_index_failure_leaves_exhibit_inactive_and_reports_pending(import_
     with pytest.raises(MuseumDataIndexingError) as captured:
         await service.import_dataset(_dataset(), source_name="banpo-2026")
 
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     await import_session.refresh(exhibit)
     assert exhibit.is_active is False
     assert captured.value.summary.pending_index == ["exhibit-001"]
@@ -764,9 +753,7 @@ async def test_explicit_deactivation_removes_rag_source(import_session):
     service = MuseumDataImportService(import_session, indexer)
     await service.import_dataset(_dataset(), source_name="banpo-2026")
 
-    summary = await service.import_dataset(
-        _dataset(exhibit_active=False), source_name="banpo-2026"
-    )
+    summary = await service.import_dataset(_dataset(exhibit_active=False), source_name="banpo-2026")
 
     exhibit_id = deterministic_exhibit_id("banpo-2026", "exhibit-001")
     exhibit = await import_session.get(Exhibit, exhibit_id)
@@ -778,21 +765,13 @@ async def test_explicit_deactivation_removes_rag_source(import_session):
 @pytest.mark.asyncio
 async def test_delete_failure_keeps_previously_active_exhibit_visible_for_retry(import_session):
     healthy_indexer = FakeIndexer()
-    await MuseumDataImportService(import_session, healthy_indexer).import_dataset(
-        _dataset(), source_name="banpo-2026"
-    )
-    failing_service = MuseumDataImportService(
-        import_session, FakeIndexer(fail_delete=True)
-    )
+    await MuseumDataImportService(import_session, healthy_indexer).import_dataset(_dataset(), source_name="banpo-2026")
+    failing_service = MuseumDataImportService(import_session, FakeIndexer(fail_delete=True))
 
     with pytest.raises(MuseumDataIndexingError) as captured:
-        await failing_service.import_dataset(
-            _dataset(exhibit_active=False), source_name="banpo-2026"
-        )
+        await failing_service.import_dataset(_dataset(exhibit_active=False), source_name="banpo-2026")
 
-    exhibit = await import_session.get(
-        Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001")
-    )
+    exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     await import_session.refresh(exhibit)
     assert exhibit.is_active is True
     assert captured.value.summary.pending_index == ["exhibit-001"]
@@ -835,9 +814,7 @@ async def test_hall_deactivation_restores_only_hall_with_failed_exhibit_delete(
     failing_indexer = FakeIndexer(fail_delete_ids={failed_exhibit_id})
     inactive_dataset = MuseumDataset(
         halls=[replace(hall, is_active=False) for hall in active_dataset.halls],
-        exhibits=[
-            replace(exhibit, is_active=False) for exhibit in active_dataset.exhibits
-        ],
+        exhibits=[replace(exhibit, is_active=False) for exhibit in active_dataset.exhibits],
     )
 
     with pytest.raises(MuseumDataIndexingError) as captured:

@@ -1,0 +1,10 @@
+source_record_id,slug,name,description,floor,estimated_duration_minutes,display_order,is_active,suggested_questions
+hall-basic-exhibition-hall,basic-exhibition-hall,基本陈列展厅,以半坡遗址考古发现与研究成果为主线，系统呈现半坡文化的生活形态、生产方式与社会结构。,,0,10,true,[]
+hall-site-protection-hall,site-protection-hall,遗址保护大厅,强调原址呈现与保护展示，可观察墓葬、地面圆形房屋、烧制作坊、灶具灶台等关键遗存。,,0,20,true,[]
+hall-kiln-hall,kiln-hall,陶窑展厅,以“陶器如何被制作出来”为核心叙事，解释制坯、装饰、干燥、入窑烧成等生产流程。,,0,30,true,[]
+hall-prehistoric-workshop,prehistoric-workshop,史前工坊,把制陶、材料、手作等史前生活知识转化为可参与的互动学习体验。,,0,40,true,[]
+hall-banpo-girl-sculpture,banpo-girl-sculpture,半坡姑娘雕塑,以“半坡姑娘”为代表形象进行艺术化再现，是观众合影点和半坡人形象记忆入口。,,0,50,true,[]
+hall-education-center,education-center,教研中心,面向青少年和公众教育活动，适合承载研学课程、主题课堂与研究型活动。,,0,60,true,[]
+hall-peony-garden,peony-garden,牡丹园,以牡丹为核心的园林休憩区域，适合在观展间隙停留并体验季节性自然景观。,,0,70,true,[]
+hall-temporary-hall-1,temporary-hall-1,临展厅一,承载阶段性专题展览，主题和展品随当期策展内容变化。,,0,80,true,[]
+hall-temporary-hall-2,temporary-hall-2,临展厅二,与临展厅一共同承担轮换展出，需要按馆方最新展览清单更新内容。,,0,90,true,[]

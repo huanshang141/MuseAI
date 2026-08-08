@@ -7,6 +7,19 @@
 仓库内 `data/museum_template/` 是可直接校验的基线 CSV：包含已确认的九个展厅，
 `exhibits.csv` 只有表头，不含任何演示展品。接入馆方数据时复制该目录并向展品表填入真实记录。
 
+`data/museum_test_data/` 是部署和小程序联调用的显式测试快照。其 46 条记录来自旧演示数据，
+名称统一以 `【测试】` 开头，介绍统一以 `【测试数据，非馆方真实展品信息】` 开头，并分布在九个
+展厅中。它不代表馆方事实，不得改名伪装为正式数据。测试和后续真实快照统一使用稳定来源名
+`banpo-museum-data`；真实完整快照准备好后沿用该来源名并执行 `--authoritative`，导入器会停用
+文件中遗漏的测试记录并重建 RAG。
+
+测试快照校验与导入命令：
+
+```powershell
+uv run python scripts/import_museum_data.py .\data\museum_test_data --source-name banpo-museum-data --dry-run --authoritative
+uv run python scripts/import_museum_data.py .\data\museum_test_data --source-name banpo-museum-data --authoritative
+```
+
 ## halls 表头
 
 ```text

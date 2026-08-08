@@ -1,8 +1,9 @@
-"""Seed prompts, personas, and halls into the database.
+"""Seed prompts and persona-related templates into the database.
 
 Ensures all developers share identical prompt templates, TTS persona configs,
-and hall definitions regardless of environment. Idempotent: skips existing
-records, updates content when it differs.
+and prompt definitions regardless of environment. Museum hall names,
+descriptions, and exhibits are intentionally excluded: those are trusted
+museum data managed through the XLSX/CSV import workflow.
 
 Run:
     uv run python scripts/seed_prompts_and_personas.py
@@ -15,21 +16,17 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1] / "backend"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from sqlalchemy import select
-
-from app.config.settings import get_settings
-from app.infra.postgres.database import get_session, init_database
-from app.infra.postgres.models import Hall
-from app.infra.cache.prompt_cache import PromptCache
-from app.infra.postgres.adapters.prompt import PostgresPromptRepository
-from app.application.prompt_service import PromptService
+from app.application.prompt_service import PromptService  # noqa: E402
+from app.config.settings import get_settings  # noqa: E402
+from app.infra.cache.prompt_cache import PromptCache  # noqa: E402
+from app.infra.postgres.adapters.prompt import PostgresPromptRepository  # noqa: E402
+from app.infra.postgres.database import get_session, init_database  # noqa: E402
 
 # ────────────────────────────────────────────────────────────────
 # Prompt definitions
@@ -55,7 +52,8 @@ PROMPTS: list[dict] = [
             "你可以使用以下工具来帮助参观者：\n\n"
             "1. **path_planning** - 路线规划工具\n"
             "   - 用途：根据参观者的兴趣、可用时间和当前位置规划最优参观路线\n"
-            "   - 输入：interests（兴趣列表）、available_time（可用时间，分钟）、current_location（当前位置）、visited_exhibit_ids（已参观展品ID列表）\n"
+            "   - 输入：interests（兴趣列表）、available_time（可用时间，分钟）、"
+            "current_location（当前位置）、visited_exhibit_ids（已参观展品ID列表）\n"
             "   - 何时使用：当参观者需要路线建议或想要开始参观时\n\n"
             "2. **knowledge_retrieval** - 知识检索工具\n"
             "   - 用途：检索展品的详细知识和背景信息\n"
@@ -63,11 +61,13 @@ PROMPTS: list[dict] = [
             "   - 何时使用：当参观者询问具体展品信息时\n\n"
             "3. **narrative_generation** - 叙事生成工具\n"
             "   - 用途：为展品生成引人入胜的叙事内容\n"
-            "   - 输入：exhibit_name（展品名称）、exhibit_info（展品信息）、knowledge_level（知识水平）、narrative_preference（叙事偏好）\n"
+            "   - 输入：exhibit_name（展品名称）、exhibit_info（展品信息）、"
+            "knowledge_level（知识水平）、narrative_preference（叙事偏好）\n"
             "   - 何时使用：当需要为展品创建讲解内容时\n\n"
             "4. **reflection_prompts** - 反思提示工具\n"
             "   - 用途：生成引发深度思考的问题\n"
-            "   - 输入：knowledge_level（知识水平）、reflection_depth（问题数量）、category（可选，展品类别）、exhibit_name（可选，展品名称）\n"
+            "   - 输入：knowledge_level（知识水平）、reflection_depth（问题数量）、"
+            "category（可选，展品类别）、exhibit_name（可选，展品名称）\n"
             "   - 何时使用：在介绍完展品后，想要引导参观者深入思考时\n\n"
             "5. **preference_management** - 偏好管理工具\n"
             "   - 用途：获取或更新参观者的个人偏好设置\n"
@@ -307,7 +307,10 @@ PROMPTS: list[dict] = [
         "name": "Narrative Level - Beginner",
         "category": "narrative",
         "description": "入门级叙事指导（英文）",
-        "content": "Use simple language and avoid technical jargon. Focus on interesting stories and relatable concepts.",
+        "content": (
+            "Use simple language and avoid technical jargon. "
+            "Focus on interesting stories and relatable concepts."
+        ),
     },
     {
         "key": "narrative_level_intermediate",
@@ -321,7 +324,10 @@ PROMPTS: list[dict] = [
         "name": "Narrative Level - Expert",
         "category": "narrative",
         "description": "专家级叙事指导（英文）",
-        "content": "Use professional terminology and academic language. Include detailed analysis and scholarly context.",
+        "content": (
+            "Use professional terminology and academic language. "
+            "Include detailed analysis and scholarly context."
+        ),
     },
     {
         "key": "narrative_style_storytelling_en",
@@ -360,7 +366,10 @@ PROMPTS: list[dict] = [
         "description": "考古研究员语音人设：统一使用冰糖声线，明亮清晰、自然偏快，突出证据与推理边界。",
         "variables": [
             {"name": "__voice__", "description": "冰糖"},
-            {"name": "__voice_description__", "description": "年轻女性声线，明亮清澈，亲切自然，适合清晰、有证据感的博物馆讲解"},
+            {
+                "name": "__voice_description__",
+                "description": "年轻女性声线，明亮清澈，亲切自然，适合清晰、有证据感的博物馆讲解",
+            },
         ],
         "content": (
             "【角色】考古研究员，以年轻女性声线进行清晰、亲切、带有证据感的讲解。"
@@ -437,23 +446,6 @@ PROMPTS: list[dict] = [
 
 
 # ────────────────────────────────────────────────────────────────
-# Hall definitions (derived from 展厅信息.docx)
-# ────────────────────────────────────────────────────────────────
-
-HALLS: list[dict] = [
-    {"slug": "basic-exhibition-hall", "name": "基本陈列展厅", "description": "以半坡遗址考古发现与研究成果为主线，系统呈现半坡文化的生活形态、生产方式与社会结构。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 10},
-    {"slug": "site-protection-hall", "name": "遗址保护大厅", "description": "强调原址呈现与保护展示，可观察墓葬、地面圆形房屋、烧制作坊、灶具灶台等关键遗存。", "floor": 1, "estimated_duration_minutes": 25, "display_order": 20},
-    {"slug": "kiln-hall", "name": "陶窑展厅", "description": "以“陶器如何被制作出来”为核心叙事，解释制坯、装饰、干燥、入窑烧成等生产流程。", "floor": 1, "estimated_duration_minutes": 18, "display_order": 30},
-    {"slug": "prehistoric-workshop", "name": "史前工坊", "description": "把制陶、材料、手作等史前生活知识转化为可参与的互动学习体验。", "floor": 2, "estimated_duration_minutes": 20, "display_order": 40},
-    {"slug": "banpo-girl-sculpture", "name": "半坡姑娘雕塑", "description": "以“半坡姑娘”为代表形象进行艺术化再现，是观众合影点和半坡人形象记忆入口。", "floor": 1, "estimated_duration_minutes": 8, "display_order": 50},
-    {"slug": "education-center", "name": "教研中心", "description": "面向青少年和公众教育活动，适合承载研学课程、主题课堂与研究型活动。", "floor": 2, "estimated_duration_minutes": 18, "display_order": 60},
-    {"slug": "peony-garden", "name": "牡丹园", "description": "以牡丹为核心的园林休憩区域，适合在观展间隙停留并体验季节性自然景观。", "floor": 3, "estimated_duration_minutes": 10, "display_order": 70},
-    {"slug": "temporary-hall-1", "name": "临展厅一", "description": "承载阶段性专题展览，主题和展品随当期策展内容变化。", "floor": 3, "estimated_duration_minutes": 15, "display_order": 90},
-    {"slug": "temporary-hall-2", "name": "临展厅二", "description": "与临展厅一共同承担轮换展出，需要按馆方最新展览清单更新内容。", "floor": 3, "estimated_duration_minutes": 15, "display_order": 100},
-]
-
-
-# ────────────────────────────────────────────────────────────────
 # Seed logic
 # ────────────────────────────────────────────────────────────────
 
@@ -506,38 +498,6 @@ async def seed_prompts(service: PromptService) -> tuple[int, int, int]:
     return created, updated, skipped
 
 
-async def seed_halls(session) -> tuple[int, int]:
-    """Seed hall definitions. Returns (created, skipped)."""
-    created = skipped = 0
-    now = datetime.now(UTC)
-
-    for h in HALLS:
-        result = await session.execute(select(Hall).where(Hall.slug == h["slug"]))
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            print(f"  [skip]    {h['slug']} ({h['name']})")
-            skipped += 1
-        else:
-            hall = Hall(
-                slug=h["slug"],
-                name=h["name"],
-                description=h["description"],
-                floor=h["floor"],
-                estimated_duration_minutes=h["estimated_duration_minutes"],
-                display_order=h["display_order"],
-                is_active=True,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(hall)
-            print(f"  [created] {h['slug']} ({h['name']})")
-            created += 1
-
-    await session.commit()
-    return created, skipped
-
-
 # ────────────────────────────────────────────────────────────────
 # Main
 # ────────────────────────────────────────────────────────────────
@@ -545,9 +505,14 @@ async def seed_halls(session) -> tuple[int, int]:
 async def main() -> None:
     settings = get_settings()
     print("=" * 60)
-    print("Seeding prompts, personas, and halls")
+    print("Seeding prompts and personas")
     print("=" * 60)
-    print(f"Database: {settings.DATABASE_URL.split('@')[-1] if '@' in settings.DATABASE_URL else settings.DATABASE_URL}")
+    database_target = (
+        settings.DATABASE_URL.split("@")[-1]
+        if "@" in settings.DATABASE_URL
+        else settings.DATABASE_URL
+    )
+    print(f"Database: {database_target}")
     print()
 
     session_maker = await init_database(settings.DATABASE_URL)
@@ -562,19 +527,11 @@ async def main() -> None:
         p_created, p_updated, p_skipped = await seed_prompts(service)
     print()
 
-    # ── Halls ───────────────────────────────────────────────────
-    print("Halls:")
-    print("-" * 60)
-    async with get_session(session_maker) as session:
-        h_created, h_skipped = await seed_halls(session)
-    print()
-
     # ── Summary ─────────────────────────────────────────────────
     print("=" * 60)
     print("Summary")
     print("=" * 60)
     print(f"  Prompts: {p_created} created, {p_updated} updated, {p_skipped} skipped")
-    print(f"  Halls:   {h_created} created, {h_skipped} skipped")
     print()
 
 

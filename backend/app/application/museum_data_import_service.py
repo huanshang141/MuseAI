@@ -339,7 +339,7 @@ def _parse_hall(raw: dict[str, Any]) -> HallImportRow:
         description=_required_text(raw, "description", 20_000),
         floor=_optional_int(raw, "floor", minimum=-10, maximum=200),
         estimated_duration_minutes=_required_int(
-            raw, "estimated_duration_minutes", minimum=1, maximum=480
+            raw, "estimated_duration_minutes", minimum=0, maximum=480
         ),
         display_order=_required_int(raw, "display_order", minimum=0, maximum=1_000_000),
         is_active=_required_bool(raw, "is_active"),

@@ -16,7 +16,12 @@ from app.api.deps import (
 from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
 )
-from app.application.hall_normalizer import CANONICAL_HALL_ORDER
+from app.api.tour import _resolve_chat_hall_context
+from app.application.hall_normalizer import (
+    CANONICAL_HALL_ORDER,
+    hall_display_name,
+    temporary_hall_description,
+)
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import generate_report
 from app.infra.postgres.database import get_session, get_session_maker
@@ -43,6 +48,37 @@ def _sse_payloads(response) -> list[dict]:
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]
+
+
+def _trusted_test_halls() -> list[Hall]:
+    return [
+        Hall(
+            slug=slug,
+            name=hall_display_name(slug),
+            description=f"{hall_display_name(slug)}的测试可信简介",
+            estimated_duration_minutes=15,
+            display_order=(index + 1) * 10,
+            is_active=True,
+        )
+        for index, slug in enumerate(CANONICAL_HALL_ORDER)
+    ]
+
+
+async def _seed_trusted_test_halls(session, *slugs: str) -> None:
+    """Make content authority explicit for tests that write hall-scoped state."""
+    requested = list(slugs or CANONICAL_HALL_ORDER)
+    existing = set(
+        (
+            await session.execute(
+                select(Hall.slug).where(Hall.slug.in_(requested))
+            )
+        ).scalars()
+    )
+    by_slug = {hall.slug: hall for hall in _trusted_test_halls()}
+    session.add_all(
+        [by_slug[slug] for slug in requested if slug not in existing]
+    )
+    await session.commit()
 
 
 @pytest.fixture
@@ -606,7 +642,7 @@ async def test_session_patch_enforces_history_and_body_limits(override_dependenc
                 "hall_chat_history": {
                     "basic-exhibition-hall": [
                         {"role": "user", "content": f"问题{index}"}
-                        for index in range(21)
+                        for index in range(31)
                     ]
                 }
             },
@@ -637,7 +673,7 @@ async def test_session_patch_enforces_history_and_body_limits(override_dependenc
                     "role": "user" if index % 2 == 0 else "assistant",
                     "content": "展" * 1000,
                 }
-                for index in range(20)
+                for index in range(30)
             ]
             for hall in CANONICAL_HALL_ORDER
         }
@@ -661,19 +697,27 @@ async def test_session_patch_enforces_history_and_body_limits(override_dependenc
 
 
 @pytest.mark.asyncio
-async def test_session_history_accepts_inactive_hall_slug_but_current_hall_stays_strict(
+async def test_session_history_and_current_hall_reject_noncanonical_slug(
     override_dependencies,
     db_session,
 ):
-    db_session.add(
-        Hall(
+    db_session.add_all(
+        [
+            Hall(
             slug="retired-real-hall",
             name="已停用真实展厅",
             description="历史记录仍需恢复",
             estimated_duration_minutes=20,
             display_order=1,
-            is_active=False,
-        )
+                is_active=True,
+            ),
+            Exhibit(
+                id="retired-real-exhibit",
+                name="旧配置展品",
+                hall="retired-real-hall",
+                is_active=True,
+            ),
+        ]
     )
     await db_session.commit()
 
@@ -704,14 +748,19 @@ async def test_session_history_accepts_inactive_hall_slug_but_current_hall_stays
             headers=headers,
             json={"current_hall": "retired-real-hall"},
         )
+        current_exhibit_response = await client.patch(
+            url,
+            headers=headers,
+            json={"current_exhibit_id": "retired-real-exhibit"},
+        )
 
-    assert history_response.status_code == 200
-    assert history_response.json()["hall_chat_history"]["retired-real-hall"] == [
-        {"role": "user", "content": "保留旧展厅问题"},
-        {"role": "assistant", "content": "保留旧展厅回答"},
-    ]
+    assert history_response.status_code == 422
     assert current_hall_response.status_code == 422
     assert current_hall_response.json()["detail"] == "Unknown current_hall"
+    assert current_exhibit_response.status_code == 422
+    assert current_exhibit_response.json()["detail"] == (
+        "current_exhibit_id is outside an active tour hall"
+    )
 
 
 @pytest.mark.asyncio
@@ -827,7 +876,8 @@ async def test_patch_tour_session_rejects_persona_change(override_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_patch_tour_session(override_dependencies):
+async def test_patch_tour_session(override_dependencies, db_session):
+    await _seed_trusted_test_halls(db_session, "basic-exhibition-hall")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post(
@@ -976,6 +1026,7 @@ async def test_patch_tour_session_not_found(override_dependencies):
 
 @pytest.mark.asyncio
 async def test_record_tour_events(override_dependencies, db_session):
+    await _seed_trusted_test_halls(db_session, "basic-exhibition-hall")
     db_session.add(
         Exhibit(
             id="exhibit-1",
@@ -1033,16 +1084,16 @@ async def test_record_tour_events_rejects_untrusted_event_context(
     db_session.add_all(
         [
             Hall(
-                slug="event-hall-a",
-                name="事件展厅甲",
+                slug="basic-exhibition-hall",
+                name="基本陈列展厅",
                 description="甲厅",
                 estimated_duration_minutes=20,
                 display_order=1,
                 is_active=True,
             ),
             Hall(
-                slug="event-hall-b",
-                name="事件展厅乙",
+                slug="site-protection-hall",
+                name="遗址保护大厅",
                 description="乙厅",
                 estimated_duration_minutes=20,
                 display_order=2,
@@ -1051,7 +1102,21 @@ async def test_record_tour_events_rejects_untrusted_event_context(
             Exhibit(
                 id="event-exhibit-a",
                 name="事件展品甲",
-                hall="event-hall-a",
+                hall="basic-exhibition-hall",
+                is_active=True,
+            ),
+            Hall(
+                slug="legacy-event-hall",
+                name="旧事件展厅",
+                description="不应进入小程序",
+                estimated_duration_minutes=20,
+                display_order=3,
+                is_active=True,
+            ),
+            Exhibit(
+                id="legacy-event-exhibit",
+                name="旧事件展品",
+                hall="legacy-event-hall",
                 is_active=True,
             ),
         ]
@@ -1080,7 +1145,7 @@ async def test_record_tour_events_rejects_untrusted_event_context(
                 "events": [
                     {
                         "event_type": "exhibit_view",
-                        "hall": "event-hall-a",
+                        "hall": "basic-exhibition-hall",
                         "exhibit_id": "unknown-exhibit",
                     }
                 ]
@@ -1093,7 +1158,7 @@ async def test_record_tour_events_rejects_untrusted_event_context(
                 "events": [
                     {
                         "event_type": "exhibit_view",
-                        "hall": "event-hall-b",
+                        "hall": "site-protection-hall",
                         "exhibit_id": "event-exhibit-a",
                     }
                 ]
@@ -1106,8 +1171,20 @@ async def test_record_tour_events_rejects_untrusted_event_context(
                 "events": [
                     {
                         "event_type": "exhibit_question",
-                        "hall": "event-hall-a",
+                        "hall": "basic-exhibition-hall",
                         "metadata": {"message": "x" * 2001},
+                    }
+                ]
+            },
+        )
+        legacy_exhibit_without_hall = await client.post(
+            url,
+            headers=headers,
+            json={
+                "events": [
+                    {
+                        "event_type": "exhibit_view",
+                        "exhibit_id": "legacy-event-exhibit",
                     }
                 ]
             },
@@ -1117,10 +1194,12 @@ async def test_record_tour_events_rejects_untrusted_event_context(
     assert unknown_exhibit.status_code == 422
     assert cross_hall.status_code == 422
     assert oversized_metadata.status_code == 422
+    assert legacy_exhibit_without_hall.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_list_tour_events(override_dependencies):
+async def test_list_tour_events(override_dependencies, db_session):
+    await _seed_trusted_test_halls(db_session, "basic-exhibition-hall")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post(
@@ -1163,7 +1242,9 @@ async def test_list_tour_events(override_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_complete_hall(override_dependencies):
+async def test_complete_hall(override_dependencies, db_session):
+    db_session.add_all(_trusted_test_halls())
+    await db_session.commit()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post(
@@ -1198,7 +1279,9 @@ async def test_complete_hall(override_dependencies):
 
 
 @pytest.mark.asyncio
-async def test_complete_hall_all_visited(override_dependencies):
+async def test_complete_hall_all_visited(override_dependencies, db_session):
+    db_session.add_all(_trusted_test_halls())
+    await db_session.commit()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_resp = await client.post(
@@ -1214,19 +1297,8 @@ async def test_complete_hall_all_visited(override_dependencies):
         session_id = created["id"]
         token = created["session_token"]
 
-        # "All halls visited" is computed against the full canonical contract,
-        # so completion only flips to True once every canonical hall is visited.
-        canonical_halls = [
-            "basic-exhibition-hall",
-            "site-protection-hall",
-            "kiln-hall",
-            "prehistoric-workshop",
-            "banpo-girl-sculpture",
-            "education-center",
-            "peony-garden",
-            "temporary-hall-1",
-            "temporary-hall-2",
-        ]
+        # Completion is computed against the active, trusted database catalog.
+        canonical_halls = CANONICAL_HALL_ORDER
 
         complete_resp = None
         for index, hall in enumerate(canonical_halls):
@@ -1374,8 +1446,8 @@ async def test_generate_tour_report_counts_halls_with_user_message_or_exhibit_vi
             ),
             Hall(
                 slug="prehistoric-workshop",
-                name="史前工场",
-                description="史前工场",
+                name="史前工坊",
+                description="史前工坊",
                 estimated_duration_minutes=30,
                 display_order=2,
                 is_active=True,
@@ -1473,6 +1545,7 @@ async def test_generate_tour_report_summarizes_structured_real_qa(
     override_dependencies,
     db_session,
 ):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
     mock_llm = AsyncMock()
     expected_summary = (
         "本次对话围绕陶器烧制与窑炉结构展开，记录表明制坯后需要入窑并控制火候，"
@@ -1568,7 +1641,11 @@ async def test_generate_tour_report_summarizes_structured_real_qa(
 
 
 @pytest.mark.asyncio
-async def test_generate_tour_report_refreshes_record_summary_when_questions_change(override_dependencies):
+async def test_generate_tour_report_refreshes_record_summary_when_questions_change(
+    override_dependencies,
+    db_session,
+):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(
         side_effect=[
@@ -1697,6 +1774,7 @@ async def test_report_refreshes_legacy_transcript_with_same_source_hash(
     override_dependencies,
     db_session,
 ):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
     mock_llm = AsyncMock()
     mock_llm.generate = AsyncMock(return_value="首次归纳摘要。")
     app.dependency_overrides[original_get_llm_provider] = lambda: mock_llm
@@ -1782,8 +1860,8 @@ async def test_report_fingerprint_refreshes_same_count_content_and_hall_name(
     db_session,
 ):
     hall = Hall(
-        slug="summary-hash-hall",
-        name="摘要原展厅",
+        slug="kiln-hall",
+        name="陶窑展厅",
         description="用于摘要指纹测试",
         estimated_duration_minutes=10,
         is_active=True,
@@ -1900,6 +1978,7 @@ async def test_report_does_not_overwrite_newer_source_while_llm_is_in_flight(
     db_session,
     session_maker,
 ):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
     outer_llm = SimpleNamespace(
         generate=AsyncMock(return_value="初始P1摘要。"),
         supports_model_override=False,
@@ -1986,6 +2065,7 @@ async def test_report_does_not_overwrite_newer_source_while_llm_is_in_flight(
                     newer_report = await generate_report(
                         concurrent_session,
                         session_id,
+                        hall_name_map={"kiln-hall": "陶窑展厅"},
                         llm_provider=newer_llm,
                     )
                     assert newer_report.record_summary == "并发提交的最新P3摘要。"
@@ -2021,8 +2101,10 @@ async def test_report_does_not_overwrite_newer_source_while_llm_is_in_flight(
 @pytest.mark.parametrize("llm_shape", ["list", "title", "error"])
 async def test_report_summary_rejected_or_failed_llm_uses_merged_fallback(
     override_dependencies,
+    db_session,
     llm_shape,
 ):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
     mock_llm = AsyncMock()
     if llm_shape == "list":
         mock_llm.generate = AsyncMock(return_value="- 主题：陶器\n- 结论：凭空内容")
@@ -2117,19 +2199,31 @@ async def test_get_tour_report_not_found(override_dependencies):
 async def test_list_tour_halls(override_dependencies, admin_token):
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Once real database halls exist, they are the source of truth.
+        # Canonical identity is fixed, while display copy comes from the DB.
         create_hall_resp = await client.post(
             "/api/v1/admin/halls",
             headers={"Authorization": f"Bearer {admin_token}"},
             json={
-                "slug": "future-real-hall-list",
-                "name": "馆方真实中文展厅名",
+                "slug": "basic-exhibition-hall",
+                "name": "基本陈列展厅",
                 "description": "导览展厅数据应来自统一展厅配置",
                 "estimated_duration_minutes": 40,
                 "is_active": True,
             },
         )
         assert create_hall_resp.status_code == 201
+        old_hall_resp = await client.post(
+            "/api/v1/admin/halls",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "slug": "future-real-hall-list",
+                "name": "应被小程序排除的旧配置",
+                "description": "非九展厅数据不得进入小程序",
+                "estimated_duration_minutes": 40,
+                "is_active": True,
+            },
+        )
+        assert old_hall_resp.status_code == 201
 
         response = await client.get("/api/v1/tour/halls")
 
@@ -2137,13 +2231,13 @@ async def test_list_tour_halls(override_dependencies, admin_token):
     data = response.json()
     assert "halls" in data
     halls_by_slug = {item["slug"]: item for item in data["halls"]}
-    assert "future-real-hall-list" in halls_by_slug
-    assert set(halls_by_slug) == {"future-real-hall-list"}
-    assert halls_by_slug["future-real-hall-list"]["name"] == "馆方真实中文展厅名"
-    assert halls_by_slug["future-real-hall-list"]["description"] == "导览展厅数据应来自统一展厅配置"
-    assert halls_by_slug["future-real-hall-list"]["estimated_duration_minutes"] == 40
-    assert halls_by_slug["future-real-hall-list"]["highlights"] == []
-    assert halls_by_slug["future-real-hall-list"]["focus"] == "导览展厅数据应来自统一展厅配置"
+    assert set(halls_by_slug) == {"basic-exhibition-hall"}
+    hall = halls_by_slug["basic-exhibition-hall"]
+    assert hall["name"] == "基本陈列展厅"
+    assert hall["description"] == "导览展厅数据应来自统一展厅配置"
+    assert hall["estimated_duration_minutes"] == 40
+    assert hall["highlights"] == []
+    assert hall["focus"] == "导览展厅数据应来自统一展厅配置"
 
 
 @pytest.mark.asyncio
@@ -2153,16 +2247,16 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
     db_session.add_all(
         [
             Hall(
-                slug="real-highlight-hall",
-                name="真实亮点展厅",
+                slug="basic-exhibition-hall",
+                name="基本陈列展厅",
                 description="馆方真实展厅简介",
                 estimated_duration_minutes=30,
                 display_order=1,
                 is_active=True,
             ),
             Hall(
-                slug="empty-real-hall",
-                name="真实空展厅",
+                slug="site-protection-hall",
+                name="遗址保护大厅",
                 description="暂未导入展品",
                 estimated_duration_minutes=20,
                 display_order=2,
@@ -2172,7 +2266,7 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
                 id="highlight-order-2",
                 name="第三件展品",
                 description="馆方真实展品",
-                hall="real-highlight-hall",
+                hall="basic-exhibition-hall",
                 display_order=2,
                 importance=100,
                 is_active=True,
@@ -2181,7 +2275,7 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
                 id="highlight-order-1-low",
                 name="第二件展品",
                 description="馆方真实展品",
-                hall="real-highlight-hall",
+                hall="basic-exhibition-hall",
                 display_order=1,
                 importance=10,
                 is_active=True,
@@ -2190,7 +2284,7 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
                 id="highlight-order-1-high",
                 name="第一件展品",
                 description="馆方真实展品",
-                hall="real-highlight-hall",
+                hall="basic-exhibition-hall",
                 display_order=1,
                 importance=90,
                 is_active=True,
@@ -2199,7 +2293,7 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
                 id="highlight-order-null",
                 name="第四件展品",
                 description="馆方真实展品",
-                hall="real-highlight-hall",
+                hall="basic-exhibition-hall",
                 display_order=None,
                 importance=100,
                 is_active=True,
@@ -2208,7 +2302,7 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
                 id="highlight-inactive",
                 name="停用展品不得出现",
                 description="馆方已停用",
-                hall="real-highlight-hall",
+                hall="basic-exhibition-hall",
                 display_order=0,
                 importance=100,
                 is_active=False,
@@ -2223,14 +2317,14 @@ async def test_tour_halls_expose_stable_real_exhibit_highlights(
 
     assert response.status_code == 200
     halls_by_slug = {item["slug"]: item for item in response.json()["halls"]}
-    assert halls_by_slug["real-highlight-hall"]["exhibit_count"] == 4
-    assert halls_by_slug["real-highlight-hall"]["highlights"] == [
+    assert halls_by_slug["basic-exhibition-hall"]["exhibit_count"] == 4
+    assert halls_by_slug["basic-exhibition-hall"]["highlights"] == [
         "第一件展品",
         "第二件展品",
         "第三件展品",
     ]
-    assert halls_by_slug["real-highlight-hall"]["focus"] == "馆方真实展厅简介"
-    assert halls_by_slug["empty-real-hall"]["highlights"] == []
+    assert halls_by_slug["basic-exhibition-hall"]["focus"] == "馆方真实展厅简介"
+    assert halls_by_slug["site-protection-hall"]["highlights"] == []
 
 
 @pytest.mark.asyncio
@@ -2239,8 +2333,8 @@ async def test_tour_halls_do_not_restore_defaults_when_all_database_halls_inacti
 ):
     db_session.add(
         Hall(
-            slug="intentionally-disabled-hall",
-            name="已停用展厅",
+            slug="basic-exhibition-hall",
+            name="基本陈列展厅",
             description="馆方明确停用",
             estimated_duration_minutes=20,
             display_order=1,
@@ -2261,16 +2355,34 @@ async def test_tour_halls_do_not_restore_defaults_when_all_database_halls_inacti
 async def test_tour_suggestions_prefer_imported_hall_data(
     override_dependencies, db_session
 ):
-    db_session.add(
-        Hall(
-            slug="future-real-hall",
-            name="真实数据展厅",
+    db_session.add_all(
+        [
+            Hall(
+            slug="education-center",
+            name="教研中心",
             description="馆方导入的可信介绍",
             estimated_duration_minutes=25,
             display_order=1,
             is_active=True,
             suggested_questions=["这座展厅最值得先观察什么？"],
-        )
+            ),
+            Hall(
+                slug="legacy-suggestion-hall",
+                name="旧建议展厅",
+                description="不应进入小程序",
+                estimated_duration_minutes=25,
+                display_order=2,
+                is_active=True,
+                suggested_questions=["不应泄漏的旧展厅建议"],
+            ),
+            Exhibit(
+                id="legacy-suggestion-exhibit",
+                name="旧建议展品",
+                hall="legacy-suggestion-hall",
+                is_active=True,
+                suggested_questions=["不应泄漏的旧展品建议"],
+            ),
+        ]
     )
     await db_session.commit()
 
@@ -2284,13 +2396,196 @@ async def test_tour_suggestions_prefer_imported_hall_data(
         ).json()
         response = await client.get(
             f"/api/v1/tour/sessions/{created['id']}/suggestions",
-            params={"hall_id": "future-real-hall"},
+            params={"hall_id": "education-center"},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+        legacy_hall_response = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}/suggestions",
+            params={"hall_id": "legacy-suggestion-hall"},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+        legacy_exhibit_response = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}/suggestions",
+            params={"exhibit_id": "legacy-suggestion-exhibit"},
             headers={"X-Session-Token": created["session_token"]},
         )
 
     assert response.status_code == 200
     assert response.json()["source"] == "hall"
     assert response.json()["suggestions"] == ["这座展厅最值得先观察什么？"]
+    assert legacy_hall_response.status_code == 422
+    assert legacy_exhibit_response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_temporary_halls_derive_public_copy_and_chat_context_from_active_exhibits(
+    override_dependencies,
+    db_session,
+):
+    db_session.add_all(
+        [
+            Hall(
+                slug="temporary-hall-1",
+                name="临展厅一",
+                description="临展厅一的馆方可信简介。",
+                estimated_duration_minutes=15,
+                display_order=90,
+                is_active=True,
+            ),
+            Hall(
+                slug="temporary-hall-2",
+                name="临展厅二",
+                description="临展厅二的馆方可信简介。",
+                estimated_duration_minutes=15,
+                display_order=100,
+                is_active=True,
+            ),
+        ]
+    )
+    active_a = Exhibit(
+        id="temporary-active-a",
+        name="临展甲一号展品",
+        description="甲厅当前展品的可信简介",
+        hall="temporary-hall-1",
+        category="专题甲",
+        era="当期",
+        importance=10,
+        display_order=1,
+        is_active=True,
+    )
+    active_b = Exhibit(
+        id="temporary-active-b",
+        name="临展甲二号展品",
+        description="甲厅另一件当前展品",
+        hall="temporary-hall-1",
+        category="专题甲",
+        importance=8,
+        display_order=2,
+        is_active=True,
+    )
+    inactive = Exhibit(
+        id="temporary-inactive",
+        name="临展甲已撤展展品",
+        description="停用内容不得继续出现",
+        hall="temporary-hall-1",
+        importance=100,
+        display_order=0,
+        is_active=False,
+    )
+    other_hall = Exhibit(
+        id="temporary-other-hall",
+        name="临展乙当前展品",
+        description="只属于临展厅二",
+        hall="temporary-hall-2",
+        importance=9,
+        display_order=1,
+        is_active=True,
+    )
+    db_session.add_all([active_a, active_b, inactive, other_hall])
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first_response = await client.get("/api/v1/tour/halls")
+
+    assert first_response.status_code == 200
+    halls = {item["slug"]: item for item in first_response.json()["halls"]}
+    temp_one = halls["temporary-hall-1"]
+    temp_two = halls["temporary-hall-2"]
+    assert temp_one["description"].startswith("临展厅一的馆方可信简介。")
+    assert temp_two["description"].startswith("临展厅二的馆方可信简介。")
+    assert temp_one["exhibit_count"] == 2
+    assert temp_one["highlights"] == ["临展甲一号展品", "临展甲二号展品"]
+    assert "临展甲一号展品" in temp_one["description"]
+    assert "临展乙当前展品" not in temp_one["description"]
+    assert "临展甲已撤展展品" not in temp_one["description"]
+    assert temp_two["exhibit_count"] == 1
+    assert "临展乙当前展品" in temp_two["description"]
+    assert "临展甲一号展品" not in temp_two["description"]
+
+    hall_context = await _resolve_chat_hall_context(db_session, "temporary-hall-1")
+    assert hall_context is not None
+    assert "临展厅一的馆方可信简介。" in hall_context
+    assert "临展甲一号展品" in hall_context
+    assert "甲厅当前展品的可信简介" in hall_context
+    assert "临展乙当前展品" not in hall_context
+    assert "临展甲已撤展展品" not in hall_context
+
+    await db_session.delete(active_a)
+    await db_session.delete(active_b)
+    await db_session.commit()
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        after_delete_response = await client.get("/api/v1/tour/halls")
+
+    after_delete = {
+        item["slug"]: item for item in after_delete_response.json()["halls"]
+    }["temporary-hall-1"]
+    assert after_delete["exhibit_count"] == 0
+    assert after_delete["highlights"] == []
+    expected_empty = temporary_hall_description("临展厅一的馆方可信简介。")
+    assert after_delete["description"] == expected_empty
+    assert after_delete["focus"] == expected_empty[:120]
+
+
+@pytest.mark.asyncio
+async def test_temporary_hall_suggestions_follow_active_exhibit_upload_and_delete(
+    override_dependencies,
+    db_session,
+):
+    await _seed_trusted_test_halls(db_session, "temporary-hall-1")
+    suggested = Exhibit(
+        id="temporary-suggestion-active",
+        name="临展问题展品",
+        description="可信简介",
+        hall="temporary-hall-1",
+        importance=10,
+        display_order=1,
+        is_active=True,
+        suggested_questions=["这件临展展品最值得观察什么？"],
+    )
+    inactive = Exhibit(
+        id="temporary-suggestion-inactive",
+        name="已撤展问题展品",
+        description="停用简介",
+        hall="temporary-hall-1",
+        importance=20,
+        display_order=0,
+        is_active=False,
+        suggested_questions=["这条停用建议不应出现"],
+    )
+    db_session.add_all([suggested, inactive])
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={"interest_type": "D", "persona": "D", "assumption": "D"},
+            )
+        ).json()
+        response = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}/suggestions",
+            params={"hall_id": "temporary-hall-1"},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["source"] == "exhibit"
+    assert response.json()["suggestions"] == ["这件临展展品最值得观察什么？"]
+
+    await db_session.delete(suggested)
+    await db_session.commit()
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        after_delete_response = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}/suggestions",
+            params={"hall_id": "temporary-hall-1"},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+
+    assert after_delete_response.status_code == 200
+    assert after_delete_response.json()["source"] == "deterministic"
+    assert "这条停用建议不应出现" not in after_delete_response.json()["suggestions"]
 
 
 @pytest.mark.asyncio
@@ -2377,6 +2672,323 @@ async def test_tour_chat_stream(override_dependencies):
 
 
 @pytest.mark.asyncio
+async def test_tour_chat_releases_request_transaction_before_streaming(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    seen = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        seen.append(
+            {
+                "request_transaction_open": db_session.in_transaction(),
+                "db_session": kwargs["db_session"],
+                "tour_session": kwargs["tour_session"],
+            }
+        )
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "A",
+                        "persona": "A",
+                        "assumption": "A",
+                        "guest_id": "guest-chat-transaction",
+                    },
+                )
+            ).json()
+            response = await client.post(
+                f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                json={"message": "这里是什么？"},
+                headers={"X-Session-Token": created["session_token"]},
+            )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert response.status_code == 200
+    assert len(seen) == 1
+    assert seen[0]["request_transaction_open"] is False
+    assert seen[0]["db_session"] is None
+    assert seen[0]["tour_session"].id.value == created["id"]
+
+
+@pytest.mark.asyncio
+async def test_chat_without_hall_rejects_legacy_or_inactive_session_hall(
+    override_dependencies,
+    db_session,
+):
+    db_session.add_all(
+        [
+            Hall(
+                slug="legacy-chat-hall",
+                name="旧聊天展厅",
+                description="不应进入小程序",
+                is_active=True,
+            ),
+            Hall(
+                slug="site-protection-hall",
+                name="遗址保护大厅",
+                description="当前停用",
+                is_active=False,
+            ),
+        ]
+    )
+    await db_session.commit()
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    responses = []
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            for index, hall_slug in enumerate(
+                ("legacy-chat-hall", "site-protection-hall")
+            ):
+                created = (
+                    await client.post(
+                        "/api/v1/tour/sessions",
+                        json={
+                            "interest_type": "A",
+                            "persona": "A",
+                            "assumption": "A",
+                            "guest_id": f"guest-invalid-chat-hall-{index}",
+                        },
+                    )
+                ).json()
+                model = await db_session.get(TourSessionModel, created["id"])
+                model.current_hall = hall_slug
+                await db_session.commit()
+                responses.append(
+                    await client.post(
+                        f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                        headers={"X-Session-Token": created["session_token"]},
+                        json={"message": "这里是什么？"},
+                    )
+                )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert [response.status_code for response in responses] == [422, 422]
+    assert all(response.json()["detail"] == "Unknown hall_id" for response in responses)
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_active_exhibit_without_trusted_hall(
+    override_dependencies,
+    db_session,
+):
+    await _seed_trusted_test_halls(db_session, "basic-exhibition-hall")
+    db_session.add_all(
+        [
+            Exhibit(
+                id="chat-orphan-exhibit",
+                name="未绑定展厅展品",
+                hall=None,
+                is_active=True,
+            ),
+            Exhibit(
+                id="chat-legacy-exhibit",
+                name="旧展厅展品",
+                hall="legacy-chat-hall",
+                is_active=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    responses = []
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={"interest_type": "A", "persona": "A", "assumption": "A"},
+                )
+            ).json()
+            for exhibit_id in ("chat-orphan-exhibit", "chat-legacy-exhibit"):
+                responses.append(
+                    await client.post(
+                        f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                        headers={"X-Session-Token": created["session_token"]},
+                        json={
+                            "message": "介绍这个展品",
+                            "hall_id": "basic-exhibition-hall",
+                            "exhibit_id": exhibit_id,
+                        },
+                    )
+                )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert [response.status_code for response in responses] == [422, 422]
+    assert all(response.json()["detail"] == "Unknown exhibit_id" for response in responses)
+
+
+@pytest.mark.asyncio
+async def test_restored_chat_uses_only_current_hall_thirty_message_window(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    hall_a = "basic-exhibition-hall"
+    hall_b = "site-protection-hall"
+    await _seed_trusted_test_halls(db_session, hall_a, hall_b)
+
+    history_a = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"A厅消息{index}",
+        }
+        for index in range(30)
+    ]
+    history_b = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"B厅消息{index}",
+        }
+        for index in range(30)
+    ]
+    captured_history = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        captured_history.extend(kwargs["conversation_history"] or [])
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "A",
+                        "persona": "A",
+                        "assumption": "A",
+                        "guest_id": "guest-hall-history-restore",
+                    },
+                )
+            ).json()
+            headers = {"X-Session-Token": created["session_token"]}
+            restored = await client.patch(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+                json={
+                    "current_hall": hall_b,
+                    "status": "touring",
+                    "hall_chat_history": {
+                        hall_a: history_a,
+                        hall_b: history_b,
+                    },
+                },
+            )
+            response = await client.post(
+                f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                headers=headers,
+                json={
+                    "message": "它呢？",
+                    "conversation_history": history_a,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert restored.status_code == 200
+    assert response.status_code == 200
+    assert captured_history == history_b
+    assert all("A厅" not in item["content"] for item in captured_history)
+
+
+@pytest.mark.asyncio
+async def test_hall_switch_drops_unkeyed_client_history_from_previous_hall(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    hall_a = "basic-exhibition-hall"
+    hall_b = "site-protection-hall"
+    await _seed_trusted_test_halls(db_session, hall_a, hall_b)
+
+    old_hall_history = [
+        {
+            "role": "user" if index % 2 == 0 else "assistant",
+            "content": f"甲厅旧消息{index}",
+        }
+        for index in range(12)
+    ]
+    captured = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        captured.append(kwargs["conversation_history"])
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={
+                        "interest_type": "A",
+                        "persona": "A",
+                        "assumption": "A",
+                        "guest_id": "guest-hall-history-switch",
+                    },
+                )
+            ).json()
+            headers = {"X-Session-Token": created["session_token"]}
+            restored = await client.patch(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+                json={
+                    "current_hall": hall_a,
+                    "status": "touring",
+                    "hall_chat_history": {hall_a: old_hall_history},
+                },
+            )
+            response = await client.post(
+                f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                headers=headers,
+                json={
+                    "message": "乙厅有什么？",
+                    "hall_id": hall_b,
+                    "conversation_history": old_hall_history,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert restored.status_code == 200
+    assert response.status_code == 200
+    assert captured == [None]
+
+
+@pytest.mark.asyncio
 async def test_tour_chat_rejects_untrusted_style_instructions(
     override_dependencies,
 ):
@@ -2421,16 +3033,16 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
     db_session.add_all(
         [
             Hall(
-                slug="chat-hall-a",
-                name="聊天展厅甲",
+                slug="basic-exhibition-hall",
+                name="基本陈列展厅",
                 description="甲厅",
                 estimated_duration_minutes=20,
                 display_order=1,
                 is_active=True,
             ),
             Hall(
-                slug="chat-hall-b",
-                name="聊天展厅乙",
+                slug="site-protection-hall",
+                name="遗址保护大厅",
                 description="乙厅",
                 estimated_duration_minutes=20,
                 display_order=2,
@@ -2439,13 +3051,13 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
             Exhibit(
                 id="chat-exhibit-a",
                 name="甲厅展品",
-                hall="chat-hall-a",
+                hall="basic-exhibition-hall",
                 is_active=True,
             ),
             Exhibit(
                 id="chat-exhibit-b",
                 name="乙厅展品",
-                hall="chat-hall-b",
+                hall="site-protection-hall",
                 is_active=True,
             ),
         ]
@@ -2480,7 +3092,7 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
                 url,
                 headers=headers,
                 json={
-                    "current_hall": "chat-hall-a",
+                    "current_hall": "basic-exhibition-hall",
                     "current_exhibit_id": "chat-exhibit-a",
                 },
             )
@@ -2489,7 +3101,7 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
                 headers=headers,
                 json={
                     "message": "介绍乙厅",
-                    "hall_id": "chat-hall-b",
+                    "hall_id": "site-protection-hall",
                     "client_event_id": "question-hall-switch-1",
                 },
             )
@@ -2501,7 +3113,7 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
                     "events": [
                         {
                             "event_type": "assistant_answer",
-                            "hall": "chat-hall-b",
+                            "hall": "site-protection-hall",
                             "metadata": {
                                 "client_event_id": "question-hall-switch-1:assistant",
                                 "question_client_event_id": "question-hall-switch-1",
@@ -2517,7 +3129,7 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
                 headers=headers,
                 json={
                     "message": "介绍乙厅展品",
-                    "hall_id": "chat-hall-b",
+                    "hall_id": "site-protection-hall",
                     "exhibit_id": "chat-exhibit-b",
                     "client_event_id": "question-exhibit-switch-2",
                 },
@@ -2530,7 +3142,7 @@ async def test_tour_chat_keeps_hall_and_exhibit_state_consistent(
 
     assert seeded.status_code == 200
     assert switched_hall.status_code == 200
-    assert after_hall_switch.json()["current_hall"] == "chat-hall-b"
+    assert after_hall_switch.json()["current_hall"] == "site-protection-hall"
     assert after_hall_switch.json()["current_exhibit_id"] is None
     hall_done = next(
         payload for payload in reversed(_sse_payloads(switched_hall))

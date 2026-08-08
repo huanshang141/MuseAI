@@ -1,5 +1,6 @@
 """Merged TTS advanced tests: cached, streaming, persona API, and persona repository."""
 
+import asyncio
 import base64
 import json
 from datetime import UTC, datetime
@@ -273,6 +274,34 @@ class TestTTSStreamManager:
         assert len(events) >= 2
         first_event = json.loads(events[0].removeprefix("data: ").removesuffix("\n\n"))
         assert first_event["event"] == "audio_start"
+
+    @pytest.mark.asyncio
+    async def test_aclose_cancels_and_awaits_blocked_worker(self):
+        started = asyncio.Event()
+        blocker = asyncio.Event()
+
+        class BlockingProvider:
+            async def synthesize_stream(self, text, config):
+                started.set()
+                await blocker.wait()
+                if False:  # pragma: no cover - keeps this an async generator
+                    yield "unused"
+
+        mgr = TTSStreamManager(
+            BlockingProvider(),
+            TTSConfig(voice="冰糖", style="test"),
+            schema="tour",
+        )
+        assert [event async for event in mgr.feed("你好。") ] == []
+        await asyncio.wait_for(started.wait(), timeout=1)
+        worker = mgr._task
+
+        await mgr.aclose()
+
+        assert worker is not None
+        assert worker.done()
+        assert worker.cancelled()
+        assert mgr._task is None
 
 
 # ---------------------------------------------------------------------------

@@ -152,6 +152,29 @@ def test_loads_utf8_sig_csv_pair_and_pipe_or_json_questions(tmp_path):
     assert dataset.exhibits[0].suggested_questions == ["纹样能说明什么？"]
 
 
+def test_versioned_museum_template_has_trusted_nine_halls_and_no_fake_exhibits():
+    template_dir = Path(__file__).resolve().parents[3] / "data" / "museum_template"
+
+    dataset = load_museum_dataset(template_dir)
+
+    assert [hall.slug for hall in dataset.halls] == [
+        "basic-exhibition-hall",
+        "site-protection-hall",
+        "kiln-hall",
+        "prehistoric-workshop",
+        "banpo-girl-sculpture",
+        "education-center",
+        "peony-garden",
+        "temporary-hall-1",
+        "temporary-hall-2",
+    ]
+    assert [hall.display_order for hall in dataset.halls] == list(range(10, 100, 10))
+    assert all(hall.name and hall.description and hall.is_active for hall in dataset.halls)
+    assert all(hall.floor is None for hall in dataset.halls)
+    assert all(hall.estimated_duration_minutes == 0 for hall in dataset.halls)
+    assert dataset.exhibits == []
+
+
 def test_rejects_non_utf8_csv_as_structured_validation_error(tmp_path):
     (tmp_path / "halls.csv").write_bytes(b"\xff\xfe\x00\x00")
     _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [_exhibit_values()])

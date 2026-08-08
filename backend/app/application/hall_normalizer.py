@@ -1,8 +1,8 @@
-"""Shared hall normalization for tour APIs.
+"""Shared hall identity normalization.
 
-Known Banpo aliases map to their canonical slugs. Well-formed imported slugs
-are preserved so future museum datasets can add halls without code changes;
-API boundaries remain responsible for checking that a slug exists and is active.
+Known Banpo aliases map to their canonical slugs. Generic admin/import paths may
+preserve another well-formed slug for audit, while mini-program API boundaries
+must additionally require membership in ``CANONICAL_HALL_SLUGS``.
 """
 
 import re
@@ -31,91 +31,36 @@ CANONICAL_HALL_ORDER = [
     "temporary-hall-2",
 ]
 
-HALL_CONTRACT: list[dict] = [
-    {
-        "slug": "basic-exhibition-hall",
-        "name": CANONICAL_HALLS["basic-exhibition-hall"],
-        "description": None,
-        "floor": 1,
-        "estimated_duration_minutes": 25,
-        "display_order": 10,
-        "is_active": True,
-    },
-    {
-        "slug": "site-protection-hall",
-        "name": CANONICAL_HALLS["site-protection-hall"],
-        "description": None,
-        "floor": 1,
-        "estimated_duration_minutes": 25,
-        "display_order": 20,
-        "is_active": True,
-    },
-    {
-        "slug": "kiln-hall",
-        "name": CANONICAL_HALLS["kiln-hall"],
-        "description": None,
-        "floor": 1,
-        "estimated_duration_minutes": 18,
-        "display_order": 30,
-        "is_active": True,
-    },
-    {
-        "slug": "prehistoric-workshop",
-        "name": CANONICAL_HALLS["prehistoric-workshop"],
-        "description": None,
-        "floor": 2,
-        "estimated_duration_minutes": 20,
-        "display_order": 40,
-        "is_active": True,
-    },
-    {
-        "slug": "banpo-girl-sculpture",
-        "name": CANONICAL_HALLS["banpo-girl-sculpture"],
-        "description": None,
-        "floor": 1,
-        "estimated_duration_minutes": 8,
-        "display_order": 50,
-        "is_active": True,
-    },
-    {
-        "slug": "education-center",
-        "name": CANONICAL_HALLS["education-center"],
-        "description": None,
-        "floor": 2,
-        "estimated_duration_minutes": 18,
-        "display_order": 60,
-        "is_active": True,
-    },
-    {
-        "slug": "peony-garden",
-        "name": CANONICAL_HALLS["peony-garden"],
-        "description": None,
-        "floor": 3,
-        "estimated_duration_minutes": 10,
-        "display_order": 70,
-        "is_active": True,
-    },
-    {
-        "slug": "temporary-hall-1",
-        "name": CANONICAL_HALLS["temporary-hall-1"],
-        "description": None,
-        "floor": 3,
-        "estimated_duration_minutes": 15,
-        "display_order": 90,
-        "is_active": True,
-    },
-    {
-        "slug": "temporary-hall-2",
-        "name": CANONICAL_HALLS["temporary-hall-2"],
-        "description": None,
-        "floor": 3,
-        "estimated_duration_minutes": 15,
-        "display_order": 100,
-        "is_active": True,
-    },
-]
+TEMPORARY_HALL_SLUGS = frozenset({"temporary-hall-1", "temporary-hall-2"})
 
-CANONICAL_HALL_SLUGS = set(CANONICAL_HALLS)
+
+def temporary_hall_description(
+    base_description: str | None = None,
+    exhibit_names: list[str] | None = None,
+    *,
+    exhibit_count: int | None = None,
+) -> str:
+    """Build the shared temporary-hall copy from currently active exhibits."""
+    base = str(base_description or "").strip()
+    names: list[str] = []
+    seen: set[str] = set()
+    for raw_name in exhibit_names or []:
+        name = str(raw_name or "").strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+
+    count = max(int(exhibit_count or 0), len(names))
+    if count <= 0:
+        status = "当前暂无已发布展品信息。"
+        return f"{base} {status}".strip()
+
+    summary = f"当前已发布 {count} 件展品。"
+    if names:
+        summary += f" 当前展品包括：{'、'.join(names[:3])}。"
+    return f"{base} {summary}".strip()
+
+CANONICAL_HALL_SLUGS = frozenset(CANONICAL_HALLS)
 
 HALL_ALIASES: dict[str, str] = {
     **{slug: slug for slug in CANONICAL_HALLS},
@@ -166,8 +111,9 @@ def is_canonical_hall(value: str | None) -> bool:
     return bool(slug and slug in CANONICAL_HALL_SLUGS)
 
 
-def canonical_hall_contract() -> list[dict]:
-    return [dict(item) for item in HALL_CONTRACT]
+def is_temporary_hall(value: str | None) -> bool:
+    slug = normalize_hall(value)
+    return bool(slug and slug in TEMPORARY_HALL_SLUGS)
 
 
 def hall_display_name(value: str | None) -> str:

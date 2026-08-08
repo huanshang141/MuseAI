@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from app.application.hall_normalizer import CANONICAL_HALL_SLUGS
 from app.domain.entities import Exhibit, VisitorProfile
 from app.domain.value_objects import (
     ExhibitId,
@@ -16,6 +17,7 @@ from app.infra.postgres.adapters import (
 )
 from app.infra.postgres.models import Base
 from app.infra.postgres.models import Exhibit as ExhibitORM
+from app.infra.postgres.models import Hall as HallORM
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -120,6 +122,98 @@ class TestPostgresExhibitRepository:
         result = await repo.get_by_id(ExhibitId(str(uuid.uuid4())))
 
         assert result is None
+
+    async def test_public_visibility_requires_active_canonical_hall(
+        self,
+        async_session,
+    ):
+        now = datetime.now(UTC)
+        async_session.add_all(
+            [
+                HallORM(
+                    slug="basic-exhibition-hall",
+                    name="基本陈列展厅",
+                    description="可信简介",
+                    is_active=True,
+                ),
+                HallORM(
+                    slug="site-protection-hall",
+                    name="遗址保护大厅",
+                    description="已停用",
+                    is_active=False,
+                ),
+                HallORM(
+                    slug="legacy-hall",
+                    name="旧配置展厅",
+                    description="不应公开",
+                    is_active=True,
+                ),
+                ExhibitORM(
+                    id="visible-canonical",
+                    name="公开展品",
+                    description="公开",
+                    hall="basic-exhibition-hall",
+                    category="公开类别",
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                ExhibitORM(
+                    id="hidden-inactive-hall",
+                    name="停用厅展品",
+                    description="隐藏",
+                    hall="site-protection-hall",
+                    category="隐藏类别",
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                ExhibitORM(
+                    id="hidden-legacy-hall",
+                    name="旧配置展品",
+                    description="隐藏",
+                    hall="legacy-hall",
+                    category="隐藏类别",
+                    is_active=True,
+                    created_at=now,
+                    updated_at=now,
+                ),
+                ExhibitORM(
+                    id="hidden-inactive-exhibit",
+                    name="停用展品",
+                    description="隐藏",
+                    hall="basic-exhibition-hall",
+                    category="隐藏类别",
+                    is_active=False,
+                    created_at=now,
+                    updated_at=now,
+                ),
+            ]
+        )
+        await async_session.commit()
+        repo = PostgresExhibitRepository(
+            async_session,
+            visible_halls=CANONICAL_HALL_SLUGS,
+        )
+
+        assert [item.id.value for item in await repo.list_all()] == [
+            "visible-canonical"
+        ]
+        assert await repo.count_with_filters() == 1
+        assert await repo.get_distinct_halls() == ["basic-exhibition-hall"]
+        assert await repo.get_distinct_categories() == ["公开类别"]
+        assert (
+            await repo.get_by_id(ExhibitId("hidden-inactive-hall"))
+            is None
+        )
+        assert await repo.get_by_id(ExhibitId("hidden-legacy-hall")) is None
+        assert (
+            await repo.get_by_id(ExhibitId("hidden-inactive-exhibit"))
+            is None
+        )
+        assert [item.id.value for item in await repo.search_by_name("展品")] == [
+            "visible-canonical"
+        ]
 
     async def test_update_existing_exhibit(self, async_session, sample_exhibit):
         """Test updating an existing exhibit."""

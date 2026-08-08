@@ -3,11 +3,11 @@
 import pytest
 from app.api.deps import check_auth_rate_limit
 from app.api.deps import get_db_session as original_get_db_session
-from app.application.hall_normalizer import CANONICAL_HALL_SLUGS
 from app.infra.postgres.database import get_session, get_session_maker
-from app.infra.postgres.models import Base
+from app.infra.postgres.models import Base, Exhibit, Hall
 from app.main import app
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 
 from tests.auth_helpers import ensure_test_user, issue_test_token
 
@@ -561,12 +561,7 @@ async def test_admin_endpoints_require_auth(db_session):
 
 @pytest.mark.asyncio
 async def test_admin_halls_crud_endpoint(db_session, admin_token):
-    """Admin manages the fixed set of 9 canonical Banpo halls.
-
-    The canonical set (slugs/name/floor/duration) is governed by the hall
-    contract and re-synced on every list; admin-authored descriptions are the
-    field that persists across that sync.
-    """
+    """Admin CRUD persists museum-authored hall data without read-side seeding."""
 
     async def override_get_db():
         yield db_session
@@ -577,19 +572,28 @@ async def test_admin_halls_crud_endpoint(db_session, admin_token):
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            # First list backfills + syncs the canonical halls into the table.
+            # An empty database stays empty until an explicit import/create.
             list_response = await client.get(
                 "/api/v1/admin/halls",
                 headers={"Authorization": f"Bearer {admin_token}"},
             )
             assert list_response.status_code == 200
-            list_data = list_response.json()
-            slugs = {h["slug"] for h in list_data["halls"]}
-            assert "kiln-hall" in slugs
-            assert "basic-exhibition-hall" in slugs
-            assert list_data["total"] >= 9
+            assert list_response.json() == {"halls": [], "total": 0}
 
-            # Admin edits a canonical hall's description; it must survive re-sync.
+            create_response = await client.post(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {admin_token}"},
+                json={
+                    "slug": "kiln-hall",
+                    "name": "陶窑展厅",
+                    "description": "馆方初始陶窑展厅说明",
+                    "estimated_duration_minutes": 18,
+                    "is_active": True,
+                },
+            )
+            assert create_response.status_code == 201
+
+            # Admin edits a canonical hall's description; it must survive reads.
             update_response = await client.put(
                 "/api/v1/admin/halls/kiln-hall",
                 headers={"Authorization": f"Bearer {admin_token}"},
@@ -598,7 +602,7 @@ async def test_admin_halls_crud_endpoint(db_session, admin_token):
             assert update_response.status_code == 200
             assert update_response.json()["description"] == "管理员补充的陶窑展厅说明"
 
-            # Re-list re-syncs the contract; the admin description still persists.
+            # Re-list is read-only; the admin description still persists.
             relist = await client.get(
                 "/api/v1/admin/halls",
                 headers={"Authorization": f"Bearer {admin_token}"},
@@ -633,9 +637,8 @@ async def test_admin_halls_endpoint_requires_admin(db_session, user_token):
 
 
 @pytest.mark.asyncio
-async def test_admin_halls_list_backfills_canonical_when_empty(db_session, admin_token):
-    """When the halls table is empty, /admin/halls backfills the canonical Banpo
-    halls from the hall contract; non-canonical hall values are never introduced."""
+async def test_admin_halls_list_is_read_only_when_empty(db_session, admin_token):
+    """An empty hall table stays empty and exhibit hall text is not rewritten."""
 
     async def override_get_db():
         yield db_session
@@ -652,7 +655,7 @@ async def test_admin_halls_list_backfills_canonical_when_empty(db_session, admin
                 headers={"Authorization": f"Bearer {admin_token}"},
                 json={
                     "name": "来自展品的展厅示例",
-                    "description": "验证 halls 为空时由统一展厅契约回填",
+                    "description": "验证 halls 为空时读取接口不写库",
                     "location_x": 12.0,
                     "location_y": 8.0,
                     "floor": 1,
@@ -673,14 +676,75 @@ async def test_admin_halls_list_backfills_canonical_when_empty(db_session, admin
             assert list_response.status_code == 200
 
             data = list_response.json()
-            slugs = [item["slug"] for item in data.get("halls", [])]
+            assert data == {"halls": [], "total": 0}
 
-            # Canonical halls were backfilled from the contract...
-            assert data.get("total", 0) >= 9
-            assert "basic-exhibition-hall" in slugs
-            assert "kiln-hall" in slugs
-            # ...and the non-canonical exhibit hall did not create a hall.
-            assert "特展馆" not in [item["name"] for item in data.get("halls", [])]
-            assert all(s in CANONICAL_HALL_SLUGS for s in slugs)
+            exhibit_result = await db_session.execute(
+                select(Exhibit).where(Exhibit.name == "来自展品的展厅示例")
+            )
+            assert exhibit_result.scalar_one().hall == "特展馆"
+    finally:
+        app.dependency_overrides = {}
+
+
+@pytest.mark.asyncio
+async def test_admin_halls_list_preserves_imported_halls_and_exhibit_links(
+    db_session,
+    admin_token,
+):
+    """Listing halls must not replace or rewrite museum-imported records."""
+
+    imported_hall = Hall(
+        slug="museum-real-hall",
+        name="馆方真实展厅",
+        description="馆方导入说明",
+        floor=4,
+        estimated_duration_minutes=42,
+        display_order=7,
+        is_active=True,
+        suggested_questions=["这个展厅的核心主题是什么？"],
+        source_name="museum-2026",
+        source_record_id="hall-real-1",
+    )
+    imported_exhibit = Exhibit(
+        id="museum-real-exhibit-1",
+        name="馆方真实展品",
+        description="馆方导入展品说明",
+        hall="museum-real-hall",
+        is_active=True,
+        suggested_questions=[],
+        source_name="museum-2026",
+        source_record_id="exhibit-real-1",
+    )
+    db_session.add_all([imported_hall, imported_exhibit])
+    await db_session.commit()
+
+    original_updated_at = imported_hall.updated_at
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[original_get_db_session] = override_get_db
+    app.dependency_overrides[check_auth_rate_limit] = lambda: None
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/api/v1/admin/halls",
+                headers={"Authorization": f"Bearer {admin_token}"},
+            )
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+        assert response.json()["halls"][0]["slug"] == "museum-real-hall"
+
+        await db_session.refresh(imported_hall)
+        await db_session.refresh(imported_exhibit)
+        assert imported_hall.name == "馆方真实展厅"
+        assert imported_hall.description == "馆方导入说明"
+        assert imported_hall.estimated_duration_minutes == 42
+        assert imported_hall.source_record_id == "hall-real-1"
+        assert imported_hall.updated_at == original_updated_at.replace(tzinfo=None)
+        assert imported_exhibit.hall == "museum-real-hall"
     finally:
         app.dependency_overrides = {}

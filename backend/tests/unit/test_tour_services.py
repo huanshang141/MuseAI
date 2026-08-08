@@ -254,12 +254,12 @@ async def test_update_session_does_not_advance_version_for_identical_state():
 
 
 @pytest.mark.asyncio
-async def test_append_hall_chat_turn_merges_latest_history_and_caps_twenty():
+async def test_append_hall_chat_turn_merges_latest_history_and_caps_thirty():
     from app.application.tour_session_service import append_hall_chat_turn
 
     existing = [
         {"role": "user" if index % 2 == 0 else "assistant", "content": str(index)}
-        for index in range(20)
+        for index in range(30)
     ]
     model = _make_model()
     model.hall_chat_history = {
@@ -279,7 +279,7 @@ async def test_append_hall_chat_turn_merges_latest_history_and_caps_twenty():
     )
 
     assert model.hall_chat_history["site-protection-hall"][0]["content"] == "保留我"
-    assert len(model.hall_chat_history["basic-exhibition-hall"]) == 20
+    assert len(model.hall_chat_history["basic-exhibition-hall"]) == 30
     assert model.hall_chat_history["basic-exhibition-hall"][-2:] == [
         {"role": "user", "content": "新问题"},
         {"role": "assistant", "content": "新回答"},

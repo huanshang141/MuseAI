@@ -5,6 +5,7 @@ from app.domain.entities import Exhibit
 from app.domain.value_objects import ExhibitId, Location
 
 from ..models import Exhibit as ExhibitORM
+from ..models import Hall as HallORM
 
 
 def _catalog_ordering():
@@ -17,8 +18,23 @@ def _catalog_ordering():
 
 
 class PostgresExhibitRepository:
-    def __init__(self, session: AsyncSession):
+    def __init__(
+        self,
+        session: AsyncSession,
+        visible_halls: set[str] | frozenset[str] | None = None,
+    ):
         self._session = session
+        self._visible_halls = frozenset(visible_halls) if visible_halls is not None else None
+
+    def _apply_hall_visibility(self, query):
+        """Scope public reads to active halls without changing admin repositories."""
+        if self._visible_halls is None:
+            return query
+        return query.join(HallORM, HallORM.slug == ExhibitORM.hall).where(
+            ExhibitORM.is_active.is_(True),
+            HallORM.is_active.is_(True),
+            ExhibitORM.hall.in_(self._visible_halls),
+        )
 
     def _to_entity(self, orm: ExhibitORM) -> Exhibit:
         return Exhibit(
@@ -42,9 +58,8 @@ class PostgresExhibitRepository:
         )
 
     async def get_by_id(self, exhibit_id: ExhibitId) -> Exhibit | None:
-        result = await self._session.execute(
-            select(ExhibitORM).where(ExhibitORM.id == exhibit_id.value)
-        )
+        query = select(ExhibitORM).where(ExhibitORM.id == exhibit_id.value)
+        result = await self._session.execute(self._apply_hall_visibility(query))
         orm = result.scalar_one_or_none()
         return self._to_entity(orm) if orm else None
 
@@ -55,6 +70,7 @@ class PostgresExhibitRepository:
         limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM)
+        query = self._apply_hall_visibility(query)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
         query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
@@ -69,6 +85,7 @@ class PostgresExhibitRepository:
         limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.category == category)
+        query = self._apply_hall_visibility(query)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
         query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
@@ -83,6 +100,7 @@ class PostgresExhibitRepository:
         limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.hall == hall)
+        query = self._apply_hall_visibility(query)
         if not include_inactive:
             query = query.where(ExhibitORM.is_active.is_(True))
         query = query.order_by(*_catalog_ordering()).offset(skip).limit(limit)
@@ -94,12 +112,12 @@ class PostgresExhibitRepository:
     ) -> list[Exhibit]:
         if not interests:
             return []
-        query = (
+        query = self._apply_hall_visibility(
             select(ExhibitORM)
             .where(ExhibitORM.category.in_(interests))
             .where(ExhibitORM.is_active.is_(True))
-            .limit(limit)
         )
+        query = query.limit(limit)
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -152,11 +170,11 @@ class PostgresExhibitRepository:
         return True
 
     async def list_all_active(self) -> list[Exhibit]:
-        query = (
+        query = self._apply_hall_visibility(
             select(ExhibitORM)
             .where(ExhibitORM.is_active.is_(True))
-            .order_by(*_catalog_ordering())
         )
+        query = query.order_by(*_catalog_ordering())
         result = await self._session.execute(query)
         return [self._to_entity(orm) for orm in result.scalars().all()]
 
@@ -169,6 +187,7 @@ class PostgresExhibitRepository:
         limit: int = 100,
     ) -> list[Exhibit]:
         query = select(ExhibitORM).where(ExhibitORM.is_active.is_(True))
+        query = self._apply_hall_visibility(query)
 
         if category is not None:
             query = query.where(ExhibitORM.category == category)
@@ -196,6 +215,7 @@ class PostgresExhibitRepository:
             .where(ExhibitORM.is_active.is_(True))
             .where(ExhibitORM.name.ilike(f"%{escaped_query}%"))
         )
+        sql_query = self._apply_hall_visibility(sql_query)
 
         if category is not None:
             sql_query = sql_query.where(ExhibitORM.category == category)
@@ -217,6 +237,7 @@ class PostgresExhibitRepository:
         floor: int | None = None,
     ) -> int:
         query = select(func.count()).select_from(ExhibitORM).where(ExhibitORM.is_active.is_(True))
+        query = self._apply_hall_visibility(query)
 
         if category is not None:
             query = query.where(ExhibitORM.category == category)
@@ -242,6 +263,7 @@ class PostgresExhibitRepository:
             .where(ExhibitORM.is_active.is_(True))
             .where(ExhibitORM.name.ilike(f"%{escaped_query}%"))
         )
+        sql_query = self._apply_hall_visibility(sql_query)
 
         if category is not None:
             sql_query = sql_query.where(ExhibitORM.category == category)
@@ -258,9 +280,8 @@ class PostgresExhibitRepository:
             select(ExhibitORM.category)
             .where(ExhibitORM.is_active.is_(True))
             .where(ExhibitORM.category.isnot(None))
-            .distinct()
-            .order_by(ExhibitORM.category)
         )
+        query = self._apply_hall_visibility(query).distinct().order_by(ExhibitORM.category)
         result = await self._session.execute(query)
         return [row[0] for row in result.all() if row[0] is not None]
 
@@ -269,8 +290,7 @@ class PostgresExhibitRepository:
             select(ExhibitORM.hall)
             .where(ExhibitORM.is_active.is_(True))
             .where(ExhibitORM.hall.isnot(None))
-            .distinct()
-            .order_by(ExhibitORM.hall)
         )
+        query = self._apply_hall_visibility(query).distinct().order_by(ExhibitORM.hall)
         result = await self._session.execute(query)
         return [row[0] for row in result.all() if row[0] is not None]

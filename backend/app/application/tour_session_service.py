@@ -154,8 +154,8 @@ async def append_hall_chat_turn(
     """Merge one completed turn into the latest persisted hall history.
 
     The row lock avoids replacing state written while the SSE response was in
-    flight. Only the target hall is changed and the global 20-message bound is
-    applied after the merge.
+    flight. Only the target hall is changed and its 30-message bound is applied
+    after the merge.
     """
     model = await get_session_model(session, session_id, for_update=True)
     history = dict(model.hall_chat_history or {})
@@ -172,7 +172,7 @@ async def append_hall_chat_turn(
         await session.refresh(model)
         return model.to_entity()
     messages.extend(completed_turn)
-    history[hall] = messages[-20:]
+    history[hall] = messages[-30:]
     model.hall_chat_history = history
     current_version = model.state_version if isinstance(model.state_version, int) else 1
     model.state_version = current_version + 1

@@ -8,7 +8,7 @@ Usage:
     # Full initialization (migrations + ES index + service checks)
     python scripts/init_db.py
 
-    # With development seed data (requires Elasticsearch + Ollama running)
+    # With development account and prompt seed data
     python scripts/init_db.py --seed-dev
 
     # Schema-only (PostgreSQL migrations only, skip everything else)
@@ -216,7 +216,7 @@ async def create_es_index() -> bool:
 # ---------------------------------------------------------------------------
 
 def seed_dev_data() -> None:
-    """Seed development test data (prompts, personas, halls, exhibits, test user)."""
+    """Seed only development account and prompt/persona configuration."""
     scripts_dir = os.path.dirname(__file__)
     project_root = os.path.join(scripts_dir, "..")
 
@@ -229,24 +229,14 @@ def seed_dev_data() -> None:
     if result.returncode != 0:
         print("  Warning: Failed to seed dev user (non-fatal).")
 
-    # Seed prompts, personas, and halls (pure DB, no external deps)
-    print("  Seeding prompts, personas, and halls...")
+    # Seed prompts and personas (museum facts are imported separately)
+    print("  Seeding prompts and personas...")
     result = subprocess.run(
         [sys.executable, os.path.join(scripts_dir, "seed_prompts_and_personas.py")],
         cwd=project_root,
     )
     if result.returncode != 0:
-        print("  Warning: Failed to seed prompts/personas/halls (non-fatal).")
-
-    # Seed exhibits (this also creates the ES index internally)
-    print("  Seeding exhibit data...")
-    result = subprocess.run(
-        [sys.executable, os.path.join(scripts_dir, "init_exhibits.py")],
-        cwd=project_root,
-    )
-    if result.returncode != 0:
-        print("  Warning: Failed to seed exhibits (non-fatal). Ensure Elasticsearch and Ollama are running.")
-
+        print("  Warning: Failed to seed prompts/personas (non-fatal).")
 
 # ---------------------------------------------------------------------------
 # Main
@@ -266,7 +256,7 @@ def main() -> None:
     parser.add_argument(
         "--seed-dev",
         action="store_true",
-        help="Seed development test data (dev user + exhibits). Requires ES + Ollama.",
+        help="Seed a development account plus prompt/persona configuration (no museum facts).",
     )
     parser.add_argument(
         "--schema-only",
@@ -301,9 +291,9 @@ def main() -> None:
         print("\nInitialization complete (schema only).")
         return
 
-    # Step 2: Elasticsearch index creation
-    step += 1
-    if args.init_es or args.seed_dev:
+    # Optional Elasticsearch index creation
+    if args.init_es:
+        step += 1
         print(f"{'=' * 60}")
         print(f"Step {step}: Elasticsearch index creation")
         print(f"{'=' * 60}")
@@ -313,14 +303,12 @@ def main() -> None:
             print("  [SKIP] Elasticsearch is not reachable.")
         print()
 
-    # Step 3: Seed development data
+    # Optional development account and prompt/persona configuration
     if args.seed_dev:
         step += 1
         print(f"{'=' * 60}")
         print(f"Step {step}: Seed development data")
         print(f"{'=' * 60}")
-        if not services["elasticsearch"]:
-            print("  [WARN] Elasticsearch is not reachable. Seed data requires ES.")
         seed_dev_data()
         print()
 

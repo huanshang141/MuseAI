@@ -13,7 +13,6 @@ Design notes:
 import asyncio
 import re
 from collections.abc import AsyncGenerator
-from typing import Any
 
 from loguru import logger
 
@@ -166,6 +165,33 @@ class TTSStreamManager:
             self._buffer = ""
         if self._task is not None:
             await self._sentence_queue.put(_SENTINEL)
-            await self._task
+            task = self._task
+            try:
+                await task
+            finally:
+                if task.done():
+                    self._task = None
         async for event in _drain_audio_queue(self._audio_queue):
             yield event
+
+    async def aclose(self) -> None:
+        """Cancel and await the background worker, then discard queued data."""
+        self._buffer = ""
+        task = self._task
+        self._task = None
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.debug("TTS worker failed while closing: {}", exc)
+
+        for queue in (self._sentence_queue, self._audio_queue):
+            while True:
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.api.deps import SessionDep
 from app.application.exhibit_service import ExhibitService
-from app.application.hall_normalizer import hall_display_name, normalize_hall
+from app.application.hall_normalizer import CANONICAL_HALL_SLUGS, normalize_hall
 from app.infra.postgres.adapters import PostgresExhibitRepository
 from app.infra.postgres.models import Hall
 
@@ -24,11 +24,14 @@ async def _load_hall_names(session: SessionDep, halls: list[str]) -> dict[str, s
         normalized
         for value in halls
         if (normalized := normalize_hall(value))
-    }
+    } & CANONICAL_HALL_SLUGS
     if not slugs:
         return {}
     result = await session.execute(
-        select(Hall.slug, Hall.name).where(Hall.slug.in_(slugs))
+        select(Hall.slug, Hall.name).where(
+            Hall.slug.in_(slugs),
+            Hall.is_active.is_(True),
+        )
     )
     return {
         normalized: str(name)
@@ -39,7 +42,7 @@ async def _load_hall_names(session: SessionDep, halls: list[str]) -> dict[str, s
 
 def _response_hall_name(hall: str, hall_names: dict[str, str]) -> str:
     slug = _normalize_response_hall(hall)
-    return hall_names.get(slug) or hall_display_name(slug)
+    return hall_names[slug]
 
 
 # ============================================================================
@@ -122,7 +125,10 @@ class ExhibitStatsResponse(BaseModel):
 
 def get_exhibit_service(session: SessionDep) -> ExhibitService:
     """Get exhibit service instance."""
-    repository = PostgresExhibitRepository(session)
+    repository = PostgresExhibitRepository(
+        session,
+        visible_halls=CANONICAL_HALL_SLUGS,
+    )
     return ExhibitService(repository)
 
 
@@ -178,6 +184,11 @@ async def list_exhibits(
         )
 
     hall_names = await _load_hall_names(session, [e.hall for e in exhibits])
+    exhibits = [
+        exhibit
+        for exhibit in exhibits
+        if _normalize_response_hall(exhibit.hall) in hall_names
+    ]
     return ExhibitListResponse(
         exhibits=[
             ExhibitListItem(
@@ -290,6 +301,11 @@ async def get_exhibit(
         )
 
     hall_names = await _load_hall_names(session, [exhibit.hall])
+    if _normalize_response_hall(exhibit.hall) not in hall_names:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Exhibit not found: {exhibit_id}",
+        )
     return ExhibitDetail(
         id=exhibit.id.value,
         name=exhibit.name,

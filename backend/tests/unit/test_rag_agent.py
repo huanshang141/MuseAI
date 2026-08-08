@@ -322,6 +322,54 @@ async def test_rag_agent_rewrite_with_history():
 
 
 @pytest.mark.asyncio
+async def test_graph_retry_retrieves_transformed_query_without_rewriting_original():
+    """A transform must survive the graph edge back through rewrite."""
+    from app.application.workflows.query_transform import ConversationAwareQueryRewriter
+
+    llm_provider = AsyncMock()
+    llm_provider.generate = AsyncMock(
+        side_effect=[
+            MagicMock(content="半坡人面鱼纹盆的用途是什么？"),
+            MagicMock(content="半坡人面鱼纹盆的用途、年代与纹饰资料"),
+        ]
+    )
+    query_rewriter = ConversationAwareQueryRewriter(llm_provider)
+
+    retriever = AsyncMock()
+    retriever.ainvoke = AsyncMock(
+        side_effect=[
+            [Document(page_content="低相关材料", metadata={"rrf_score": 0.1})],
+            [Document(page_content="高相关材料", metadata={"rrf_score": 0.9})],
+        ]
+    )
+    llm = AsyncMock()
+    llm.ainvoke = AsyncMock(return_value=MagicMock(content="最终回答"))
+    agent = RAGAgent(
+        llm=llm,
+        retriever=retriever,
+        query_rewriter=query_rewriter,
+        llm_provider=llm_provider,
+        max_attempts=2,
+    )
+
+    result = await agent.run(
+        "那它有什么用途？",
+        conversation_history=[
+            {"role": "user", "content": "请介绍人面鱼纹盆"},
+            {"role": "assistant", "content": "它是半坡代表性彩陶器物"},
+        ],
+    )
+
+    assert result["answer"] == "最终回答"
+    assert result["attempts"] == 1
+    assert [call.args[0] for call in retriever.ainvoke.await_args_list] == [
+        "半坡人面鱼纹盆的用途是什么？",
+        "半坡人面鱼纹盆的用途、年代与纹饰资料",
+    ]
+    assert llm_provider.generate.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_merge_chunks_replaces_child_with_parent():
     mock_llm = MagicMock()
     mock_es = AsyncMock()

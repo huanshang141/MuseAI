@@ -15,7 +15,7 @@ VALID_UUID = "00000000-0000-0000-0000-000000000001"
 def _make_exhibit(
     id_: str = VALID_UUID,
     name: str = "青铜鼎",
-    hall: str = "main",
+    hall: str = "basic-exhibition-hall",
 ) -> Exhibit:
     now = datetime.now(UTC)
     return Exhibit(
@@ -45,7 +45,9 @@ def patch_exhibit_service(monkeypatch):
     mock.count_search_exhibits = AsyncMock(return_value=1)
     mock.get_exhibit = AsyncMock(return_value=_make_exhibit())
     mock.get_all_categories = AsyncMock(return_value=["bronze", "jade"])
-    mock.get_all_halls = AsyncMock(return_value=["east", "main"])
+    mock.get_all_halls = AsyncMock(
+        return_value=["basic-exhibition-hall", "site-protection-hall"]
+    )
 
     def fake_factory(session):
         return mock
@@ -65,7 +67,7 @@ def override_db():
     mock_session.rollback = AsyncMock()
     mock_session.close = AsyncMock()
     hall_result = MagicMock()
-    hall_result.all.return_value = [("main", "主展厅")]
+    hall_result.all.return_value = [("basic-exhibition-hall", "基本陈列展厅")]
     mock_session.execute.return_value = hall_result
 
     async def _get_mock_session():
@@ -86,7 +88,7 @@ def test_list_exhibits_returns_200_with_pagination(override_db, patch_exhibit_se
     assert "total" in body
     assert body["skip"] == 0
     assert body["limit"] == 10
-    assert body["exhibits"][0]["hall_name"] == "主展厅"
+    assert body["exhibits"][0]["hall_name"] == "基本陈列展厅"
 
 
 def test_list_exhibits_resolves_real_hall_names_in_one_batch(
@@ -94,16 +96,16 @@ def test_list_exhibits_resolves_real_hall_names_in_one_batch(
     patch_exhibit_service,
 ):
     patch_exhibit_service.list_exhibits.return_value = [
-        _make_exhibit(hall="future-hall-a"),
+        _make_exhibit(hall="basic-exhibition-hall"),
         _make_exhibit(
             id_="00000000-0000-0000-0000-000000000002",
-            hall="future-hall-b",
+            hall="site-protection-hall",
         ),
     ]
     patch_exhibit_service.count_exhibits.return_value = 2
     override_db.execute.return_value.all.return_value = [
-        ("future-hall-a", "未来真实展厅甲"),
-        ("future-hall-b", "未来真实展厅乙"),
+        ("basic-exhibition-hall", "基本陈列展厅"),
+        ("site-protection-hall", "遗址保护大厅"),
     ]
 
     client = TestClient(app)
@@ -111,8 +113,8 @@ def test_list_exhibits_resolves_real_hall_names_in_one_batch(
 
     assert response.status_code == 200
     assert [item["hall_name"] for item in response.json()["exhibits"]] == [
-        "未来真实展厅甲",
-        "未来真实展厅乙",
+        "基本陈列展厅",
+        "遗址保护大厅",
     ]
     override_db.execute.assert_awaited_once()
 
@@ -135,20 +137,37 @@ def test_list_exhibits_keeps_real_records_with_legacy_placeholder_names(
     assert body["total"] == 2
 
 
+def test_list_exhibits_does_not_create_name_for_missing_hall(
+    override_db,
+    patch_exhibit_service,
+):
+    patch_exhibit_service.list_exhibits.return_value = [
+        _make_exhibit(hall="legacy-hall")
+    ]
+    patch_exhibit_service.count_exhibits.return_value = 0
+    override_db.execute.return_value.all.return_value = []
+
+    response = TestClient(app).get("/api/v1/exhibits?skip=0&limit=10")
+
+    assert response.status_code == 200
+    assert response.json()["exhibits"] == []
+    assert response.json()["total"] == 0
+
+
 def test_list_exhibits_applies_filter_query_params(override_db, patch_exhibit_service):
     client = TestClient(app)
     response = client.get(
-        "/api/v1/exhibits?category=bronze&hall=east&floor=1"
+        "/api/v1/exhibits?category=bronze&hall=site-protection-hall&floor=1"
     )
 
     assert response.status_code == 200
     call = patch_exhibit_service.list_exhibits.call_args
     assert call.kwargs.get("category") == "bronze"
-    assert call.kwargs.get("hall") == "east"
+    assert call.kwargs.get("hall") == "site-protection-hall"
     assert call.kwargs.get("floor") == 1
     count_call = patch_exhibit_service.count_exhibits.call_args
     assert count_call.kwargs.get("category") == "bronze"
-    assert count_call.kwargs.get("hall") == "east"
+    assert count_call.kwargs.get("hall") == "site-protection-hall"
     assert count_call.kwargs.get("floor") == 1
 
 
@@ -171,7 +190,7 @@ def test_get_exhibit_detail_returns_200(override_db, patch_exhibit_service):
     body = response.json()
     assert body["id"] == VALID_UUID
     assert body["name"] == "青铜鼎"
-    assert body["hall_name"] == "主展厅"
+    assert body["hall_name"] == "基本陈列展厅"
 
 
 def test_get_exhibit_detail_returns_404_when_missing(override_db, patch_exhibit_service):
@@ -179,6 +198,17 @@ def test_get_exhibit_detail_returns_404_when_missing(override_db, patch_exhibit_
 
     client = TestClient(app)
     response = client.get(f"/api/v1/exhibits/{VALID_UUID}")
+    assert response.status_code == 404
+
+
+def test_get_exhibit_detail_returns_404_when_hall_is_not_visible(
+    override_db,
+    patch_exhibit_service,
+):
+    override_db.execute.return_value.all.return_value = []
+
+    response = TestClient(app).get(f"/api/v1/exhibits/{VALID_UUID}")
+
     assert response.status_code == 404
 
 
@@ -204,7 +234,7 @@ def test_get_halls_list_returns_distinct_halls(override_db, patch_exhibit_servic
     client = TestClient(app)
     response = client.get("/api/v1/exhibits/halls/list")
     assert response.status_code == 200
-    assert response.json() == ["east", "main"]
+    assert response.json() == ["basic-exhibition-hall", "site-protection-hall"]
 
 
 def test_get_exhibits_stats_returns_200(override_db, patch_exhibit_service):

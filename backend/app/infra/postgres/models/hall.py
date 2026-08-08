@@ -17,7 +17,7 @@ class Hall(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     floor: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    estimated_duration_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    estimated_duration_minutes: Mapped[int] = mapped_column(Integer, default=0)
     display_order: Mapped[int] = mapped_column(Integer, default=0, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     suggested_questions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)

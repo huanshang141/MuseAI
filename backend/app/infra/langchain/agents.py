@@ -189,6 +189,13 @@ class RAGAgent:
             query = state["query"]
             history = state.get("conversation_history", [])
 
+            # A low-score transform already produced the query for the next
+            # retrieval attempt.  Re-running the history rewrite here would
+            # overwrite that transformed query with a rewrite of the original
+            # user question on every graph loop.
+            if state.get("attempts", 0) > 0 and state.get("rewritten_query"):
+                return {"rewritten_query": state["rewritten_query"]}
+
             # 如果有查询重写器且有对话历史，则进行上下文感知的重写
             if self.query_rewriter and history:
                 try:

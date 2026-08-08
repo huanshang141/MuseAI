@@ -4,15 +4,10 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import select
 
 from app.api.deps import CurrentAdminUser, SessionDep
-from app.application.hall_normalizer import (
-    CANONICAL_HALL_SLUGS,
-    canonical_hall_contract,
-    normalize_hall,
-)
-from app.infra.postgres.models import Exhibit, Hall
+from app.infra.postgres.models import Hall
 
 router = APIRouter(prefix="/admin/halls", tags=["admin-halls"])
 
@@ -22,7 +17,7 @@ class HallCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     floor: int | None = Field(default=None, ge=1, le=10)
-    estimated_duration_minutes: int = Field(default=30, ge=1, le=480)
+    estimated_duration_minutes: int = Field(default=0, ge=0, le=480)
     display_order: int = Field(default=0, ge=0, le=100000)
     is_active: bool = True
 
@@ -31,7 +26,7 @@ class HallUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     floor: int | None = Field(default=None, ge=1, le=10)
-    estimated_duration_minutes: int | None = Field(default=None, ge=1, le=480)
+    estimated_duration_minutes: int | None = Field(default=None, ge=0, le=480)
     display_order: int | None = Field(default=None, ge=0, le=100000)
     is_active: bool | None = None
 
@@ -56,103 +51,6 @@ class HallListResponse(BaseModel):
 class HallDeleteResponse(BaseModel):
     status: str
     slug: str
-
-
-async def _backfill_halls_from_exhibits(session: SessionDep) -> None:
-    await _sync_halls_with_contract(session)
-
-
-async def _sync_halls_with_contract(session: SessionDep) -> None:
-    """Keep the DB hall table aligned to the Banpo canonical contract."""
-    changed = False
-
-    raw_hall_rows = await session.execute(
-        select(Exhibit.hall)
-        .where(Exhibit.hall.is_not(None), func.trim(Exhibit.hall) != "")
-        .distinct()
-    )
-    for row in raw_hall_rows.all():
-        raw_hall = row[0]
-        target_hall = normalize_hall(raw_hall)
-        if target_hall in CANONICAL_HALL_SLUGS and target_hall != raw_hall:
-            await session.execute(
-                update(Exhibit)
-                .where(Exhibit.hall == raw_hall)
-                .values(hall=target_hall, updated_at=datetime.now(UTC))
-            )
-            changed = True
-        elif target_hall is None:
-            await session.execute(
-                update(Exhibit)
-                .where(Exhibit.hall == raw_hall)
-                .values(hall=None, updated_at=datetime.now(UTC))
-            )
-            changed = True
-
-    result = await session.execute(
-        select(Hall).order_by(Hall.display_order.asc(), Hall.created_at.asc())
-    )
-    rows = list(result.scalars().all())
-    rows_by_target: dict[str, list[Hall]] = {}
-    for row in rows:
-        target = row.slug if row.slug in CANONICAL_HALL_SLUGS else normalize_hall(row.name)
-        if target in CANONICAL_HALL_SLUGS:
-            rows_by_target.setdefault(target, []).append(row)
-
-    now = datetime.now(UTC)
-    for contract in canonical_hall_contract():
-        slug = contract["slug"]
-        matching_rows = rows_by_target.get(slug, [])
-        canonical = next((row for row in matching_rows if row.slug == slug), None)
-        legacy_rows = [row for row in matching_rows if row.slug != slug]
-        row_changed = False
-
-        if canonical is None and legacy_rows:
-            canonical = legacy_rows.pop(0)
-            canonical.slug = slug
-            row_changed = True
-        elif canonical is None:
-            canonical = Hall(slug=slug, created_at=now)
-            session.add(canonical)
-            row_changed = True
-
-        deleted_legacy = False
-        for legacy in legacy_rows:
-            await session.delete(legacy)
-            changed = True
-            deleted_legacy = True
-        if deleted_legacy:
-            await session.flush()
-
-        for field in (
-            "name",
-            "description",
-            "floor",
-            "estimated_duration_minutes",
-            "display_order",
-            "is_active",
-        ):
-            value = contract[field]
-            if field == "description" and value is None and getattr(canonical, field):
-                continue
-            if getattr(canonical, field) != value:
-                setattr(canonical, field, value)
-                row_changed = True
-        if row_changed:
-            canonical.updated_at = now
-            changed = True
-
-    stale_rows = [
-        row
-        for row in rows
-        if row.slug not in CANONICAL_HALL_SLUGS and normalize_hall(row.name) not in CANONICAL_HALL_SLUGS
-    ]
-    for stale in stale_rows:
-        await session.delete(stale)
-        changed = True
-
-    if changed:
-        await session.commit()
 
 
 def _to_response(hall: Hall) -> HallResponse:
@@ -182,11 +80,6 @@ async def list_halls(
     current_user: CurrentAdminUser,
     include_inactive: bool = Query(True),
 ) -> HallListResponse:
-    has_hall_rows = await session.execute(select(Hall.slug).limit(1))
-    if has_hall_rows.scalar_one_or_none() is None:
-        await _backfill_halls_from_exhibits(session)
-    await _sync_halls_with_contract(session)
-
     stmt = select(Hall)
     if not include_inactive:
         stmt = stmt.where(Hall.is_active.is_(True))

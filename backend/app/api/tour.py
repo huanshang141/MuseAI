@@ -17,7 +17,7 @@ from pydantic import (
 from pydantic import (
     ValidationError as PydanticValidationError,
 )
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.api.deps import (
     LLMProviderDep,
@@ -30,12 +30,13 @@ from app.api.deps import (
     TourSessionWriteRateLimitDep,
 )
 from app.application.hall_normalizer import (
-    canonical_hall_contract,
-    hall_display_name,
+    CANONICAL_HALL_SLUGS,
+    is_temporary_hall,
     normalize_hall,
     normalize_halls,
+    temporary_hall_description,
 )
-from app.application.tour_chat_service import ask_stream_tour
+from app.application.tour_chat_service import ask_stream_tour, bound_conversation_history
 from app.application.tour_event_service import get_events_by_session, record_events
 from app.application.tour_report_service import build_reflection_summary, generate_report, get_report
 from app.application.tour_session_service import (
@@ -258,8 +259,8 @@ class TourSessionUpdate(BaseModel):
     ) -> dict[str, list[TourHallChatMessage]] | None:
         if value is not None and len(value) > 9:
             raise ValueError("hall_chat_history supports at most 9 halls")
-        if value is not None and any(len(messages) > 20 for messages in value.values()):
-            raise ValueError("each hall supports at most 20 messages")
+        if value is not None and any(len(messages) > 30 for messages in value.values()):
+            raise ValueError("each hall supports at most 30 messages")
         return value
 
 
@@ -364,7 +365,7 @@ class TourChatRequest(BaseModel):
     client_event_id: str | None = Field(default=None, max_length=120)
     style: TourChatStyle | None = None
     client_context: str | None = Field(default=None, max_length=1500)
-    conversation_history: list[TourChatHistoryItem] | None = Field(default=None, max_length=8)
+    conversation_history: list[TourChatHistoryItem] | None = Field(default=None, max_length=30)
     tts: bool = False
 
 
@@ -390,30 +391,6 @@ class TourSuggestionResponse(BaseModel):
     source: Literal["exhibit", "hall", "deterministic"]
 
 
-DEFAULT_HALLS_DATA = [
-    TourHallItem(
-        slug="basic-exhibition-hall",
-        name="基本陈列展厅",
-        description="系统展示半坡文化的生活形态、生产方式与社会结构。",
-        exhibit_count=0,
-        estimated_duration_minutes=40,
-    ),
-    TourHallItem(
-        slug="site-protection-hall",
-        name="遗址保护大厅",
-        description="强调原址呈现与保护展示，呈现墓葬、房屋、作坊和灶具灶台等遗存。",
-        exhibit_count=0,
-        estimated_duration_minutes=35,
-    ),
-    TourHallItem(
-        slug="kiln-hall",
-        name="陶窑展厅",
-        description="展示半坡时期制陶与烧制工艺，解释从制坯到入窑烧成的流程。",
-        exhibit_count=0,
-        estimated_duration_minutes=25,
-    ),
-]
-
 DETERMINISTIC_SUGGESTIONS = {
     "default": ["这个展厅最值得先看什么？", "眼前这些内容可以怎样理解？"],
     "A": ["这里有哪些可以直接观察的证据？", "哪些结论仍需要保留不确定性？"],
@@ -428,9 +405,13 @@ def _short_hall_focus(description: str | None) -> str:
 
 
 async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
-    """Use persisted halls authoritatively; fall back only before any rows exist."""
+    """Load active halls from persisted museum data without synthetic fallback."""
     stmt = (
         select(Hall)
+        .where(
+            Hall.slug.in_(CANONICAL_HALL_SLUGS),
+            Hall.is_active.is_(True),
+        )
         .order_by(Hall.display_order.asc(), Hall.created_at.asc())
     )
     result = await session.execute(stmt)
@@ -447,27 +428,18 @@ async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
                 focus=_short_hall_focus(hall.description),
             )
             for hall in hall_rows
-            if hall.is_active
         ]
 
-    contracts = canonical_hall_contract()
-    if not contracts:
-        return DEFAULT_HALLS_DATA
-    return [
-        TourHallItem(
-            slug=contract["slug"],
-            name=contract.get("name") or hall_display_name(contract["slug"]),
-            description=contract.get("description") or "",
-            exhibit_count=0,
-            estimated_duration_minutes=contract["estimated_duration_minutes"],
-            focus=_short_hall_focus(contract.get("description")),
-        )
-        for contract in contracts
-    ]
+    return []
 
 
 async def _load_hall_name_map(session: SessionDep) -> dict[str, str]:
-    result = await session.execute(select(Hall.slug, Hall.name))
+    result = await session.execute(
+        select(Hall.slug, Hall.name).where(
+            Hall.slug.in_(CANONICAL_HALL_SLUGS),
+            Hall.is_active.is_(True),
+        )
+    )
     return {
         normalized: str(name)
         for slug, name in result.all()
@@ -563,13 +535,13 @@ async def _resolve_chat_exhibit_context(
     parts = [f"名称：{exhibit.name}"]
     hall_slug = normalize_hall(exhibit.hall)
     hall_row = await session.get(Hall, hall_slug) if hall_slug else None
-    hall_name = (
-        hall_row.name
-        if hall_row is not None
-        else (hall_display_name(hall_slug) if hall_slug else None)
-    )
-    if hall_name or exhibit.hall:
-        parts.append(f"展厅：{hall_name or exhibit.hall}")
+    if (
+        hall_slug not in CANONICAL_HALL_SLUGS
+        or hall_row is None
+        or not hall_row.is_active
+    ):
+        return None
+    parts.append(f"展厅：{hall_row.name}")
     if exhibit.category:
         parts.append(f"类别：{exhibit.category}")
     if exhibit.era:
@@ -584,12 +556,96 @@ async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None
     if not normalized:
         return None
     hall = await session.get(Hall, normalized)
-    if hall is not None and hall.is_active:
-        return f"{hall.name}：{str(hall.description or '').strip()}"[:1000]
-    for item in await _load_tour_halls(session):
-        if normalize_hall(item.slug) == normalized:
-            return f"{item.name}：{item.description}"[:1000]
-    return None
+    if hall is None or not hall.is_active or normalized not in CANONICAL_HALL_SLUGS:
+        return None
+
+    if is_temporary_hall(normalized):
+        hall_name = hall.name
+        count_stmt = select(func.count(Exhibit.id)).where(
+            Exhibit.hall == normalized,
+            Exhibit.is_active.is_(True),
+        )
+        active_count = int((await session.execute(count_stmt)).scalar_one() or 0)
+        exhibit_stmt = (
+            select(Exhibit)
+            .where(
+                Exhibit.hall == normalized,
+                Exhibit.is_active.is_(True),
+            )
+            .order_by(
+                Exhibit.display_order.asc().nulls_last(),
+                Exhibit.importance.desc(),
+                Exhibit.created_at.asc(),
+                Exhibit.id.asc(),
+            )
+            .limit(6)
+        )
+        exhibits = list((await session.execute(exhibit_stmt)).scalars().all())
+        dynamic_description = temporary_hall_description(
+            hall.description,
+            [item.name for item in exhibits],
+            exhibit_count=active_count,
+        )
+        parts = [f"{hall_name}：{dynamic_description}"]
+        for exhibit in exhibits:
+            facts = [f"展品：{exhibit.name}"]
+            if exhibit.category:
+                facts.append(f"类别：{exhibit.category}")
+            if exhibit.era:
+                facts.append(f"年代：{exhibit.era}")
+            if exhibit.description:
+                facts.append(f"简介：{str(exhibit.description).strip()[:220]}")
+            parts.append("；".join(facts))
+        return "\n".join(parts)[:1000]
+
+    return f"{hall.name}：{str(hall.description or '').strip()}"[:1000]
+
+
+def _merge_same_hall_conversation_history(
+    stored: list[dict[str, str]] | None,
+    client: list[dict[str, str]] | None,
+) -> list[dict[str, str]]:
+    """Preserve durable history while recovering a newer same-hall client tail."""
+    durable = bound_conversation_history(stored)
+    recovered = bound_conversation_history(client)
+    if not durable:
+        return recovered
+    if not recovered:
+        return durable
+    if durable == recovered:
+        return durable
+
+    def contains_complete_turn(messages: list[dict[str, str]]) -> bool:
+        return any(
+            first.get("role") == "user" and second.get("role") == "assistant"
+            for first, second in zip(messages, messages[1:], strict=False)
+        )
+
+    durable_size = len(durable)
+    recovered_size = len(recovered)
+    if contains_complete_turn(durable):
+        matching_starts = [
+            start
+            for start in range(recovered_size - durable_size + 1)
+            if recovered[start : start + durable_size] == durable
+        ]
+        if matching_starts:
+            start = matching_starts[-1]
+            return bound_conversation_history(
+                durable + recovered[start + durable_size :]
+            )
+    for start in range(durable_size - recovered_size + 1):
+        if durable[start : start + recovered_size] == recovered:
+            return durable
+
+    for overlap in range(min(durable_size, recovered_size), 1, -1):
+        shared = durable[-overlap:]
+        if shared == recovered[:overlap] and contains_complete_turn(shared):
+            return bound_conversation_history(durable + recovered[overlap:])
+
+    # A single-message match or a divergent payload cannot prove one complete
+    # user/assistant turn of continuity. Keep the durable server copy.
+    return durable
 
 
 def _validated_hall_chat_history(value: dict | None) -> dict[str, list[dict[str, str]]]:
@@ -597,13 +653,17 @@ def _validated_hall_chat_history(value: dict | None) -> dict[str, list[dict[str,
     for raw_hall, raw_messages in (value or {}).items():
         raw_hall_slug = str(raw_hall).strip()
         hall = normalize_hall(raw_hall_slug)
-        if not hall or raw_hall_slug != hall:
+        if (
+            not hall
+            or raw_hall_slug != hall
+            or hall not in CANONICAL_HALL_SLUGS
+        ):
             raise HTTPException(
                 status_code=422,
-                detail="hall_chat_history keys must be normalized hall slugs",
+                detail="hall_chat_history keys must be canonical hall slugs",
             )
         messages = []
-        for raw in list(raw_messages or [])[-20:]:
+        for raw in list(raw_messages or [])[-30:]:
             if hasattr(raw, "model_dump"):
                 raw = raw.model_dump()
             role = str((raw or {}).get("role") or "")
@@ -991,9 +1051,14 @@ async def patch_tour_session(
             persona=effective_persona,
             assumption=effective_assumption,
         )
+    valid_halls: set[str] | None = None
     if "current_hall" in updates and updates["current_hall"] is not None:
         updates["current_hall"] = normalize_hall(updates["current_hall"])
-        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
+        valid_halls = {
+            slug
+            for h in await _load_tour_halls(session)
+            if (slug := normalize_hall(h.slug))
+        }
         if not updates["current_hall"] or updates["current_hall"] not in valid_halls:
             raise HTTPException(status_code=422, detail="Unknown current_hall")
     effective_exhibit_id = updates.get(
@@ -1003,16 +1068,28 @@ async def patch_tour_session(
         effective_exhibit_id = effective_exhibit_id.value
     effective_exhibit_id = str(effective_exhibit_id or "").strip()
     if effective_exhibit_id:
+        if valid_halls is None:
+            valid_halls = {
+                slug
+                for h in await _load_tour_halls(session)
+                if (slug := normalize_hall(h.slug))
+            }
         exhibit = await session.get(Exhibit, effective_exhibit_id)
         if exhibit is None or not exhibit.is_active:
             raise HTTPException(
                 status_code=422,
                 detail="Unknown or inactive current_exhibit_id",
             )
+        exhibit_hall = normalize_hall(exhibit.hall)
+        if exhibit_hall not in valid_halls:
+            raise HTTPException(
+                status_code=422,
+                detail="current_exhibit_id is outside an active tour hall",
+            )
         effective_hall = normalize_hall(
             updates.get("current_hall", owned_session.current_hall)
         )
-        if effective_hall and normalize_hall(exhibit.hall) != effective_hall:
+        if effective_hall and exhibit_hall != effective_hall:
             raise HTTPException(
                 status_code=422,
                 detail="current_exhibit_id does not belong to current_hall",
@@ -1102,6 +1179,11 @@ async def post_tour_events(
         if exhibit is None or not exhibit.is_active:
             raise HTTPException(status_code=422, detail="Unknown or inactive event exhibit_id")
         exhibit_hall = normalize_hall(exhibit.hall)
+        if exhibit_hall not in valid_halls:
+            raise HTTPException(
+                status_code=422,
+                detail="event exhibit_id is outside an active tour hall",
+            )
         if event.get("hall") and exhibit_hall != event["hall"]:
             raise HTTPException(
                 status_code=422,
@@ -1185,7 +1267,7 @@ async def complete_hall(
 
     hall_configs = await _load_tour_halls(session)
     all_halls = [normalize_hall(h.slug) for h in hall_configs if normalize_hall(h.slug)]
-    all_visited = all(h in visited_halls for h in all_halls)
+    all_visited = bool(all_halls) and all(h in visited_halls for h in all_halls)
 
     new_status = "touring"
     updated = await update_session(
@@ -1298,6 +1380,11 @@ async def tour_chat_stream(
 
     requested_hall = normalize_hall(body.hall_id)
     trusted_hall = normalize_hall(tour_session.current_hall)
+    valid_halls = {
+        slug
+        for hall in await _load_tour_halls(session)
+        if (slug := normalize_hall(hall.slug))
+    }
     exhibit_row = None
     requested_exhibit_id = str(body.exhibit_id or "").strip()
     if requested_exhibit_id and not requested_exhibit_id.startswith(("local-", "mock-")):
@@ -1305,15 +1392,20 @@ async def tour_chat_stream(
         if exhibit_row is None or not exhibit_row.is_active:
             raise HTTPException(status_code=422, detail="Unknown exhibit_id")
         exhibit_hall = normalize_hall(exhibit_row.hall)
-        if requested_hall and exhibit_hall and requested_hall != exhibit_hall:
+        if exhibit_hall not in valid_halls:
+            raise HTTPException(status_code=422, detail="Unknown exhibit_id")
+        if requested_hall and requested_hall != exhibit_hall:
             raise HTTPException(status_code=422, detail="exhibit_id does not belong to hall_id")
-        requested_hall = exhibit_hall or requested_hall
+        requested_hall = exhibit_hall
+
+    effective_hall = requested_hall or trusted_hall
+    if effective_hall and effective_hall not in valid_halls:
+        raise HTTPException(status_code=422, detail="Unknown hall_id")
+
+    hall_changed = bool(requested_hall and requested_hall != trusted_hall)
 
     session_updates: dict[str, str | None] = {}
     if requested_hall:
-        valid_halls = {normalize_hall(h.slug) for h in await _load_tour_halls(session)}
-        if requested_hall not in valid_halls:
-            raise HTTPException(status_code=422, detail="Unknown hall_id")
         if requested_hall != trusted_hall:
             session_updates["current_hall"] = requested_hall
             # A hall switch without a trusted exhibit must not retain the
@@ -1341,17 +1433,34 @@ async def tour_chat_stream(
     hall_context = await _resolve_chat_hall_context(
         session, tour_session.current_hall
     )
-    stored_history = (tour_session.hall_chat_history or {}).get(
-        normalize_hall(tour_session.current_hall) or "", []
+    current_hall_key = normalize_hall(tour_session.current_hall) or ""
+    stored_history = bound_conversation_history(
+        (tour_session.hall_chat_history or {}).get(current_hall_key, [])
     )
-    conversation_history = stored_history[-8:] or (
-        [item.model_dump() for item in body.conversation_history]
-        if body.conversation_history else None
+    # A fallback payload has no hall key.  It is usable only while remaining in
+    # the already trusted hall; on a hall switch it may belong to the old page.
+    client_history = (
+        []
+        if hall_changed
+        else bound_conversation_history(
+            [item.model_dump() for item in body.conversation_history]
+            if body.conversation_history
+            else None
+        )
     )
+    conversation_history = (
+        _merge_same_hall_conversation_history(stored_history, client_history)
+        or None
+    )
+
+    # The dependency-scoped session otherwise remains checked out for the full
+    # SSE lifetime.  Everything the stream needs is now a detached snapshot;
+    # later trusted-data checks use their own short-lived sessions.
+    await session.commit()
 
     return StreamingResponse(
         ask_stream_tour(
-            db_session=session,
+            db_session=None,
             session_maker=session_maker,
             tour_session_id=session_id,
             message=body.message,
@@ -1368,6 +1477,7 @@ async def tour_chat_stream(
             tts_provider=tts_provider if body.tts else None,
             tts_service=tts_service if body.tts else None,
             persona=persona,
+            tour_session=tour_session,
         ),
         media_type="text/event-stream",
         headers={
@@ -1394,23 +1504,79 @@ async def get_tour_suggestions(
     persona = tour_session.persona if tour_session.persona in DETERMINISTIC_SUGGESTIONS else "default"
 
     normalized_hall = normalize_hall(hall_id or tour_session.current_hall)
+    valid_halls = {
+        normalize_hall(hall.slug)
+        for hall in await _load_tour_halls(session)
+        if normalize_hall(hall.slug)
+    }
+    if hall_id and normalized_hall not in valid_halls:
+        raise HTTPException(status_code=422, detail="Unknown hall_id")
+    if normalized_hall not in valid_halls:
+        normalized_hall = None
     normalized_exhibit_id = str(exhibit_id or "").strip() or None
     suggestions: list[str] = []
     source: Literal["exhibit", "hall", "deterministic"] = "deterministic"
 
     if normalized_exhibit_id and not normalized_exhibit_id.startswith(("local-", "mock-")):
         exhibit = await session.get(Exhibit, normalized_exhibit_id)
-        if exhibit is not None and exhibit.is_active:
-            suggestions = [
-                str(item).strip()[:200]
-                for item in (exhibit.suggested_questions or [])
-                if str(item).strip()
-            ][:6]
-            if suggestions:
-                source = "exhibit"
-            normalized_hall = normalize_hall(exhibit.hall) or normalized_hall
+        exhibit_hall = normalize_hall(exhibit.hall) if exhibit is not None else None
+        if (
+            exhibit is None
+            or not exhibit.is_active
+            or exhibit_hall not in valid_halls
+        ):
+            raise HTTPException(status_code=422, detail="Unknown exhibit_id")
+        if normalized_hall and exhibit_hall != normalized_hall:
+            raise HTTPException(
+                status_code=422,
+                detail="exhibit_id does not belong to hall_id",
+            )
+        suggestions = [
+            str(item).strip()[:200]
+            for item in (exhibit.suggested_questions or [])
+            if str(item).strip()
+        ][:6]
+        if suggestions:
+            source = "exhibit"
+        normalized_hall = exhibit_hall
 
     if not suggestions and normalized_hall:
+        if is_temporary_hall(normalized_hall):
+            exhibit_stmt = (
+                select(Exhibit.name, Exhibit.suggested_questions)
+                .where(
+                    Exhibit.hall == normalized_hall,
+                    Exhibit.is_active.is_(True),
+                )
+                .order_by(
+                    Exhibit.display_order.asc().nulls_last(),
+                    Exhibit.importance.desc(),
+                    Exhibit.created_at.asc(),
+                    Exhibit.id.asc(),
+                )
+            )
+            active_exhibits = list((await session.execute(exhibit_stmt)).all())
+            seen_questions: set[str] = set()
+            for _, raw_questions in active_exhibits:
+                for raw_question in raw_questions or []:
+                    question = str(raw_question or "").strip()[:200]
+                    if question and question not in seen_questions:
+                        seen_questions.add(question)
+                        suggestions.append(question)
+                    if len(suggestions) >= 6:
+                        break
+                if len(suggestions) >= 6:
+                    break
+            if not suggestions:
+                suggestions = [
+                    f"“{str(name).strip()}”有哪些值得观察的细节？"
+                    for name, _ in active_exhibits
+                    if str(name or "").strip()
+                ][:6]
+            if suggestions:
+                source = "exhibit"
+
+    if not suggestions and normalized_hall and not is_temporary_hall(normalized_hall):
         hall = await session.get(Hall, normalized_hall)
         if hall is not None and hall.is_active:
             suggestions = [
@@ -1471,15 +1637,22 @@ async def list_tour_halls(
         if slug in seen:
             continue
         seen.add(slug)
+        description = h.description
+        if is_temporary_hall(slug):
+            description = temporary_hall_description(
+                h.description,
+                highlights.get(slug, []),
+                exhibit_count=counts.get(slug, 0),
+            )
         halls.append(
             TourHallItem(
                 slug=slug,
-                name=h.name or hall_display_name(slug),
-                description=h.description,
+                name=h.name,
+                description=description,
                 exhibit_count=counts.get(slug, 0),
                 estimated_duration_minutes=h.estimated_duration_minutes,
                 highlights=highlights.get(slug, []),
-                focus=_short_hall_focus(h.description),
+                focus=_short_hall_focus(description),
             )
         )
     return TourHallListResponse(halls=halls)

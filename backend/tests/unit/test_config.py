@@ -5,9 +5,7 @@ from pydantic import ValidationError
 
 
 def test_nginx_caps_all_tour_session_bodies_including_creation():
-    config = (
-        Path(__file__).resolve().parents[3] / "deploy" / "nginx.conf"
-    ).read_text(encoding="utf-8")
+    config = (Path(__file__).resolve().parents[3] / "deploy" / "nginx.conf").read_text(encoding="utf-8")
 
     location = config.split("location /api/v1/tour/sessions {", 1)[1].split("}", 1)[0]
     assert "client_max_body_size 2m;" in location
@@ -178,3 +176,173 @@ def test_settings_requires_secrets_without_insecure_dev_flag(monkeypatch):
 
     with pytest.raises(ValidationError, match="JWT_SECRET must be set unless ALLOW_INSECURE_DEV_DEFAULTS=true"):
         Settings(_env_file=None)
+
+
+def test_settings_accepts_matching_compose_postgres_settings():
+    from app.config.settings import Settings
+
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="test",
+        JWT_SECRET="test-secret",
+        LLM_API_KEY="test-key",
+        DATABASE_URL="postgresql+asyncpg://museai:p%40ssword@localhost:5432/museai",
+        POSTGRES_USER="museai",
+        POSTGRES_PASSWORD="p@ssword",
+        POSTGRES_DB="museai",
+    )
+
+    assert settings.POSTGRES_USER == "museai"
+    assert settings.POSTGRES_PASSWORD is not None
+    assert settings.POSTGRES_PASSWORD.get_secret_value() == "p@ssword"
+    assert "p@ssword" not in repr(settings)
+    assert "p%40ssword" not in repr(settings)
+    assert "p@ssword" not in repr(settings.model_dump())
+    assert "p%40ssword" not in repr(settings.model_dump())
+    assert "DATABASE_URL" not in settings.model_dump()
+    assert "POSTGRES_PASSWORD" not in settings.model_dump()
+
+
+def test_env_example_is_accepted_by_application_settings():
+    from app.config.settings import Settings
+
+    env_example = Path(__file__).resolve().parents[3] / ".env.example"
+    settings = Settings(
+        _env_file=env_example,
+        APP_ENV="test",
+        JWT_SECRET="test-secret",
+        LLM_API_KEY="test-key",
+    )
+
+    assert settings.POSTGRES_USER == "museai"
+    assert settings.POSTGRES_PASSWORD is not None
+    assert settings.POSTGRES_PASSWORD.get_secret_value() == "CHANGE_ME_STRONG_PASSWORD"
+    assert settings.POSTGRES_DB == "museai"
+
+
+@pytest.mark.parametrize("missing", ["POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"])
+def test_settings_rejects_partial_compose_postgres_settings(missing):
+    from app.config.settings import Settings
+
+    compose_settings = {
+        "POSTGRES_USER": "museai",
+        "POSTGRES_PASSWORD": "strong-password",
+        "POSTGRES_DB": "museai",
+    }
+    compose_settings.pop(missing)
+
+    with pytest.raises(ValidationError, match="must be set together"):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            JWT_SECRET="test-secret",
+            LLM_API_KEY="test-key",
+            DATABASE_URL="postgresql+asyncpg://museai:strong-password@localhost:5432/museai",
+            **compose_settings,
+        )
+
+
+@pytest.mark.parametrize(
+    ("override", "expected_field"),
+    [
+        ({"POSTGRES_USER": "other"}, "POSTGRES_USER"),
+        ({"POSTGRES_PASSWORD": "other"}, "POSTGRES_PASSWORD"),
+        ({"POSTGRES_DB": "other"}, "POSTGRES_DB"),
+    ],
+)
+def test_settings_rejects_compose_postgres_mismatch(override, expected_field):
+    from app.config.settings import Settings
+
+    compose_settings = {
+        "POSTGRES_USER": "museai",
+        "POSTGRES_PASSWORD": "strong-password",
+        "POSTGRES_DB": "museai",
+    }
+    compose_settings.update(override)
+
+    with pytest.raises(ValidationError, match=rf"{expected_field} must match DATABASE_URL"):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            JWT_SECRET="test-secret",
+            LLM_API_KEY="test-key",
+            DATABASE_URL="postgresql+asyncpg://museai:strong-password@localhost:5432/museai",
+            **compose_settings,
+        )
+
+
+def test_settings_still_rejects_unknown_settings():
+    from app.config.settings import Settings
+
+    assert Settings.model_config["extra"] == "forbid"
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            JWT_SECRET="test-secret",
+            LLM_API_KEY="test-key",
+            UNEXPECTED_SETTING="not-allowed",
+        )
+
+
+def test_settings_rejects_postgresql_prefix_lookalike_driver():
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError, match="DATABASE_URL must use PostgreSQL"):
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            JWT_SECRET="test-secret",
+            LLM_API_KEY="test-key",
+            DATABASE_URL="postgresqlx://museai:strong-password@localhost:5432/museai",
+            POSTGRES_USER="museai",
+            POSTGRES_PASSWORD="strong-password",
+            POSTGRES_DB="museai",
+        )
+
+
+def test_compose_mismatch_validation_error_hides_credential_inputs():
+    from app.config.settings import Settings
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            APP_ENV="test",
+            JWT_SECRET="jwt-secret-value",
+            LLM_API_KEY="llm-secret-value",
+            DATABASE_URL="postgresql+asyncpg://museai:url-secret@localhost:5432/museai",
+            POSTGRES_USER="museai",
+            POSTGRES_PASSWORD="different-secret",
+            POSTGRES_DB="museai",
+        )
+
+    rendered = str(exc_info.value) + exc_info.value.json()
+    assert "jwt-secret-value" not in rendered
+    assert "llm-secret-value" not in rendered
+    assert "url-secret" not in rendered
+    assert "different-secret" not in rendered
+
+
+def test_settings_repr_and_dump_exclude_configured_secrets():
+    from app.config.settings import Settings
+
+    settings = Settings(
+        _env_file=None,
+        APP_ENV="test",
+        JWT_SECRET="jwt-secret-value",
+        LLM_API_KEY="llm-secret-value",
+        EMBEDDING_OPENAI_API_KEY="embedding-secret-value",
+        RERANK_API_KEY="rerank-secret-value",
+        TTS_API_KEY="tts-secret-value",
+    )
+
+    rendered = repr(settings) + repr(settings.model_dump())
+    for secret in (
+        "jwt-secret-value",
+        "llm-secret-value",
+        "embedding-secret-value",
+        "rerank-secret-value",
+        "tts-secret-value",
+    ):
+        assert secret not in rendered

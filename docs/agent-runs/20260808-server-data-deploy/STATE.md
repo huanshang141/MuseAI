@@ -1,10 +1,10 @@
 # 服务器测试数据与部署检查点
 
 - 目标：以九个可信展厅和分厅测试展品验证数据驱动小程序框架；仅允许 `test@test.com` 登录管理接口；完成迁移、导入、报告、建议与图片链路验收。
-- 本地后端：`codex/data-driven-miniapp-framework`；新框架收口已通过最终门禁，等待提交和推送。线上仍保持可回退基线 `b823bf2fd5b3924c481cc5080f82e6d4e8a7242e`。
+- 本地后端：`codex/data-driven-miniapp-framework`；功能提交 `e47853d9e47f00036530e9734219586eb646adb7` 已推送，现场配置/部署命令补丁已通过最终门禁，等待补充提交和生产复部署。
 - 小程序：唯一分支 `main`，最终提交 `99307705ace8ec66c0bcde80420067ac27b89ad5` 已推送到 `origin/main`，工作树干净。
-- 生产后端：`/home/ubuntu/MuseAI` 检出同一功能提交，工作树干净；`museai-backend` active，迁移为 `20260809_exhibit_images (head)`。
-- 最新回退基线：`/home/ubuntu/museai-backups/museai_20260809_094329.sql.gz`，SHA-256 `450d1ab0371ac6d38f73d6b3893747e7e5974c52d0fe2475f19e8b6db626745a`；图片持久目录为 `/home/ubuntu/museai-data/exhibit-images`。
+- 生产后端：`/home/ubuntu/MuseAI` 以 detached HEAD 检出 `e47853d9e47f00036530e9734219586eb646adb7`；`museai-backend` active，迁移为 `20260809_trusted_hall_chat_history (head)`，loopback 与公网 HTTPS readiness 均通过，旧 3000 无监听。
+- 最新回退基线：`/home/ubuntu/museai-backups/museai_20260809_135222_436427322.sql.gz`，SHA-256 `43bb245359c85519f38e7a49c306df6c0d90938bed11cc6348a4312e1e03f141`；图片备份为 `/home/ubuntu/museai-backups/exhibit-images_b823bf2fd5b3924c481cc5080f82e6d4e8a7242e-20260809T055222Z.tar.gz`，图片持久目录为 `/home/ubuntu/museai-data/exhibit-images`。
 - 数据约定：来源固定为 `banpo-museum-data`；后续真实权威快照沿用该来源和稳定 `source_record_id`，即可自动更新并停用本次测试快照中遗漏的记录。
 - 资源约束：2C8G；导入与索引串行执行。导入后 7.25 GiB 内存约 1.9 GiB 已用、5.1 GiB 可用，系统负载约 `0.07 / 0.17 / 0.10`。
 
@@ -17,11 +17,12 @@
 5. `admin` 角色仅有 `test@test.com`；遗留 `admin@museai.local` 为普通用户，登录接口会拒绝非管理员。
 6. 图片上传烟测在写入前停止：现有 `test@test.com` 密码哈希与已知口令不匹配。数据库图片字段和持久目录均为空，未改线上图片状态；需取得当前密码或经用户明确授权重置后再执行 upload → public GET → DELETE。
 7. 当前最终后端全量回归 `1480 passed, 23 skipped, 9 warnings`，无失败；186 条 grounding 独立矩阵和 8 条 turn-id 封闭探针全部通过，独立复核为 P0/P1/P2 均 0。
+8. 现场部署已完成真实数据库恢复演练、关闭旧 3000、容器 `unless-stopped` 和新迁移验证。随后发现共用 `.env` 的 Compose 三项被应用严格设置拒绝，服务已通过临时移除三项恢复；本地补丁改为显式严格接收并核对 URL，最终全量 `1492 passed, 23 skipped, 9 warnings`，独立复核 P0/P1/P2 均为 0。
 
 ## 待完成
 
 1. 经用户确认管理员凭据处理方式后，完成一次生产图片上传、公开读取、删除和空状态恢复烟测。
-2. 提交并推送当前后端稳定快照；先备份生产数据库和图片目录，再部署到迁移 `20260809_trusted_hall_chat_history`（包含前序 `20260809_hall_short_description`）并重新导入九厅 CSV。
+2. 提交并推送现场配置补丁；复用已验证回退批次完成生产复部署，重新写入匹配的 Compose 三项、导入九厅 CSV，并完成公网与数据库终检。
 
 ## 2026-08-09 本地后续检查点（未部署）
 

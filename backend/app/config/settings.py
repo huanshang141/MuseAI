@@ -1,8 +1,10 @@
 import json
 from pathlib import Path
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 # Project root directory (where .env file is located)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -12,6 +14,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
+        hide_input_in_errors=True,
     )
 
     APP_NAME: str = "MuseAI"
@@ -39,17 +42,23 @@ class Settings(BaseSettings):
                 return True
         return v
 
-    DATABASE_URL: str = "sqlite+aiosqlite:///:memory:"
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///:memory:", repr=False, exclude=True)
+    # Docker Compose reads these values from the same root .env file. They are
+    # optional for application-only deployments, but must be complete and agree
+    # with DATABASE_URL whenever supplied.
+    POSTGRES_USER: str | None = None
+    POSTGRES_PASSWORD: SecretStr | None = Field(default=None, exclude=True)
+    POSTGRES_DB: str | None = Field(default=None, validate_default=True)
     REDIS_URL: str = "redis://localhost:6379"
     ELASTICSEARCH_URL: str = "http://localhost:9200"
 
-    JWT_SECRET: str = ""  # Changed: No default
+    JWT_SECRET: str = Field(default="", repr=False, exclude=True)  # Changed: No default
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 60
 
     LLM_PROVIDER: str = "qwen"
     LLM_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    LLM_API_KEY: str = ""  # Changed: No default
+    LLM_API_KEY: str = Field(default="", repr=False, exclude=True)  # Changed: No default
     LLM_MODEL: str = "qwen-flash"
     LLM_TOUR_MODEL: str = "qwen-flash"
     LLM_REPORT_MODEL: str = "qwen-plus"
@@ -116,7 +125,7 @@ class Settings(BaseSettings):
     EMBEDDING_OLLAMA_BASE_URL: str = "http://localhost:11434"
     EMBEDDING_OLLAMA_MODEL: str = "nomic-embed-text"
     EMBEDDING_OPENAI_BASE_URL: str = ""
-    EMBEDDING_OPENAI_API_KEY: str = ""
+    EMBEDDING_OPENAI_API_KEY: str = Field(default="", repr=False, exclude=True)
     EMBEDDING_OPENAI_MODEL: str = ""
 
     @field_validator("EMBEDDING_PROVIDER")
@@ -141,7 +150,7 @@ class Settings(BaseSettings):
     # Rerank服务配置
     RERANK_PROVIDER: str = "siliconflow"  # siliconflow, openai, cohere, custom, mock
     RERANK_BASE_URL: str = ""
-    RERANK_API_KEY: str = ""
+    RERANK_API_KEY: str = Field(default="", repr=False, exclude=True)
     RERANK_MODEL: str = "rerank-v1"
     RERANK_TOP_N: int = 10
 
@@ -158,7 +167,7 @@ class Settings(BaseSettings):
     TTS_ENABLED: bool = True
     TTS_PROVIDER: str = "xiaomi"  # xiaomi, mock
     TTS_BASE_URL: str = "https://api.xiaomimimo.com/v1"
-    TTS_API_KEY: str = ""
+    TTS_API_KEY: str = Field(default="", repr=False, exclude=True)
     TTS_MODEL: str = "mimo-v2.5-tts"
     TTS_DEFAULT_VOICE: str = "冰糖"
     TTS_TIMEOUT: float = 30.0
@@ -281,6 +290,53 @@ class Settings(BaseSettings):
         if not self.TRUSTED_PROXIES:
             return set()
         return {proxy.strip() for proxy in self.TRUSTED_PROXIES.split(",") if proxy.strip()}
+
+    @field_validator("POSTGRES_DB")
+    @classmethod
+    def validate_compose_postgres(cls, postgres_db: str | None, info: ValidationInfo) -> str | None:
+        postgres_user = info.data.get("POSTGRES_USER")
+        postgres_password_value = info.data.get("POSTGRES_PASSWORD")
+        compose_postgres = {
+            "POSTGRES_USER": postgres_user,
+            "POSTGRES_PASSWORD": postgres_password_value,
+            "POSTGRES_DB": postgres_db,
+        }
+        supplied = {name for name, value in compose_postgres.items() if value is not None}
+        if supplied and len(supplied) != len(compose_postgres):
+            raise ValueError("POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB must be set together")
+
+        if supplied:
+            postgres_user = str(postgres_user or "")
+            postgres_password = (
+                postgres_password_value.get_secret_value() if isinstance(postgres_password_value, SecretStr) else ""
+            )
+            postgres_db = postgres_db or ""
+            if not postgres_user.strip() or not postgres_password or not postgres_db.strip():
+                raise ValueError("POSTGRES_USER, POSTGRES_PASSWORD and POSTGRES_DB cannot be empty")
+
+            try:
+                database_url = make_url(str(info.data.get("DATABASE_URL") or ""))
+            except (ArgumentError, ValueError) as exc:
+                raise ValueError("DATABASE_URL must be a valid PostgreSQL URL when POSTGRES_* is set") from exc
+
+            if database_url.get_backend_name() != "postgresql":
+                raise ValueError("DATABASE_URL must use PostgreSQL when POSTGRES_* is set")
+
+            database_values = {
+                "POSTGRES_USER": database_url.username,
+                "POSTGRES_PASSWORD": database_url.password,
+                "POSTGRES_DB": database_url.database,
+            }
+            compose_values = {
+                "POSTGRES_USER": postgres_user,
+                "POSTGRES_PASSWORD": postgres_password,
+                "POSTGRES_DB": postgres_db,
+            }
+            mismatched = [name for name, value in compose_values.items() if database_values[name] != value]
+            if mismatched:
+                raise ValueError(f"{', '.join(mismatched)} must match DATABASE_URL")
+
+        return postgres_db
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":

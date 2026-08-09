@@ -8,8 +8,8 @@
 # Adjust before installing:
 #   - WorkingDirectory / EnvironmentFile: replace /home/ubuntu/MuseAI
 #     with the actual checkout path on the server.
-#   - Run `uv sync --frozen` before installing or restarting the unit so the
-#     checked-out revision has a complete `.venv`.
+#   - Run `/home/ubuntu/.local/bin/uv sync --frozen` before installing or
+#     restarting the unit so the checked-out revision has a complete `.venv`.
 #   - WorkingDirectory must remain the repository root because Alembic and
 #     the application load configuration relative to it.
 

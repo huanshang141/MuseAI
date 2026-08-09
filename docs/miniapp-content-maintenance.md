@@ -338,6 +338,8 @@ PY
    set -euo pipefail
    : "${RELEASE_RECORD:?run the recovery block first}"
    cd /home/ubuntu/MuseAI
+   UV=/home/ubuntu/.local/bin/uv
+   test -x "$UV"
    sudo install -d -o ubuntu -g ubuntu -m 0750 /home/ubuntu/museai-data/exhibit-images
    git fetch origin codex/data-driven-miniapp-framework
    TARGET_SHA="$(git rev-parse origin/codex/data-driven-miniapp-framework)"
@@ -350,7 +352,7 @@ PY
    printf 'DEPLOY_PHASE=%q\n' checkout_complete >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
 
-   uv lock --check
+   "$UV" lock --check
    docker ps --format '{{.Names}}' | grep -Fx museai-postgres
    docker ps --format '{{.Names}}' | grep -Fx museai-redis
    docker ps --format '{{.Names}}' | grep -Fx museai-elasticsearch
@@ -363,12 +365,11 @@ PY
        printf 'museai-backend did not stop\n' >&2
        exit 1
    fi
-   sudo systemctl is-inactive --quiet museai-backend
    printf 'DEPLOY_PHASE=%q\n' service_stopped >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
 
-   uv sync --frozen
-   uv pip check --python /home/ubuntu/MuseAI/.venv/bin/python
+   "$UV" sync --frozen
+   "$UV" pip check --python /home/ubuntu/MuseAI/.venv/bin/python
    printf 'DEPLOY_PHASE=%q\n' dependencies_ready >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
 
@@ -426,6 +427,8 @@ PY
 set -euo pipefail
 : "${RELEASE_RECORD:?run section 7 recovery block first}"
 cd /home/ubuntu/MuseAI
+UV=/home/ubuntu/.local/bin/uv
+test -x "$UV"
 FAILED_STATE_DB_BACKUP="$(PG_CONTAINER=museai-postgres PGUSER=museai DB_NAME=museai BACKUP_DIR=/home/ubuntu/museai-backups bash ./deploy/pg_backup.sh)"
 gzip -t "$FAILED_STATE_DB_BACKUP"
 FAILED_STATE_DB_BACKUP_SHA256="$(sha256sum "$FAILED_STATE_DB_BACKUP" | awk '{print $1}')"
@@ -437,15 +440,14 @@ if sudo systemctl is-active --quiet museai-backend; then
     printf 'museai-backend did not stop\n' >&2
     exit 1
 fi
-sudo systemctl is-inactive --quiet museai-backend
 .venv/bin/alembic downgrade 20260809_exhibit_images
 cp -p "$ENV_BACKUP" .env
 chmod 600 .env
 git switch --detach "$OLD_SHA"
 test "$(git rev-parse HEAD)" = "$OLD_SHA"
-uv lock --check
-uv sync --frozen
-uv pip check --python /home/ubuntu/MuseAI/.venv/bin/python
+"$UV" lock --check
+"$UV" sync --frozen
+"$UV" pip check --python /home/ubuntu/MuseAI/.venv/bin/python
 sudo systemctl start museai-backend
 curl -fsS http://127.0.0.1:8000/api/v1/health
 curl -fsS http://127.0.0.1:8000/api/v1/ready
@@ -505,7 +507,6 @@ if sudo systemctl is-active --quiet museai-backend; then
     printf 'museai-backend did not stop\n' >&2
     exit 1
 fi
-sudo systemctl is-inactive --quiet museai-backend
 docker exec "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d postgres -c \
     "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('$DB_NAME', '$CANDIDATE_DB') AND pid <> pg_backend_pid();"
 docker exec "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d postgres -c \
@@ -566,7 +567,6 @@ if sudo systemctl is-active --quiet museai-backend; then
     printf 'museai-backend did not stop\n' >&2
     exit 1
 fi
-sudo systemctl is-inactive --quiet museai-backend
 IMAGE_DIR=/home/ubuntu/museai-data/exhibit-images
 FAILED_IMAGE_DIR="/home/ubuntu/museai-data/exhibit-images.before_restore_${DEPLOY_STAMP}"
 test ! -e "$FAILED_IMAGE_DIR"
@@ -595,13 +595,15 @@ sync "$RELEASE_RECORD"
 set -euo pipefail
 : "${RELEASE_RECORD:?run section 7 recovery block first}"
 cd /home/ubuntu/MuseAI
+UV=/home/ubuntu/.local/bin/uv
+test -x "$UV"
 cp -p "$ENV_BACKUP" .env
 chmod 600 .env
 git switch --detach "$OLD_SHA"
 test "$(git rev-parse HEAD)" = "$OLD_SHA"
-uv lock --check
-uv sync --frozen
-uv pip check --python /home/ubuntu/MuseAI/.venv/bin/python
+"$UV" lock --check
+"$UV" sync --frozen
+"$UV" pip check --python /home/ubuntu/MuseAI/.venv/bin/python
 sudo systemctl start museai-backend
 sudo systemctl is-active --quiet museai-backend
 curl -fsS http://127.0.0.1:8000/api/v1/health

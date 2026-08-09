@@ -28,6 +28,8 @@
 - 会话历史幂等改为服务端可信窗口内的稳定 `turn_id`：同 ID 的相邻或延迟重试保留第一次结果，不同 ID 的完全相同问答仍完整恢复；客户端展示历史提前同步时不会重复。私有 `_turn_id` 不由 PATCH 接受、不由 GET 暴露，也不会进入模型上下文。
 - 部署门禁删除 Compose 固定数据库弱口令，缺少 `POSTGRES_PASSWORD` 时 fail-closed；PostgreSQL、Redis、Elasticsearch 使用并现场核对 `restart: unless-stopped`。备份统一经 Bash 调用并使用纳秒文件名，systemd 拉起 Docker，readiness 同时核对 loopback 8000 与当前主进程 PID；README 统一 HTTPS-only。
 - 最终全量回归 `1480 passed, 23 skipped, 9 warnings`，无失败；改动文件 Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head、两套数据 dry-run、直接回退离线 SQL、备份成功/失败 mock、Compose 密码门禁和 `git diff --check` 均通过。9 条 warning 为既有测试桩或第三方弃用提示。
+- 生产部署现场发现 Compose 与应用共用 `.env` 时，严格 Settings 会拒绝 `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`。现已显式声明三项且保持未知字段 fail-closed；三项必须成组、非空，并与解码后的 PostgreSQL `DATABASE_URL` 用户、密码和库名完全一致。数据库 URL、数据库密码及 JWT/LLM/Embedding/Rerank/TTS 密钥不进入 Settings 的 `repr`/`model_dump`，启动异常字符串隐藏原始输入；伪 `postgresqlx` 驱动会被拒绝。
+- 部署文档删除不存在的 `systemctl is-inactive`，所有非登录 SSH 发布/回退命令先进入项目目录并使用 `/home/ubuntu/.local/bin/uv` 绝对路径。最终相关配置/provider 回归 `86 passed`，独立审查 P0/P1/P2 均为 0；使用仓库内专用 pytest 临时目录的最终全量回归 `1492 passed, 23 skipped, 9 warnings`，无失败。首次全量的 50 个 setup error 已确认仅来自 Windows 全局 pytest 临时目录 ACL，隔离后未复现。
 
 ## 2026-08-08
 

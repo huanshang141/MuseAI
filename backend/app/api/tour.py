@@ -160,9 +160,12 @@ class TourRouteStep(BaseModel):
     hallId: str = Field(max_length=100)
     hallSlug: str = Field(max_length=100)
     name: str = Field(max_length=255)
+    short: str = Field(default="", max_length=20)
     highlights: list[str] = Field(default_factory=list, max_length=20)
     duration: str = Field(default="", max_length=100)
     estimatedMinutes: int = Field(default=0, ge=0, le=480)
+    exhibitCount: int = Field(default=0, ge=0)
+    exhibitCountKnown: bool = False
     reason: str = Field(default="", max_length=1000)
     focus: str = Field(default="", max_length=500)
     status: str = Field(default="upcoming", max_length=30)

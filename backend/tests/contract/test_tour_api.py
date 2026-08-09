@@ -17,6 +17,7 @@ from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
 )
 from app.api.tour import (
+    TourRouteStep,
     _collect_visited_halls,
     _hall_card_description,
     _resolve_chat_hall_context,
@@ -41,6 +42,7 @@ from app.infra.postgres.models import (
 )
 from app.main import app
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 from sqlalchemy import select
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -423,6 +425,26 @@ async def test_frontend_resume_contract_and_optimistic_state_version(
         "intent_text": "想了解半坡人的生活",
         "preferred_hall_order": ["basic", "site", "kiln"],
     }
+    route_steps = [
+        {
+            "order": index + 1,
+            "hallId": slug,
+            "hallSlug": slug,
+            "name": hall_display_name(slug),
+            "short": hall_display_name(slug)[:2],
+            "highlights": [],
+            "duration": "约 15 分钟",
+            "estimatedMinutes": 15,
+            "exhibitCount": index + 1,
+            "exhibitCountKnown": True,
+            "reason": f"认识{hall_display_name(slug)}",
+            "focus": "",
+            "status": "current" if index == 0 else "upcoming",
+            "isVisited": False,
+            "isCurrent": index == 0,
+        }
+        for index, slug in enumerate(CANONICAL_HALL_ORDER)
+    ]
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         create_response = await client.post(
@@ -449,7 +471,18 @@ async def test_frontend_resume_contract_and_optimistic_state_version(
             "assumption": "D",
             "questionnaire": questionnaire,
             "questionnaire_draft": None,
-            "route_plan": None,
+            "route_plan": {
+                "steps": route_steps,
+                "floorItems": [],
+                "totalDesc": "按开放展厅自由参观",
+                "personaLabel": "研学记录员",
+                "tagline": "",
+                "stepsCount": len(route_steps),
+                "routeSource": "directory",
+                "routeSourceLabel": "展厅目录",
+                "planSummary": "",
+                "routeNotice": "",
+            },
             "current_page": "pages/tour/tour",
             "current_page_params": {"hall": "basic-exhibition-hall"},
             "current_hall": "basic-exhibition-hall",
@@ -503,7 +536,34 @@ async def test_frontend_resume_contract_and_optimistic_state_version(
         assert patched["resume_state"]["current_hall_name"] == "基本陈列展厅"
         assert patched["resume_state"]["focus_prompt"] == "优先关注日常生活线索"
         assert patched["resume_state"]["guide_mode_prompt"] == "用自然对话引导"
+        patched_steps = patched["resume_state"]["route_plan"]["steps"]
+        assert patched_steps == route_steps
         assert len(patched["hall_chat_history"]["basic-exhibition-hall"]) == 2
+
+        restored = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}",
+            headers={"X-Session-Token": created["session_token"]},
+        )
+        assert restored.status_code == 200
+        restored_steps = restored.json()["resume_state"]["route_plan"]["steps"]
+        assert restored_steps == route_steps
+
+        invalid_resume_state = json.loads(json.dumps(resume_state))
+        invalid_resume_state["route_plan"]["steps"][0]["unknownClientField"] = True
+        strict_rejection = await client.patch(
+            f"/api/v1/tour/sessions/{created['id']}",
+            headers={"X-Session-Token": created["session_token"]},
+            json={
+                "expected_state_version": 2,
+                "resume_state": invalid_resume_state,
+            },
+        )
+        assert strict_rejection.status_code == 422
+        assert any(
+            error["loc"][-1] == "unknownClientField"
+            and error["type"] == "extra_forbidden"
+            for error in strict_rejection.json()["detail"]
+        )
 
         conflict = await client.patch(
             f"/api/v1/tour/sessions/{created['id']}",
@@ -514,6 +574,24 @@ async def test_frontend_resume_contract_and_optimistic_state_version(
     assert conflict.status_code == 409
     assert conflict.json()["detail"]["code"] == "STATE_VERSION_CONFLICT"
     assert conflict.json()["detail"]["current_state_version"] == 2
+
+
+def test_route_step_display_fields_are_bounded_and_backward_compatible():
+    required = {
+        "order": 1,
+        "hallId": "basic-exhibition-hall",
+        "hallSlug": "basic-exhibition-hall",
+        "name": "基本陈列展厅",
+    }
+    legacy = TourRouteStep(**required)
+    assert legacy.short == ""
+    assert legacy.exhibitCount == 0
+    assert legacy.exhibitCountKnown is False
+
+    with pytest.raises(ValidationError):
+        TourRouteStep(**required, short="展" * 21)
+    with pytest.raises(ValidationError):
+        TourRouteStep(**required, exhibitCount=-1)
 
 
 @pytest.mark.asyncio

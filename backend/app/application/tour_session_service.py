@@ -153,6 +153,9 @@ async def append_hall_chat_turn(
     assistant_content: str,
     *,
     turn_id: str | None = None,
+    subject_scope: str | None = None,
+    subject_exhibit_id: str | None = None,
+    clarification_required: bool = False,
 ) -> TourSession:
     """Merge one completed turn into the latest persisted hall history.
 
@@ -167,9 +170,31 @@ async def append_hall_chat_turn(
     ]
     stable_turn_id = str(turn_id or "").strip()[:120] or None
     trusted_turn = [dict(message) for message in completed_turn]
+    normalized_subject_scope = str(subject_scope or "").strip()
+    if normalized_subject_scope not in {"hall", "single", "multi", "unknown"}:
+        normalized_subject_scope = ""
+    normalized_subject_exhibit_id = str(subject_exhibit_id or "").strip()[:120]
+    if clarification_required:
+        # A clarification did not establish an object, regardless of the
+        # caller's provisional classification. Enforce the invariant at the
+        # persistence boundary so contradictory trusted metadata cannot exist.
+        normalized_subject_scope = "unknown"
+        normalized_subject_exhibit_id = ""
     if stable_turn_id:
         for message in trusted_turn:
             message["_turn_id"] = stable_turn_id
+    if normalized_subject_scope:
+        for message in trusted_turn:
+            message["_subject_scope"] = normalized_subject_scope
+    if normalized_subject_scope == "single" and normalized_subject_exhibit_id:
+        for message in trusted_turn:
+            message["_subject_exhibit_id"] = normalized_subject_exhibit_id
+    if clarification_required:
+        # This marker is written only by the backend and never copied into the
+        # display history.  It prevents a later vague input (for example "1")
+        # from treating a clarification prompt as a completed answer merely
+        # because the wording changed.
+        trusted_turn[-1]["_clarification_required"] = True
 
     def turn_content_matches(messages: list[dict]) -> bool:
         if len(messages) < 2:

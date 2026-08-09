@@ -22,10 +22,18 @@ from app.application.tour_chat_service import (
     _filter_trusted_rag_documents,
     _stream_rag,
     ask_stream_tour,
+    bound_conversation_history,
+    bound_grounding_history,
     build_inference_history,
     build_system_prompt,
     classify_tour_grounding,
     grounding_subject,
+    has_unresolved_deictic_comparison,
+)
+from app.application.tour_report_service import (
+    clarification_question_keys,
+    is_clarification_answer_text,
+    is_clarification_event,
 )
 from app.infra.providers.tts.base import TTSConfig
 
@@ -133,6 +141,8 @@ def test_build_system_prompt_persona_b():
     assert "\"说明了什么\"" in prompt
     assert "不要把回答分成重要性、后续观察建议等段落" in prompt
     assert "Markdown加粗" in prompt
+    assert "只输出“我还不知道你指的是哪件展品" in prompt
+    assert "不得换一种说法或追加其他内容" in prompt
 
 
 def test_build_system_prompt_persona_c():
@@ -614,9 +624,7 @@ def test_system_prompt_treats_earlier_history_as_non_authoritative_data():
         "一号",
         "一",
         "二",
-        "三",
         "两",
-        "十",
     ],
 )
 def test_selection_only_input_uses_only_completed_trusted_history(message):
@@ -635,6 +643,38 @@ def test_selection_only_input_uses_only_completed_trusted_history(message):
         message,
         exhibit_context="名称：尖底瓶",
         hall_context="陶窑展厅：可信简介",
+    ) == "needs_clarification"
+
+
+@pytest.mark.parametrize("message", ["1", "第一个", "选2", "三", "十"])
+def test_selection_only_input_requires_a_matching_server_answer_option(message):
+    plain_answer = [
+        {"role": "user", "content": "这个展厅展示什么？", "_subject_scope": "hall"},
+        {
+            "role": "assistant",
+            "content": "这里展示聚落生活与生产工具。",
+            "_subject_scope": "hall",
+        },
+    ]
+    clarification = [
+        {"role": "user", "content": "鱼纹是什么？", "_subject_scope": "unknown"},
+        {
+            "role": "assistant",
+            "content": "你提到的名称可能对应“人面鱼纹彩陶盆”、“鱼纹陶罐”。请说完整名称，或点“搜展品”选择。",
+            "_subject_scope": "unknown",
+            "_clarification_required": True,
+        },
+    ]
+
+    assert classify_tour_grounding(
+        message,
+        hall_context="基本陈列展厅：可信简介",
+        trusted_history=plain_answer,
+    ) == "needs_clarification"
+    assert classify_tour_grounding(
+        message,
+        hall_context="基本陈列展厅：可信简介",
+        trusted_history=clarification,
     ) == "needs_clarification"
 
 
@@ -659,6 +699,18 @@ def test_grounding_allows_only_supported_followups_and_clear_questions():
         {"role": "assistant", "content": "可从器形和磨损痕迹一起看。"},
     ]
     welcome_only = [{"role": "assistant", "content": "欢迎来到陶窑展厅。"}]
+    multi_completed = [
+        {
+            "role": "user",
+            "content": "请介绍前两件展品。",
+            "_subject_scope": "multi",
+        },
+        {
+            "role": "assistant",
+            "content": "第一件是陶盆，第二件是尖底瓶。",
+            "_subject_scope": "multi",
+        },
+    ]
 
     assert classify_tour_grounding(
         "为什么？",
@@ -731,11 +783,19 @@ def test_grounding_allows_only_supported_followups_and_clear_questions():
         "这里的第二个是什么",
         "本厅第一个选项是什么意思",
     )
+    assert classify_tour_grounding(
+        "它的用途",
+        hall_context="陶窑展厅：可信简介",
+        trusted_history=multi_completed,
+    ) == "needs_clarification"
+    contextual_followups = tuple(
+        message for message in contextual_followups if message != "它的用途"
+    )
     for message in contextual_followups:
         assert classify_tour_grounding(
             message,
             hall_context="陶窑展厅：可信简介",
-            trusted_history=completed,
+            trusted_history=multi_completed,
         ) == "history_followup"
         assert classify_tour_grounding(
             message,
@@ -896,6 +956,21 @@ def test_real_hall_questions_stay_hall_scoped(message):
     ) == "hall_question"
 
 
+@pytest.mark.parametrize(
+    "message",
+    (
+        "这个展厅的人面鱼纹彩陶盆有什么特点？",
+        "这个展厅里尖底瓶和陶罐有什么区别？",
+        "当前展厅中的尖底瓶怎么使用？",
+    ),
+)
+def test_hall_reference_does_not_hide_an_explicit_exhibit_question(message):
+    assert classify_tour_grounding(
+        message,
+        hall_context="基本陈列展厅：可信简介",
+    ) == "clear_question"
+
+
 def test_multi_object_references_override_stale_selected_exhibit_context():
     completed = [
         {"role": "user", "content": "介绍两件代表性展品。"},
@@ -960,6 +1035,60 @@ def test_multi_object_references_override_stale_selected_exhibit_context():
         exhibit_context="名称：当前页面展品",
         hall_context="陶窑展厅：可信简介",
     ) == "bound_exhibit"
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "它来自同一时期吗？",
+        "它属于同一种陶器吗？",
+        "它采用相同工艺吗？",
+        "这件器物比较早吗？",
+        "这个器物或者是祭祀用品吗？",
+        "它属于和平时期吗？",
+        "这个纹样看起来很和谐吗？",
+    ),
+)
+def test_single_exhibit_same_attribute_questions_keep_selected_context(message):
+    assert classify_tour_grounding(
+        message,
+        exhibit_context="名称：当前页面展品",
+        hall_context="陶窑展厅：可信简介",
+    ) == "bound_exhibit"
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "它和那个有什么区别？",
+        "那个和它有什么区别？",
+        "左边这个和右边那个有什么区别？",
+        "它和旁边那个有什么区别？",
+        "这件跟旁边那件比呢？",
+        "它和那个是同一件吗？",
+    ),
+)
+def test_two_unnamed_comparison_objects_require_clarification(message):
+    assert has_unresolved_deictic_comparison(message) is True
+    assert classify_tour_grounding(
+        message,
+        exhibit_context="名称：当前页面展品",
+        hall_context="陶窑展厅：可信简介",
+    ) == "needs_clarification"
+
+
+@pytest.mark.parametrize(
+    "message",
+    (
+        "人面鱼纹彩陶盆与这个展厅有什么关系？",
+        "人面鱼纹彩陶盆和这个时期的陶器有什么关系？",
+        "人面鱼纹彩陶盆和那个图案有什么关系？",
+        "人面鱼纹彩陶盆与这件事情有什么关系？",
+        "人面鱼纹彩陶盆和它的纹饰有什么关系？",
+    ),
+)
+def test_comparison_deictic_detector_ignores_normal_noun_modifiers(message):
+    assert has_unresolved_deictic_comparison(message) is False
     assert classify_tour_grounding(
         "这件有什么用途",
         exhibit_context="名称：当前页面展品",
@@ -1017,11 +1146,61 @@ def test_contextual_reference_requires_completed_trusted_history(message):
     ) == "needs_clarification"
 
 
+@pytest.mark.parametrize(
+    "message",
+    ("这两个有什么区别", "1和2有什么区别", "前者呢", "第二个展品是什么"),
+)
+@pytest.mark.parametrize("scope", ("single", "hall", "unknown"))
+def test_multi_or_order_reference_requires_a_compatible_previous_scope(
+    message,
+    scope,
+):
+    history = [
+        {"role": "user", "content": "上一轮问题", "_subject_scope": scope},
+        {
+            "role": "assistant",
+            "content": "这里只形成了一段普通说明，没有列出候选项。",
+            "_subject_scope": scope,
+        },
+    ]
+
+    assert classify_tour_grounding(
+        message,
+        hall_context="基本陈列展厅：可信简介",
+        trusted_history=history,
+    ) == "needs_clarification"
+
+
+@pytest.mark.parametrize(
+    "message",
+    ("这两个有什么区别", "1和2有什么区别", "前者呢", "第二个展品是什么"),
+)
+def test_multi_or_order_reference_accepts_structured_multi_history(message):
+    history = [
+        {
+            "role": "user",
+            "content": "尖底瓶和陶罐有什么区别？",
+            "_subject_scope": "multi",
+        },
+        {
+            "role": "assistant",
+            "content": "第一件是尖底瓶，第二件是陶罐。",
+            "_subject_scope": "multi",
+        },
+    ]
+
+    assert classify_tour_grounding(
+        message,
+        hall_context="基本陈列展厅：可信简介",
+        trusted_history=history,
+    ) == "history_followup"
+
+
 @pytest.mark.parametrize("message", SINGULAR_DEICTIC_MESSAGES)
 def test_singular_deictic_uses_selected_exhibit_or_completed_history(message):
     completed = [
-        {"role": "user", "content": "请介绍这件展品。"},
-        {"role": "assistant", "content": "可从器形和磨损痕迹观察。"},
+        {"role": "user", "content": "尖底瓶有什么特点？"},
+        {"role": "assistant", "content": "尖底设计便于汲水。"},
     ]
     clarification_only = [
         {"role": "user", "content": "这件是什么？"},
@@ -1053,6 +1232,277 @@ def test_singular_deictic_uses_selected_exhibit_or_completed_history(message):
             hall_context=hall_context,
             trusted_history=history,
         ) == "bound_exhibit"
+
+
+def test_singular_deictic_requires_a_concrete_subject_not_only_a_completed_answer():
+    hall_history = [
+        {"role": "user", "content": "基本陈列展厅主要展示什么？"},
+        {"role": "assistant", "content": "这里介绍半坡人的生活与社会。"},
+    ]
+    unresolved_history = [
+        {"role": "user", "content": "请介绍这件展品。"},
+        {"role": "assistant", "content": "可从器形和磨损痕迹观察。"},
+    ]
+    concrete_history = [
+        {"role": "user", "content": "尖底瓶有什么特点？"},
+        {"role": "assistant", "content": "尖底设计便于汲水。"},
+    ]
+    context = {"hall_context": "基本陈列展厅：可信简介"}
+
+    assert classify_tour_grounding(
+        "它为什么重要？", trusted_history=hall_history, **context
+    ) == "needs_clarification"
+    assert classify_tour_grounding(
+        "它为什么重要？", trusted_history=unresolved_history, **context
+    ) == "needs_clarification"
+    assert classify_tour_grounding(
+        "它为什么重要？", trusted_history=concrete_history, **context
+    ) == "history_followup"
+    assert classify_tour_grounding(
+        "它为什么重要？",
+        trusted_history=[
+            {"role": "user", "content": "尖底瓶和陶罐有什么区别？"},
+            {"role": "assistant", "content": "两者器形和用途不同。"},
+        ],
+        **context,
+    ) == "needs_clarification"
+    for question, answer in (
+        (
+            "尖底瓶的器形与纹饰有什么特点？",
+            "器形和纹饰分别反映使用需求与装饰选择。",
+        ),
+        (
+            "尖底瓶的不同部位怎么看？",
+            "口沿、腹部和尖底分别保留了制作与使用线索。",
+        ),
+        (
+            "尖底瓶有什么特点？",
+            "它有多个细节，它们共同说明汲水用途。",
+        ),
+        (
+            "尖底瓶的器形与纹饰有什么特点？",
+            "器形和纹饰两者共同反映实用与装饰选择。",
+        ),
+        (
+            "尖底瓶有什么特点？",
+            "实用性和制作难度两者都值得关注。",
+        ),
+        (
+            "尖底瓶有哪些纹饰？",
+            "这两种纹饰都位于同一件展品上。",
+        ),
+    ):
+        assert classify_tour_grounding(
+            "它为什么重要？",
+            trusted_history=[
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ],
+            **context,
+        ) == "history_followup"
+    for question in (
+        "尖底瓶是怎么制作和使用的？",
+        "人面鱼纹彩陶盆的器形与纹饰有什么特点？",
+        "尖底瓶的出土位置和保存状况如何？",
+        "人面鱼纹彩陶盆的发现过程与研究历史是什么？",
+        "尖底瓶同时反映了哪些技术？",
+        "尖底瓶比较特别的地方是什么？",
+        "尖底瓶涉及哪些制作步骤？",
+        "尖底瓶出土位置和保存状况如何？",
+        "尖底瓶口沿、腹部和尖底分别有什么特点？",
+        "尖底瓶出土地点、发现时间和保存状态分别是什么？",
+        "尖底瓶烧制与装饰如何完成？",
+        "尖底瓶与半坡生活有什么关系？",
+    ):
+        assert classify_tour_grounding(
+            "它为什么重要？",
+            trusted_history=[
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": "先回答这件展品本身。"},
+            ],
+            **context,
+        ) == "history_followup"
+    assert classify_tour_grounding(
+        "它为什么重要？",
+        trusted_history=[
+            {
+                "role": "user",
+                "content": "尖底瓶和陶罐是什么？",
+                "_subject_scope": "multi",
+            },
+            {
+                "role": "assistant",
+                "content": "尖底瓶用于汲水，陶罐用于储存。",
+                "_subject_scope": "multi",
+            },
+        ],
+        **context,
+    ) == "needs_clarification"
+    for question in (
+        "请介绍尖底瓶和陶罐。",
+        "尖底瓶、陶罐各有什么用途？",
+    ):
+        assert classify_tour_grounding(
+            "它为什么重要？",
+            trusted_history=[
+                {
+                    "role": "user",
+                    "content": question,
+                    "_subject_scope": "multi",
+                },
+                {
+                    "role": "assistant",
+                    "content": "尖底瓶用于汲水，陶罐用于储存。",
+                    "_subject_scope": "multi",
+                },
+            ],
+            **context,
+        ) == "needs_clarification"
+    for question in (
+        "尖底瓶和陶罐是什么？",
+        "请介绍尖底瓶和陶罐。",
+        "尖底瓶、陶罐各有什么用途？",
+    ):
+        assert classify_tour_grounding(
+            "它为什么重要？",
+            trusted_history=[
+                {"role": "user", "content": question},
+                {
+                    "role": "assistant",
+                    "content": "尖底瓶用于汲水，陶罐用于储存。",
+                },
+            ],
+            **context,
+        ) == "needs_clarification"
+    assert classify_tour_grounding(
+        "再详细点", trusted_history=hall_history, **context
+    ) == "history_followup"
+
+
+def test_structured_trusted_scope_overrides_legacy_text_inference():
+    context = {"hall_context": "基本陈列展厅：可信简介"}
+    textually_single = [
+        {
+            "role": "user",
+            "content": "尖底瓶有什么特点？",
+            "_subject_scope": "multi",
+        },
+        {
+            "role": "assistant",
+            "content": "分别介绍两个对象。",
+            "_subject_scope": "multi",
+        },
+    ]
+    textually_ambiguous = [
+        {
+            "role": "user",
+            "content": "尖底瓶口沿、腹部和尖底分别有什么特点？",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+        },
+        {
+            "role": "assistant",
+            "content": "这些部位属于同一件展品。",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+        },
+    ]
+    stale_single_clarification = [
+        {
+            "role": "user",
+            "content": "尖底瓶为什么重要？",
+            "_subject_scope": "single",
+        },
+        {
+            "role": "assistant",
+            "content": "我还不知道你指的是哪件展品。请说展品名称。",
+            "_subject_scope": "single",
+        },
+    ]
+    privately_flagged_single = [
+        {
+            "role": "user",
+            "content": "名称不完整的提问",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "stale-exhibit",
+        },
+        {
+            "role": "assistant",
+            "content": "请补充一下。",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "stale-exhibit",
+            "_clarification_required": True,
+        },
+    ]
+
+    assert classify_tour_grounding(
+        "它为什么重要？", trusted_history=textually_single, **context
+    ) == "needs_clarification"
+    assert classify_tour_grounding(
+        "它为什么重要？", trusted_history=textually_ambiguous, **context
+    ) == "history_followup"
+    assert classify_tour_grounding(
+        "它呢？", trusted_history=stale_single_clarification, **context
+    ) == "needs_clarification"
+    assert classify_tour_grounding(
+        "它呢？", trusted_history=privately_flagged_single, **context
+    ) == "needs_clarification"
+
+
+def test_grounding_history_keeps_only_server_subject_metadata():
+    raw = [
+        {
+            "role": "user",
+            "content": "尖底瓶有什么特点？",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+            "_turn_id": "private-turn",
+            "untrusted": "drop-me",
+        },
+        {
+            "role": "assistant",
+            "content": "尖底设计便于汲水。",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+        },
+    ]
+
+    assert bound_conversation_history(raw) == [
+        {"role": "user", "content": "尖底瓶有什么特点？"},
+        {"role": "assistant", "content": "尖底设计便于汲水。"},
+    ]
+    assert bound_grounding_history(raw) == [
+        {
+            "role": "user",
+            "content": "尖底瓶有什么特点？",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+        },
+        {
+            "role": "assistant",
+            "content": "尖底设计便于汲水。",
+            "_subject_scope": "single",
+            "_subject_exhibit_id": "exhibit-1",
+        },
+    ]
+
+
+def test_grounding_history_keeps_server_clarification_marker_out_of_model_history():
+    raw = [
+        {"role": "user", "content": "鱼纹是什么？", "_subject_scope": "unknown"},
+        {
+            "role": "assistant",
+            "content": "请说完整名称。",
+            "_subject_scope": "unknown",
+            "_clarification_required": True,
+        },
+    ]
+
+    assert bound_conversation_history(raw)[-1] == {
+        "role": "assistant",
+        "content": "请说完整名称。",
+    }
+    assert bound_grounding_history(raw)[-1]["_clarification_required"] is True
 
 
 def test_numbered_excavation_topic_stays_clear_with_stale_selected_exhibit():
@@ -1106,6 +1556,7 @@ async def test_non_bound_turn_never_injects_stale_single_exhibit_into_rag_or_eve
 ):
     captured = {}
     recorded_events = []
+    persisted_options = []
 
     async def fake_stream_rag(*args, **kwargs):
         captured["system_prompt"] = args[3]
@@ -1116,6 +1567,7 @@ async def test_non_bound_turn_never_injects_stale_single_exhibit_into_rag_or_eve
         recorded_events.extend(events)
 
     async def fake_append_hall_chat_turn(*args, **kwargs):
+        persisted_options.append(kwargs)
         return SimpleNamespace(state_version=2)
 
     monkeypatch.setattr(
@@ -1141,6 +1593,7 @@ async def test_non_bound_turn_never_injects_stale_single_exhibit_into_rag_or_eve
             exhibit_id="stale-exhibit-id",
             exhibit_context="名称：过期单件展品\n展厅：遗址保护大厅",
             hall_context="遗址保护大厅：可信展厅简介",
+            subject_scope_hint="single",
             conversation_history=trusted_history,
             grounding_history=trusted_history,
             tour_session=fake_tour_session,
@@ -1155,6 +1608,14 @@ async def test_non_bound_turn_never_injects_stale_single_exhibit_into_rag_or_eve
     assert all(
         "exhibit_name" not in event["metadata"] for event in recorded_events
     )
+    assert all(
+        event["metadata"]["subject_scope"] != "single"
+        for event in recorded_events
+    )
+    assert persisted_options[0]["subject_scope"] != "single"
+    if message == "尖底瓶和陶罐有什么区别":
+        assert recorded_events[0]["metadata"]["subject_scope"] == "multi"
+        assert persisted_options[0]["subject_scope"] == "multi"
 
 
 @pytest.mark.asyncio
@@ -1332,6 +1793,10 @@ async def test_bound_single_exhibit_keeps_context_in_rag_and_events(
         for event in recorded_events
     )
     assert recorded_events[0]["metadata"]["exhibit_name"] == "当前尖底瓶"
+    assert all(
+        event["metadata"]["subject_scope"] == "single"
+        for event in recorded_events
+    )
 
 
 @pytest.mark.asyncio
@@ -1365,14 +1830,16 @@ async def test_ambiguous_turn_streams_local_clarification_and_persists_flag(
 ):
     recorded_events = []
     persisted_turns = []
+    persisted_options = []
 
     async def fake_record_events(_session, _session_id, events):
         recorded_events.extend(events)
 
     async def fake_append_hall_chat_turn(
-        _session, _session_id, hall, question, answer, *, turn_id=None
+        _session, _session_id, hall, question, answer, **_kwargs
     ):
         persisted_turns.append((hall, question, answer))
+        persisted_options.append(_kwargs)
         return SimpleNamespace(state_version=2)
 
     monkeypatch.setattr(
@@ -1407,11 +1874,17 @@ async def test_ambiguous_turn_streams_local_clarification_and_persists_flag(
     assert "请说展品名称" in _parse_events("".join(events))[0]["data"]["content"]
     rag_agent.run.assert_not_awaited()
     assert persisted_turns and persisted_turns[0][1] == message
+    assert persisted_options[0]["subject_scope"] == "unknown"
     assert len(recorded_events) == 2
     assert all(
         event["metadata"]["clarification_required"] is True
         for event in recorded_events
     )
+    assert all(
+        event["metadata"]["subject_scope"] == "unknown"
+        for event in recorded_events
+    )
+    assert persisted_options[0]["clarification_required"] is True
 
 
 @pytest.mark.asyncio
@@ -1483,6 +1956,173 @@ async def test_client_only_history_cannot_establish_grounding_followup(
 
     rag_agent.run.assert_awaited_once()
     assert _collect_event_types(trusted_events) == ["chunk", "chunk", "chunk", "done"]
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected"),
+    [
+        (
+            "“它”具体指哪件展品或遗存尚不明确。请告知具体名称，"
+            "或在展厅中选择一件展品。",
+            True,
+        ),
+        ("我还不知道你指的是哪件展品。请说展品名称。", True),
+        ("我不清楚你指的是哪件器物，请告诉我它的名称。", True),
+        ("你说的“这个”具体是哪件展品？请告诉我名称。", True),
+        ("当前信息无法判断是哪件展品，请提供展签名称。", True),
+        ("你是在问尖底瓶还是人面鱼纹彩陶盆？", True),
+        ("我还不知道你说的是哪件展品，请说展品名称。", True),
+        ("你能说一下展品名称吗？", True),
+        ("能拍一下展签或告诉我展品名吗？", True),
+        ("这里的“它”指什么？", True),
+        ("你问的是它的用途、年代还是纹饰？", True),
+        ("这处遗存的具体年代尚不明确，还需要更多考古证据。", False),
+        ("选择一件展品后，可以先观察材料和使用痕迹。", False),
+        ("请选择一件展品观察它的材料、形状和纹饰。", False),
+        ("先点“搜展品”选择，再查看详细介绍。", False),
+        ("你提到的名称可能对应这种器物的旧称，展签采用的是新称。", False),
+        ("你提到的名称可能对应多件展品，请补充所在展厅。", True),
+        ("请先点“搜展品”选择，我再回答它的用途。", True),
+        ("你说的“第一件”是列表中的哪件？请报一下展品名。", True),
+        ("具体指哪件展品？选择一件展品后我再说明。", True),
+        ("你说的是陶盆还是陶钵？", True),
+        ("请告诉我是哪个展柜里的展品。", True),
+        ("我不确定你说的是哪个展品，请给我完整名称。", True),
+        ("你能再具体一点吗？比如说出展品名。", True),
+        ("你说的是哪一个？请补充一下名称。", True),
+        ("请告知具体名称，我才能确认你说的是哪件展品。", True),
+        ("你指的是哪一件展品？请说展品名称。", True),
+        ("你提到的名称可能对应不同展品。请补充所在展厅。", True),
+        (
+            "你提到的名称可能对应“人面鱼纹彩陶盆”、“鱼纹陶罐”。请说完整名称，或点“搜展品”选择。",
+            True,
+        ),
+        ("这处遗存具体指哪处遗存？请告知具体名称。", True),
+        ("可以通过展签说明确认展品名称和年代。", False),
+        ("可以先看展签，展签会说明展品名称、年代和出土位置。", False),
+        ("请看展签说明中的展品名称，再对照器形。", False),
+        ("请告知具体名称的书写方式，再解释文字含义。", False),
+        ("请说展品名称时尽量照抄展签，便于检索。", False),
+        ("“请说展品名称”是搜索框的操作提示，不是展签内容。", False),
+        ("请说明具体名称的来源，以及它与旧称的区别。", False),
+        ("这里的“它”指什么？它指的是聚落中的公共空间。", False),
+        ("你问的是用途还是年代？从磨损痕迹看，这里主要讨论用途。", False),
+        ("由于标签脱落，目前无法确定它是哪件展品，但器形仍可判断为陶罐。", False),
+        ("研究者还不确定这是哪一件遗存，现有编号只能说明出土区域。", False),
+        ("我不知道你指的是哪件陶器，请说出具体名称。", True),
+        ("我不清楚你指的是哪件遗存，请说明具体名称。", True),
+        ("我不知道你指的是哪件展品，但可以先介绍展厅整体。", True),
+        ("目前无法确定是哪件展品。", False),
+        ("目前无法确定是哪件展品！请补充完整名称。", True),
+        ("现有记录无法确认它具体是哪件器物。", False),
+        ("这个残片属于哪件器物尚不明确。", False),
+    ],
+)
+def test_clarification_answer_text_requires_an_object_request(answer, expected):
+    assert is_clarification_answer_text(answer) is expected
+
+
+@pytest.mark.asyncio
+async def test_model_generated_clarification_is_flagged_and_does_not_ground_next_turn(
+    monkeypatch,
+    fake_tour_session,
+    fake_session_maker,
+):
+    clarification = (
+        "“它”具体指哪件展品或遗存尚不明确。请告知具体名称，"
+        "或在展厅中选择一件展品。"
+    )
+    trusted_history = [
+        {"role": "user", "content": "基本陈列展厅主要展示什么？"},
+        {"role": "assistant", "content": "展厅介绍半坡人的生活与社会。"},
+    ]
+    recorded_events = []
+
+    async def fake_stream_rag(*args, **kwargs):
+        yield (
+            'data: {"event":"chunk","data":{"content":'
+            + json.dumps(clarification, ensure_ascii=False)
+            + "}}\n\n",
+            clarification,
+        )
+
+    async def fake_record_events(_session, _session_id, events):
+        recorded_events.extend(events)
+
+    monkeypatch.setattr(
+        "app.application.tour_chat_service._stream_rag",
+        fake_stream_rag,
+    )
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.record_events",
+        fake_record_events,
+    )
+    monkeypatch.setattr(
+        "app.application.tour_chat_service.append_hall_chat_turn",
+        AsyncMock(return_value=SimpleNamespace(state_version=2)),
+    )
+
+    events = [
+        event
+        async for event in ask_stream_tour(
+            db_session=None,
+            session_maker=fake_session_maker,
+            tour_session_id="tour-model-clarification",
+            message="人面鱼纹彩陶盆为什么重要？",
+            rag_agent=MagicMock(),
+            llm_provider=MagicMock(),
+            hall_context="基本陈列展厅：可信简介",
+            conversation_history=trusted_history,
+            grounding_history=trusted_history,
+            tour_session=fake_tour_session,
+        )
+    ]
+
+    assert _collect_event_types(events) == ["chunk", "done"]
+    assert len(recorded_events) == 2
+    assert all(
+        event["metadata"].get("clarification_required") is True
+        for event in recorded_events
+    )
+    assert all(
+        event["metadata"]["subject_scope"] == "unknown"
+        for event in recorded_events
+    )
+    assert clarification_question_keys(
+        [
+            SimpleNamespace(
+                event_type="assistant_answer",
+                metadata={
+                    "answer": clarification,
+                    "question_client_event_id": "model-clarification",
+                },
+            )
+        ]
+    ) == {"model-clarification"}
+    legacy_events = [
+        SimpleNamespace(
+            event_type="exhibit_question",
+            hall="basic-exhibition-hall",
+            metadata={"question": "它为什么重要？"},
+        ),
+        SimpleNamespace(
+            event_type="assistant_answer",
+            hall="basic-exhibition-hall",
+            metadata={"question": "它为什么重要？", "answer": clarification},
+        ),
+    ]
+    legacy_keys = clarification_question_keys(legacy_events)
+    assert len(legacy_keys) == 2
+    assert all(is_clarification_event(event, legacy_keys) for event in legacy_events)
+    assert classify_tour_grounding(
+        "它呢？",
+        hall_context="基本陈列展厅：可信简介",
+        trusted_history=[
+            *trusted_history,
+            {"role": "user", "content": "它为什么重要？"},
+            {"role": "assistant", "content": clarification},
+        ],
+    ) == "needs_clarification"
 
 
 @pytest.mark.asyncio

@@ -140,7 +140,69 @@ GENERIC_FOLLOWUP_QUESTIONS = {
 }
 CLARIFICATION_ANSWER_MARKERS = (
     "我还不知道你指的是哪件展品",
-    "你提到的名称可能对应",
+    "我还不知道你说的“它们”指哪些展品",
+    "我还不知道你要比较的另一件展品",
+)
+CLARIFICATION_SECOND_PERSON_UNRESOLVED_PATTERNS = (
+    r"(?:不清楚|不知道|不确定|无法判断|无法确认|无法确定)"
+    r"[^。！？?]{0,16}你(?:说的|说的是|提到的|指的|指的是)"
+    r"[^。！？?]{0,12}(?:哪(?:一)?(?:件|处|个)|哪个)"
+    r"(?:展品|器物|文物|遗存|陶器)?",
+)
+CLARIFICATION_UNRESOLVED_PATTERNS = (
+    r"(?:不清楚|不知道|不确定|无法判断|无法确认|无法确定)"
+    r"[^。！？?]{0,24}(?:哪(?:一)?(?:件|处|个)|哪个)"
+    r"(?:展品|器物|文物|遗存|陶器)?",
+    r"(?:它|这个|那个|这件|那件)[^。！？?]{0,12}"
+    r"(?:指)?(?:哪(?:一)?(?:件|处|个)|哪个)"
+    r"(?:展品|器物|文物|遗存|陶器)?[^。！？?]{0,8}(?:尚)?不明确",
+)
+CLARIFICATION_PAIRED_UNRESOLVED_PATTERNS = (
+    r"名称(?:可能)?对应(?:多件|多个|不同)(?:展品|器物|文物)?[，。]?"
+    r"[^。！？?]{0,12}(?:请|需要)[^。！？?]{0,12}(?:补充|告知|提供)",
+    r"你提到的名称可能对应[^。！？?]{1,80}[。；;]?"
+    r"[^。！？?]{0,20}请说完整名称",
+)
+CLARIFICATION_QUESTION_PATTERNS = (
+    r"(?:你说的|你提到的|这里的)?[“\"'‘’]?(?:它|这个|那个|这件|那件)"
+    r"[”\"'‘’]?(?:具体)?(?:指的是|是指|指|是)(?:什么|哪(?:一)?(?:件|处|个)"
+    r"(?:展品|器物|文物|遗存|陶器)?)[？?]",
+    r"(?:你)?(?:具体)?指的是(?:哪(?:一)?(?:件|处|个)|哪个)"
+    r"(?:展品|器物|文物|遗存|陶器)?[？?]",
+    r"(?:这处遗存|你)?(?:具体)?指(?:的是)?哪(?:一)?(?:件|处|个)"
+    r"(?:展品|器物|文物|遗存|陶器)?[？?]",
+    r"(?:你说的[“\"'‘’]?(?:第)?(?:\d+|[一二三四五六七八九十百两]+)件[”\"'‘’]?)?"
+    r"(?:是)?(?:列表中的)?哪(?:一)?件(?:展品|器物|文物)?[？?]",
+    r"(?:你)?(?:具体)?指(?:的是)?哪(?:一)?件(?:展品|器物|文物|遗存)?[？?]",
+    r"你说的是(?:哪(?:一)?(?:件|处|个)|哪个)"
+    r"(?:展品|器物|文物|遗存)?[？?]",
+    r"(?:你)?(?:说的是|问的是|在问)[^。！？?]{1,30}还是[^。！？?]{1,30}[？?]",
+    r"(?:你)?能(?:不能|否)?(?:再)?具体一点(?:吗)?[？?]",
+)
+CLARIFICATION_REQUEST_ONLY_PATTERNS = (
+    r"^(?:请|能否|能不能|你能否|你能不能|你能|能)(?:先|再|直接)?"
+    r"(?:告知|告诉|提供|补充|说出|说一下|拍一下)(?:我)?"
+    r"(?:展签上的)?(?:具体|完整)?(?:展品名称|展品名|器物名称|名称|展签)"
+    r"(?:吗|呢)?[。！？?]?$",
+    r"^(?:请|能否|能不能|你能否|你能不能|你能|能)(?:先|再)?"
+    r"告诉我是哪个展柜里的展品(?:吗|呢)?[。！？?]?$",
+    r"^(?:你)?能(?:不能|否)?(?:先|再)?拍一下展签"
+    r"(?:或|或者)告诉我(?:具体|完整)?(?:展品名称|展品名|名称)"
+    r"(?:吗|呢)?[。！？?]?$",
+)
+CLARIFICATION_REQUEST_SUFFIX_PATTERN = (
+    r"^(?:(?:请|能否|能不能|你能|能|比如|例如|或|或者|也可以)[^。！？?]{0,4})?"
+    r"(?:告知|告诉|提供|补充|给(?:我)?|说明|说(?:出|一下|展品|名称)|报一下|选择|点“?搜展品”?)"
+)
+CLARIFICATION_DEPENDENCY_PATTERNS = (
+    r"(?:先)?点[“\"']?搜展品[”\"']?选择[^。！？?]{0,18}"
+    r"(?:我再回答|我才能回答|才能确认|再为你说明)",
+    r"选择(?:一件|具体)展品[^。！？?]{0,18}"
+    r"(?:我再回答|我才能回答|才能确认|我再说明|再为你说明)",
+    r"(?:请|能否|能不能|你能|能)(?:先|再)?(?:告知|告诉|提供|补充|说出)"
+    r"(?:我)?(?:具体|完整)?(?:展品|器物)?名称[，,]?"
+    r"(?:我)?(?:才|再)?能(?:确认|判断)[^。！？?]{0,16}"
+    r"(?:哪(?:一)?(?:件|处|个)|哪个)(?:展品|器物|文物|遗存)?",
 )
 RECORD_SUMMARY_SYSTEM_PROMPT = (
     "你是博物馆参观记录摘要器。\n"
@@ -252,17 +314,97 @@ def _clarification_question_key(event: Any, metadata: dict[str, Any]) -> str:
     return value.removesuffix(":assistant")
 
 
+def _legacy_clarification_key(event: Any) -> str:
+    return f"legacy-event:{id(event)}"
+
+
+def _legacy_question_signature(event: Any, metadata: dict[str, Any]) -> str:
+    question = re.sub(
+        r"\s+",
+        "",
+        str(
+            metadata.get("question")
+            or metadata.get("message")
+            or metadata.get("query")
+            or ""
+        ),
+    )
+    if not question:
+        return ""
+    hall = normalize_hall(getattr(event, "hall", None)) or ""
+    return f"question:{hall}:{question[:500]}"
+
+
+def is_clarification_answer_text(answer: str | None) -> bool:
+    """Recognize an answer that asks the visitor to identify the subject.
+
+    The paired reference/request rule deliberately avoids treating a normal
+    museum answer containing only words such as "尚不明确" as a clarification.
+    """
+    normalized = re.sub(r"[\s*_`#>]+", "", str(answer or ""))
+    if not normalized:
+        return False
+    if any(marker in normalized for marker in CLARIFICATION_ANSWER_MARKERS):
+        return True
+    if any(
+        re.search(pattern, normalized)
+        for pattern in CLARIFICATION_SECOND_PERSON_UNRESOLVED_PATTERNS
+    ):
+        return True
+    if any(
+        re.search(pattern, normalized)
+        for pattern in CLARIFICATION_PAIRED_UNRESOLVED_PATTERNS
+    ):
+        return True
+    for pattern in CLARIFICATION_UNRESOLVED_PATTERNS:
+        match = re.search(pattern, normalized)
+        if match is None:
+            continue
+        suffix = normalized[match.end() :].strip("，。；;:：！？!?")
+        if suffix and re.search(CLARIFICATION_REQUEST_SUFFIX_PATTERN, suffix):
+            return True
+    if any(re.search(pattern, normalized) for pattern in CLARIFICATION_DEPENDENCY_PATTERNS):
+        return True
+    if any(re.fullmatch(pattern, normalized) for pattern in CLARIFICATION_REQUEST_ONLY_PATTERNS):
+        return True
+    for pattern in CLARIFICATION_QUESTION_PATTERNS:
+        match = re.search(pattern, normalized)
+        if match is None:
+            continue
+        suffix = normalized[match.end() :].strip("，。；;:：！？!?")
+        if not suffix or re.search(CLARIFICATION_REQUEST_SUFFIX_PATTERN, suffix):
+            return True
+    return False
+
+
 def clarification_question_keys(events: list[Any] | None) -> set[str]:
     keys: set[str] = set()
+    pending_legacy_questions: dict[str, list[Any]] = {}
     for event in events or []:
         metadata = getattr(event, "metadata", None) or {}
+        event_type = str(getattr(event, "event_type", "") or "")
+        client_key = _clarification_question_key(event, metadata)
+        legacy_signature = _legacy_question_signature(event, metadata)
+        if event_type == "exhibit_question" and not client_key and legacy_signature:
+            pending_legacy_questions.setdefault(legacy_signature, []).append(event)
         answer = str(metadata.get("answer") or "")
-        if metadata.get("clarification_required") is not True and not any(
-            marker in answer for marker in CLARIFICATION_ANSWER_MARKERS
-        ):
+        clarification_required = (
+            metadata.get("clarification_required") is True
+            or is_clarification_answer_text(answer)
+        )
+        paired_question = None
+        if event_type == "assistant_answer" and not client_key and legacy_signature:
+            pending = pending_legacy_questions.get(legacy_signature) or []
+            if pending:
+                paired_question = pending.pop()
+        if not clarification_required:
             continue
-        if key := _clarification_question_key(event, metadata):
-            keys.add(key)
+        if client_key:
+            keys.add(client_key)
+        else:
+            keys.add(_legacy_clarification_key(event))
+            if paired_question is not None:
+                keys.add(_legacy_clarification_key(paired_question))
     return keys
 
 
@@ -270,8 +412,15 @@ def is_clarification_event(event: Any, clarification_keys: set[str]) -> bool:
     metadata = getattr(event, "metadata", None) or {}
     if metadata.get("clarification_required") is True:
         return True
+    if (
+        str(getattr(event, "event_type", "") or "") == "assistant_answer"
+        and is_clarification_answer_text(str(metadata.get("answer") or ""))
+    ):
+        return True
     key = _clarification_question_key(event, metadata)
-    return bool(key and key in clarification_keys)
+    if key:
+        return key in clarification_keys
+    return _legacy_clarification_key(event) in clarification_keys
 
 
 def build_reflection_summary(

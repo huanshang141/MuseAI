@@ -2318,47 +2318,65 @@ async def test_message_exhibit_resolution_binds_unique_names_and_clarifies_multi
     )
     await db_session.commit()
 
-    unique, unique_clarification = await _resolve_message_exhibit(
+    unique, unique_clarification, unique_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "尖底瓶怎么用？",
     )
-    multiple, multiple_clarification = await _resolve_message_exhibit(
+    multiple, multiple_clarification, multiple_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "鱼纹是什么意思？",
     )
-    category, category_clarification = await _resolve_message_exhibit(
+    category, category_clarification, category_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "陶器",
     )
-    comparison, comparison_clarification = await _resolve_message_exhibit(
+    comparison, comparison_clarification, comparison_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "尖底瓶和鱼纹陶罐有什么区别？",
     )
-    nested_unique, nested_unique_clarification = await _resolve_message_exhibit(
+    nested_unique, nested_unique_clarification, nested_unique_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "请介绍鱼纹陶罐",
     )
-    nested_comparison, nested_comparison_clarification = await _resolve_message_exhibit(
+    nested_comparison, nested_comparison_clarification, nested_comparison_scope = await _resolve_message_exhibit(
         db_session,
         "kiln-hall",
         "鱼纹陶罐和陶罐有什么区别？",
     )
+    unresolved_comparisons = [
+        await _resolve_message_exhibit(db_session, "kiln-hall", message)
+        for message in (
+            "它和那个有什么区别？",
+            "它和旁边那个有什么区别？",
+            "这件跟旁边那件比呢？",
+            "它和那个是同一件吗？",
+        )
+    ]
 
     assert unique is not None and unique.id == "grounding-pointed-bottle"
     assert unique_clarification is None
+    assert unique_scope == "single"
     assert multiple is None
     assert "人面鱼纹彩陶盆" in (multiple_clarification or "")
     assert "鱼纹陶罐" in (multiple_clarification or "")
+    assert multiple_scope == "unknown"
     assert category is None and category_clarification is None
+    assert category_scope == "unknown"
     assert comparison is None and comparison_clarification is None
+    assert comparison_scope == "multi"
     assert nested_unique is not None and nested_unique.id == "grounding-fish-pot"
     assert nested_unique_clarification is None
+    assert nested_unique_scope == "single"
     assert nested_comparison is None and nested_comparison_clarification is None
+    assert nested_comparison_scope == "multi"
+    assert all(row is None for row, _, _ in unresolved_comparisons)
+    assert all("另一件展品" in (message or "") for _, message, _ in unresolved_comparisons)
+    assert all(scope == "unknown" for _, _, scope in unresolved_comparisons)
 
 
 def test_report_visited_halls_excludes_grounding_clarification_events():
@@ -2972,6 +2990,210 @@ async def test_chat_does_not_implicitly_reuse_session_current_exhibit(
     assert response.status_code == 200
     assert captured[0]["exhibit_id"] is None
     assert captured[0]["exhibit_context"] is None
+
+
+@pytest.mark.asyncio
+async def test_chat_separates_page_selection_from_each_turn_subject(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    hall = "kiln-hall"
+    await _seed_trusted_test_halls(db_session, hall)
+    db_session.add_all(
+        [
+            Exhibit(
+                id="selected-pointed-bottle",
+                name="尖底瓶",
+                description="尖底瓶可信简介",
+                hall=hall,
+                category="陶器",
+                is_active=True,
+            ),
+            Exhibit(
+                id="typed-fish-basin",
+                name="人面鱼纹彩陶盆",
+                description="彩陶盆可信简介",
+                hall=hall,
+                category="陶器",
+                is_active=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+    captured = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        captured.append(kwargs)
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+    messages = (
+        "它为什么有磨损？",
+        "请介绍人面鱼纹彩陶盆",
+        "它是不是人面鱼纹彩陶盆？",
+        "这件是人面鱼纹彩陶盆吗？",
+        "这个叫人面鱼纹彩陶盆吗？",
+        "这不是人面鱼纹彩陶盆吗？",
+        "尖底瓶和人面鱼纹彩陶盆有什么区别？",
+        "它和人面鱼纹彩陶盆有什么区别？",
+        "它相比人面鱼纹彩陶盆有什么不同？",
+        "它对比人面鱼纹彩陶盆有什么特点？",
+        "人面鱼纹彩陶盆和它有什么区别？",
+        "人面鱼纹彩陶盆与当前这件展品相比有什么特点？",
+        "人面鱼纹彩陶盆和它分别有什么特点？",
+        "人面鱼纹彩陶盆与它谁更早？",
+        "人面鱼纹彩陶盆和它各自有什么用途？",
+        "人面鱼纹彩陶盆和它是什么关系？",
+        "人面鱼纹彩陶盆和它们有什么区别？",
+        "它和那个有什么区别？",
+        "左边这个和右边那个有什么区别？",
+        "那个和它有什么区别？",
+        "人面鱼纹彩陶盆与这个展厅有什么关系？",
+        "人面鱼纹彩陶盆和这个时期的陶器有什么关系？",
+        "人面鱼纹彩陶盆和那个图案有什么关系？",
+        "人面鱼纹彩陶盆与这件事情有什么关系？",
+        "人面鱼纹彩陶盆和它的纹饰有什么关系？",
+    )
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={"interest_type": "A", "persona": "A", "assumption": "A"},
+                )
+            ).json()
+            headers = {"X-Session-Token": created["session_token"]}
+            responses = []
+            restored_exhibit_ids = []
+            for message in messages:
+                responses.append(
+                    await client.post(
+                        f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                        headers=headers,
+                        json={
+                            "message": message,
+                            "hall_id": hall,
+                            "exhibit_id": "selected-pointed-bottle",
+                        },
+                    )
+                )
+                restored = await client.get(
+                    f"/api/v1/tour/sessions/{created['id']}",
+                    headers=headers,
+                )
+                restored_exhibit_ids.append(restored.json()["current_exhibit_id"])
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert [response.status_code for response in responses] == [200] * len(messages)
+    assert restored_exhibit_ids == ["selected-pointed-bottle"] * len(messages)
+
+    (
+        pronoun,
+        typed_other,
+        identity_pronoun,
+        identity_this_exhibit,
+        identity_named,
+        identity_negative,
+        named_multi,
+        selected_multi,
+        selected_compared_multi,
+        selected_contrasted_multi,
+        reverse_selected_multi,
+        reverse_current_multi,
+        reverse_separate_multi,
+        reverse_which_multi,
+        reverse_each_multi,
+        reverse_relation_multi,
+        unresolved_plural,
+        unresolved_other,
+        unresolved_spatial_pair,
+        unresolved_reverse,
+        relation_hall,
+        relation_period,
+        relation_pattern,
+        relation_matter,
+        relation_possessive,
+    ) = captured
+    assert pronoun["exhibit_id"] == "selected-pointed-bottle"
+    assert "尖底瓶可信简介" in (pronoun["exhibit_context"] or "")
+    assert pronoun["subject_scope_hint"] == "single"
+    assert pronoun["resolved_message"] is None
+
+    assert typed_other["exhibit_id"] == "typed-fish-basin"
+    assert "彩陶盆可信简介" in (typed_other["exhibit_context"] or "")
+    assert typed_other["subject_scope_hint"] == "single"
+    assert typed_other["resolved_message"] is None
+
+    for identity in (
+        identity_pronoun,
+        identity_this_exhibit,
+        identity_named,
+        identity_negative,
+    ):
+        assert identity["exhibit_id"] == "selected-pointed-bottle"
+        assert "尖底瓶可信简介" in (identity["exhibit_context"] or "")
+        assert identity["subject_scope_hint"] == "single"
+        assert "尖底瓶" in identity["resolved_message"]
+        assert "人面鱼纹彩陶盆" in identity["resolved_message"]
+
+    assert named_multi["exhibit_id"] is None
+    assert named_multi["exhibit_context"] is None
+    assert named_multi["subject_scope_hint"] == "multi"
+    assert named_multi["resolved_message"] is None
+
+    assert selected_multi["exhibit_id"] is None
+    assert selected_multi["exhibit_context"] is None
+    assert selected_multi["subject_scope_hint"] == "multi"
+    assert "尖底瓶和人面鱼纹彩陶盆" in selected_multi["resolved_message"]
+    assert "它和" not in selected_multi["resolved_message"]
+    for comparison in (
+        selected_compared_multi,
+        selected_contrasted_multi,
+        reverse_selected_multi,
+        reverse_current_multi,
+        reverse_separate_multi,
+        reverse_which_multi,
+        reverse_each_multi,
+        reverse_relation_multi,
+    ):
+        assert comparison["exhibit_id"] is None
+        assert comparison["exhibit_context"] is None
+        assert comparison["subject_scope_hint"] == "multi"
+        assert "人面鱼纹彩陶盆" in comparison["resolved_message"]
+        assert "尖底瓶" in comparison["resolved_message"]
+
+    assert unresolved_plural["exhibit_id"] is None
+    assert unresolved_plural["exhibit_context"] is None
+    assert unresolved_plural["subject_scope_hint"] == "unknown"
+    assert "指哪些展品" in unresolved_plural["clarification_message"]
+
+    for unresolved in (
+        unresolved_other,
+        unresolved_spatial_pair,
+        unresolved_reverse,
+    ):
+        assert unresolved["exhibit_id"] is None
+        assert unresolved["exhibit_context"] is None
+        assert unresolved["subject_scope_hint"] == "unknown"
+        assert unresolved["resolved_message"] is None
+        assert "另一件展品" in unresolved["clarification_message"]
+
+    for relation in (
+        relation_hall,
+        relation_period,
+        relation_pattern,
+        relation_matter,
+        relation_possessive,
+    ):
+        assert relation["exhibit_id"] == "typed-fish-basin"
+        assert relation["subject_scope_hint"] == "single"
+        assert relation["resolved_message"] is None
 
 
 @pytest.mark.asyncio

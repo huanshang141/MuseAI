@@ -40,7 +40,9 @@ from app.application.hall_normalizer import (
 from app.application.tour_chat_service import (
     ask_stream_tour,
     bound_conversation_history,
+    bound_grounding_history,
     grounding_subject,
+    has_unresolved_deictic_comparison,
     is_hall_level_question,
 )
 from app.application.tour_event_service import get_events_by_session, record_events
@@ -641,16 +643,122 @@ def _ambiguous_exhibit_message(subject: str, exhibits: list[Exhibit]) -> str:
     )
 
 
+_SELECTED_EXHIBIT_REFERENCE_TOKEN = (
+    r"(?:当前)?(?:它(?!们)|这个|那个|这件(?:展品|文物|器物)?|"
+    r"那件(?:展品|文物|器物)?|该件(?:展品|文物|器物)?|"
+    r"此件(?:展品|文物|器物)?)"
+)
+_SELECTED_EXHIBIT_COMPARISON_CONNECTOR = (
+    r"(?:相较于|相对于|相比于|相比|对比|比较|还是|或者|以及|"
+    r"和|与|跟|同|及|比|或|"
+    r"vs|VS|、|，|,|/|&|\+|＋)"
+)
+_SELECTED_EXHIBIT_COMPARISON_REFERENCE_TAIL = (
+    r"(?=\s*(?:$|[？?。！!,，；;]|有(?:什么|何|啥)(?:区别|不同)|"
+    r"哪里不同|相比|比较|对比|哪个|哪一个|哪件|谁|分别|各自?|都|"
+    r"是什么关系|有(?:什么|何|啥)关系|"
+    r"(?:是|是否(?:是)?|是不是)同一(?:件|个)(?:展品|文物|器物)?|"
+    r"更|较|比|呢|吗))"
+)
+_SELECTED_EXHIBIT_COMPARISON_REFERENCE_LEFT = re.compile(
+    rf"{_SELECTED_EXHIBIT_REFERENCE_TOKEN}"
+    rf"(?=\s*{_SELECTED_EXHIBIT_COMPARISON_CONNECTOR})"
+)
+_SELECTED_EXHIBIT_COMPARISON_REFERENCE_RIGHT = re.compile(
+    rf"(?P<connector>{_SELECTED_EXHIBIT_COMPARISON_CONNECTOR})\s*"
+    rf"{_SELECTED_EXHIBIT_REFERENCE_TOKEN}"
+    rf"{_SELECTED_EXHIBIT_COMPARISON_REFERENCE_TAIL}"
+)
+_SELECTED_EXHIBIT_IDENTITY_REFERENCE_TOKEN = (
+    r"(?:当前)?(?:它(?!们)|这个|那个|这件(?:展品|文物|器物)?|"
+    r"那件(?:展品|文物|器物)?|该件(?:展品|文物|器物)?|"
+    r"此件(?:展品|文物|器物)?|这|那)"
+)
+_SELECTED_EXHIBIT_IDENTITY_PREDICATE = (
+    r"(?:到底)?(?:是不是叫|是否叫|是不是|是否是|不是|叫做|名叫|叫|是)"
+)
+_SELECTED_EXHIBIT_IDENTITY_REFERENCE_LEFT = re.compile(
+    rf"{_SELECTED_EXHIBIT_IDENTITY_REFERENCE_TOKEN}"
+    rf"(?=\s*{_SELECTED_EXHIBIT_IDENTITY_PREDICATE})"
+)
+_SELECTED_EXHIBIT_IDENTITY_REFERENCE_RIGHT = re.compile(
+    rf"(?P<predicate>{_SELECTED_EXHIBIT_IDENTITY_PREDICATE})\s*"
+    rf"{_SELECTED_EXHIBIT_IDENTITY_REFERENCE_TOKEN}"
+    rf"(?=\s*(?:吗|呢|吧|[？?]|$))"
+)
+_UNRESOLVED_PLURAL_COMPARISON_REFERENCE = re.compile(
+    rf"(?:它们|这些|那些|这(?:两|几)件|那(?:两|几)件|"
+    rf"这两个|那两个)(?=\s*{_SELECTED_EXHIBIT_COMPARISON_CONNECTOR})"
+    rf"|{_SELECTED_EXHIBIT_COMPARISON_CONNECTOR}\s*"
+    rf"(?:它们|这些|那些|这(?:两|几)件|那(?:两|几)件|这两个|那两个)"
+    rf"{_SELECTED_EXHIBIT_COMPARISON_REFERENCE_TAIL}"
+)
+_UNRESOLVED_PLURAL_COMPARISON_MESSAGE = (
+    "我还不知道你说的“它们”指哪些展品。请说展品名称，或先点“搜展品”选择。"
+)
+_UNRESOLVED_DEICTIC_COMPARISON_MESSAGE = (
+    "我还不知道你要比较的另一件展品。请说展品名称，或先点“搜展品”选择。"
+)
+
+
+def _rewrite_selected_exhibit_comparison(
+    message: str,
+    selected_exhibit_name: str,
+) -> str | None:
+    """Resolve a comparison pronoun from the server-validated page selection."""
+    name = str(selected_exhibit_name or "").strip()
+    if not name:
+        return None
+    normalized = unicodedata.normalize("NFKC", str(message or ""))
+    rewritten, replacements = _SELECTED_EXHIBIT_COMPARISON_REFERENCE_LEFT.subn(
+        name,
+        normalized,
+        count=1,
+    )
+    if not replacements:
+        rewritten, replacements = _SELECTED_EXHIBIT_COMPARISON_REFERENCE_RIGHT.subn(
+            lambda match: f"{match.group('connector')}{name}",
+            normalized,
+            count=1,
+        )
+    return rewritten if replacements else None
+
+
+def _rewrite_selected_exhibit_identity(
+    message: str,
+    selected_exhibit_name: str,
+) -> str | None:
+    """Resolve a server-validated page pronoun in an identity/name check."""
+    name = str(selected_exhibit_name or "").strip()
+    if not name:
+        return None
+    normalized = unicodedata.normalize("NFKC", str(message or ""))
+    rewritten, replacements = _SELECTED_EXHIBIT_IDENTITY_REFERENCE_LEFT.subn(
+        name,
+        normalized,
+        count=1,
+    )
+    if not replacements:
+        rewritten, replacements = _SELECTED_EXHIBIT_IDENTITY_REFERENCE_RIGHT.subn(
+            lambda match: f"{match.group('predicate')}{name}",
+            normalized,
+            count=1,
+        )
+    return rewritten if replacements else None
+
+
 async def _resolve_message_exhibit(
     session,
     hall_id: str | None,
     message: str,
-) -> tuple[Exhibit | None, str | None]:
+) -> tuple[Exhibit | None, str | None, str | None]:
     """Resolve only an explicit, unique current-hall name; never trust rank."""
     hall = normalize_hall(hall_id)
+    if hall and has_unresolved_deictic_comparison(message):
+        return None, _UNRESOLVED_DEICTIC_COMPARISON_MESSAGE, "unknown"
     subject = _compact_exhibit_match_text(grounding_subject(message))
     if not hall or len(subject) < 2 or is_hall_level_question(message):
-        return None, None
+        return None, None, None
 
     result = await session.execute(
         select(Exhibit)
@@ -667,7 +775,7 @@ async def _resolve_message_exhibit(
     )
     exhibits = list(result.scalars().all())
     if not exhibits:
-        return None, None
+        return None, None, None
 
     message_key = _compact_exhibit_match_text(message)
     exact_mentions = [
@@ -677,11 +785,13 @@ async def _resolve_message_exhibit(
         and _compact_exhibit_match_text(exhibit.name) in message_key
     ]
     if exact_mentions:
+        if _UNRESOLVED_PLURAL_COMPARISON_REFERENCE.search(message):
+            return None, _UNRESOLVED_PLURAL_COMPARISON_MESSAGE, "unknown"
         if _mentions_distinct_exhibit_names(message_key, exact_mentions):
             # This is a comparison/multi-object question. Do not collapse it
             # onto the longest name; let the normal clear-question RAG path
             # answer with both explicitly named objects in the query.
-            return None, None
+            return None, None, "multi"
         longest = max(len(name) for _, name in exact_mentions)
         longest_matches = [
             exhibit for exhibit, name in exact_mentions if len(name) == longest
@@ -693,10 +803,10 @@ async def _resolve_message_exhibit(
             name in longest_name for _, name in exact_mentions
         )
         if len(longest_matches) == 1 and names_are_nested:
-            return longest_matches[0], None
+            return longest_matches[0], None, "single"
         if not names_are_nested:
-            return None, None
-        return None, _ambiguous_exhibit_message(subject, longest_matches)
+            return None, None, "multi"
+        return None, _ambiguous_exhibit_message(subject, longest_matches), "unknown"
 
     categories = {
         category
@@ -704,7 +814,7 @@ async def _resolve_message_exhibit(
         if (category := _compact_exhibit_match_text(exhibit.category))
     }
     if subject in categories:
-        return None, None
+        return None, None, "unknown"
 
     partial_matches = [
         exhibit
@@ -712,10 +822,10 @@ async def _resolve_message_exhibit(
         if subject in _compact_exhibit_match_text(exhibit.name)
     ]
     if len(partial_matches) == 1:
-        return partial_matches[0], None
+        return partial_matches[0], None, "single"
     if len(partial_matches) > 1:
-        return None, _ambiguous_exhibit_message(subject, partial_matches)
-    return None, None
+        return None, _ambiguous_exhibit_message(subject, partial_matches), "unknown"
+    return None, None, None
 
 
 async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None:
@@ -1537,13 +1647,57 @@ async def tour_chat_stream(
     if effective_hall and effective_hall not in valid_halls:
         raise HTTPException(status_code=422, detail="Unknown hall_id")
 
+    selected_exhibit_row = exhibit_row
+    turn_exhibit_row = selected_exhibit_row
     clarification_message = None
-    if exhibit_row is None and not requested_exhibit_id:
-        exhibit_row, clarification_message = await _resolve_message_exhibit(
-            session,
-            effective_hall,
-            body.message,
-        )
+    subject_scope_hint = "single" if selected_exhibit_row is not None else None
+    resolved_message = None
+    (
+        message_exhibit_row,
+        message_clarification,
+        message_subject_scope,
+    ) = await _resolve_message_exhibit(
+        session,
+        effective_hall,
+        body.message,
+    )
+    if message_subject_scope is not None:
+        selected_comparison = None
+        selected_identity = None
+        if (
+            selected_exhibit_row is not None
+            and message_exhibit_row is not None
+            and message_exhibit_row.id != selected_exhibit_row.id
+        ):
+            selected_comparison = _rewrite_selected_exhibit_comparison(
+                body.message,
+                selected_exhibit_row.name,
+            )
+            if not selected_comparison:
+                selected_identity = _rewrite_selected_exhibit_identity(
+                    body.message,
+                    selected_exhibit_row.name,
+                )
+        if selected_comparison:
+            # The page selection identifies the pronoun and the typed name
+            # identifies the other object.  Use an explicit trusted query for
+            # this turn, but do not turn either object into a single binding.
+            turn_exhibit_row = None
+            clarification_message = None
+            subject_scope_hint = "multi"
+            resolved_message = selected_comparison
+        elif selected_identity:
+            # "Is this A actually B?" is about the page-selected object A.
+            # Keep A as the single turn binding and use B only in the resolved
+            # question; otherwise the explicit B name would silently replace A.
+            turn_exhibit_row = selected_exhibit_row
+            clarification_message = None
+            subject_scope_hint = "single"
+            resolved_message = selected_identity
+        else:
+            turn_exhibit_row = message_exhibit_row
+            clarification_message = message_clarification
+            subject_scope_hint = message_subject_scope
 
     session_updates: dict[str, str | None] = {}
     if requested_hall:
@@ -1552,12 +1706,12 @@ async def tour_chat_stream(
             # A hall switch without a trusted exhibit must not retain the
             # previous hall's foreign key.
             session_updates["current_exhibit_id"] = (
-                exhibit_row.id
-                if requested_exhibit_id and exhibit_row is not None
+                selected_exhibit_row.id
+                if requested_exhibit_id and selected_exhibit_row is not None
                 else None
             )
-        elif requested_exhibit_id and exhibit_row is not None:
-            session_updates["current_exhibit_id"] = exhibit_row.id
+        elif requested_exhibit_id and selected_exhibit_row is not None:
+            session_updates["current_exhibit_id"] = selected_exhibit_row.id
         elif requested_exhibit_id:
             session_updates["current_exhibit_id"] = None
         session_updates["status"] = "touring"
@@ -1568,7 +1722,7 @@ async def tour_chat_stream(
             session_id,
             **session_updates,
         )
-    trusted_exhibit_id = exhibit_row.id if exhibit_row is not None else None
+    trusted_exhibit_id = turn_exhibit_row.id if turn_exhibit_row is not None else None
     exhibit_context = await _resolve_chat_exhibit_context(
         session,
         trusted_exhibit_id,
@@ -1577,13 +1731,14 @@ async def tour_chat_stream(
         session, tour_session.current_hall
     )
     current_hall_key = normalize_hall(tour_session.current_hall) or ""
-    trusted_history = bound_conversation_history(
-        (tour_session.trusted_hall_chat_history or {}).get(current_hall_key, [])
+    raw_trusted_history = (tour_session.trusted_hall_chat_history or {}).get(
+        current_hall_key, []
     )
+    conversation_history = bound_conversation_history(raw_trusted_history)
+    grounding_history = bound_grounding_history(raw_trusted_history)
     # Client-restored/display history is intentionally excluded from model
     # inference. Only completed server-persisted turns may ground follow-ups or
     # enter the prompt/retrieval rewrite history.
-    conversation_history = trusted_history or None
 
     # The dependency-scoped session otherwise remains checked out for the full
     # SSE lifetime.  Everything the stream needs is now a detached snapshot;
@@ -1601,10 +1756,12 @@ async def tour_chat_stream(
             exhibit_id=trusted_exhibit_id,
             exhibit_context=exhibit_context,
             hall_context=hall_context,
+            subject_scope_hint=subject_scope_hint,
+            resolved_message=resolved_message,
             client_event_id=body.client_event_id,
             client_context=None,
-            conversation_history=conversation_history,
-            grounding_history=trusted_history or None,
+            conversation_history=conversation_history or None,
+            grounding_history=grounding_history or None,
             style=body.style,
             degraded_services=degraded,
             tts_provider=tts_provider if body.tts else None,

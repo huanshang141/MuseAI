@@ -306,6 +306,44 @@ async def test_append_hall_chat_turn_merges_latest_history_and_caps_thirty():
 
 
 @pytest.mark.asyncio
+async def test_append_hall_chat_turn_keeps_subject_scope_server_only():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    model = _make_model()
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "尖底瓶有什么特点？",
+        "尖底设计便于汲水。",
+        subject_scope="single",
+        subject_exhibit_id="exhibit-1",
+        clarification_required=True,
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == [
+        {"role": "user", "content": "尖底瓶有什么特点？"},
+        {"role": "assistant", "content": "尖底设计便于汲水。"},
+    ]
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == [
+        {
+            "role": "user",
+            "content": "尖底瓶有什么特点？",
+            "_subject_scope": "unknown",
+        },
+        {
+            "role": "assistant",
+            "content": "尖底设计便于汲水。",
+            "_subject_scope": "unknown",
+            "_clarification_required": True,
+        },
+    ]
+
+
+@pytest.mark.asyncio
 async def test_append_hall_chat_turn_trusts_server_turn_even_if_display_was_synced():
     from app.application.tour_session_service import append_hall_chat_turn
 
@@ -2075,6 +2113,32 @@ def test_collect_qa_pairs_keeps_answered_turns_and_dedupes_client_retries():
 def test_collect_qa_pairs_empty_without_answers():
     events = [_qa_event("exhibit_question", question="这是什么？")]
     assert collect_qa_pairs(events) == []
+
+
+def test_legacy_repeated_question_only_excludes_the_paired_clarification():
+    question = "它为什么重要？"
+    events = [
+        _qa_event("exhibit_question", question=question),
+        _qa_event(
+            "assistant_answer",
+            question=question,
+            answer="尖底瓶的器形与汲水方式直接相关。",
+        ),
+        _qa_event("exhibit_question", question=question),
+        _qa_event(
+            "assistant_answer",
+            question=question,
+            answer="我还不知道你指的是哪件展品。请说展品名称。",
+        ),
+    ]
+
+    assert collect_qa_pairs(events) == [
+        {
+            "hall": "kiln-hall",
+            "question": question,
+            "answer": "尖底瓶的器形与汲水方式直接相关。",
+        }
+    ]
 
 
 def test_record_summary_merges_real_qa_and_database_hall_name():

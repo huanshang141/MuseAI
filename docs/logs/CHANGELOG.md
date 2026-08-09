@@ -30,6 +30,14 @@
 - 最终全量回归 `1480 passed, 23 skipped, 9 warnings`，无失败；改动文件 Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head、两套数据 dry-run、直接回退离线 SQL、备份成功/失败 mock、Compose 密码门禁和 `git diff --check` 均通过。9 条 warning 为既有测试桩或第三方弃用提示。
 - 生产部署现场发现 Compose 与应用共用 `.env` 时，严格 Settings 会拒绝 `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`。现已显式声明三项且保持未知字段 fail-closed；三项必须成组、非空，并与解码后的 PostgreSQL `DATABASE_URL` 用户、密码和库名完全一致。数据库 URL、数据库密码及 JWT/LLM/Embedding/Rerank/TTS 密钥不进入 Settings 的 `repr`/`model_dump`，启动异常字符串隐藏原始输入；伪 `postgresqlx` 驱动会被拒绝。
 - 部署文档删除不存在的 `systemctl is-inactive`，所有非登录 SSH 发布/回退命令先进入项目目录并使用 `/home/ubuntu/.local/bin/uv` 绝对路径。最终相关配置/provider 回归 `86 passed`，独立审查 P0/P1/P2 均为 0；使用仓库内专用 pytest 临时目录的最终全量回归 `1492 passed, 23 skipped, 9 warnings`，无失败。首次全量的 50 个 setup error 已确认仅来自 Windows 全局 pytest 临时目录 ACL，隔离后未复现。
+- 导览会话继续以服务端可信历史为唯一指代依据，并为每轮持久化 `single` / `multi` / `hall` / `unknown` 对象范围、单件展品 ID 和澄清标记；这些私有字段不进入恢复 API 或模型正文。页面选中的展品与本轮问题对象分离：选中 A 后明确询问 B 只绑定本轮 B，恢复状态仍为 A；“它和 B”改写为明确 A/B 比较且不绑定单件，“它是不是 B”按 A 与 B 的身份核对处理。
+- grounding 补齐无依据代词、复数、序数、相对位置、双示指、选择项和模糊比较的收口规则；只有最近可信回答实际给出对应编号或兼容对象范围时才能延续。明确展品名、厅级问题、含实义对象的量词/WH 问句和正常包含“同一、相同、和平、和谐、比较”的表达不会被比较连接词误切分。
+- 模型输出若本身是在要求补充展品名称，也会统一标记为澄清；报告侧同时识别中英文问号、感叹号等句末标点，确保澄清轮次不进入问题数、到访展厅、记录摘要、复盘或下一步指导。
+- 最终冻结代码通过会话/报告/契约定向回归 `549 passed`、日志与 TTS 组合 `90 passed`、scoped Ruff 和 `git diff --check`；完整后端回归为 `1589 passed, 23 skipped, 9 warnings`，无失败。独立复核未发现 P0/P1；保留两个低优先级技术债：每厅 30 条可信消息窗口外的极旧 `turn_id` 重试无法永久去重，以及每次非厅级对话仍会加载当前厅全部启用展品用于名称匹配。
+- 功能提交 `033d3061eaade54b21176620bd8f533c9d7fddb4` 已推送并部署。发布记录为 `/home/ubuntu/museai-config-backups/release_20260809T114910Z.env`；数据库备份 `/home/ubuntu/museai-backups/museai_20260809_194910_242951323.sql.gz` 的 SHA-256 为 `3f978008cac0e129d751b28a886893967b9e107d5f6472a420b87d98e76db9ce`，图片备份 SHA-256 为 `77d673e07aa7c5b512affec9facf471829e44a13e6a1df9acfcb8a9dc6267b19`。迁移保持 `20260809_trusted_hall_chat_history (head)`，loopback 与公网 readiness 均为三项依赖 healthy，旧 3000 无监听。
+- 公网综合探针验证展厅问题、无依据追问、选中 A 后明确询问 B、A/B 比较、双示指比较、报告排除澄清、每厅恢复历史和私有字段不泄漏均通过；报告只统计 1 个有效问题。SSE TTS 返回 4,392,960 字节有效 PCM，独立 TTS 返回 122,924 字节结构有效 WAV。
+- 生产 TTS 音频本身正常，但文本文件日志 formatter 会把已经渲染的 `prompt.variables` 字典大括号再次作为 Loguru 模板解析，触发 `KeyError: "'name'"`。提交 `fd96e17fd88ebd4d7426cee4bf8794a1c57c3871` 改为固定 `{message}` 模板并新增 `catch=False` 回归；部署后真实 TTS 返回 92,204 字节有效 WAV，日志中 `Logging error`、`KeyError`、`Traceback` 均为 0。
+- 最新日志修复发布记录为 `/home/ubuntu/museai-config-backups/release_20260809T120456Z.env`；数据库备份 `/home/ubuntu/museai-backups/museai_20260809_200456_436886593.sql.gz` 的 SHA-256 为 `d7f8efcdaa5c5c0e9e6b9795cc2ddfad286f837f32ca803b3e2bfa653c8ead8c`，图片备份 SHA-256 仍为 `77d673e07aa7c5b512affec9facf471829e44a13e6a1df9acfcb8a9dc6267b19`。迁移与三项依赖 readiness 保持 healthy。
 
 ## 2026-08-08
 

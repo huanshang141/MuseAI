@@ -6,8 +6,10 @@ from zipfile import ZipFile
 import pytest
 from app.application.museum_data_import_service import (
     EXHIBIT_HEADERS,
+    EXHIBIT_OPTIONAL_HEADERS,
     HALL_HEADERS,
     MAX_ACTIVE_EXHIBITS,
+    SUGGESTION_MAX_LENGTH,
     ExhibitImportRow,
     HallImportRow,
     MuseumDataImportService,
@@ -152,8 +154,70 @@ def test_loads_utf8_sig_csv_pair_and_pipe_or_json_questions(tmp_path):
     assert dataset.exhibits[0].suggested_questions == ["纹样能说明什么？"]
 
 
+def test_rejects_suggestion_over_runtime_length_contract(tmp_path):
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    _write_csv(
+        tmp_path / "exhibits.csv",
+        EXHIBIT_HEADERS,
+        [_exhibit_values(suggested_questions="问" * (SUGGESTION_MAX_LENGTH + 1))],
+    )
+
+    with pytest.raises(
+        MuseumDataValidationError,
+        match=rf"exceeds {SUGGESTION_MAX_LENGTH} characters",
+    ):
+        load_museum_dataset(tmp_path)
+
+
+def test_csv_and_xlsx_accept_optional_https_image_url(tmp_path):
+    exhibit_headers = (*EXHIBIT_HEADERS, *EXHIBIT_OPTIONAL_HEADERS)
+    image_url = "https://museum.example/images/pottery.png?version=1"
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    _write_csv(
+        tmp_path / "exhibits.csv",
+        exhibit_headers,
+        [_exhibit_values(image_url=image_url)],
+    )
+
+    csv_dataset = load_museum_dataset(tmp_path)
+
+    assert csv_dataset.exhibits[0].image_url == image_url
+    assert csv_dataset.exhibits[0].image_url_present is True
+
+    workbook_path = tmp_path / "museum_data.xlsx"
+    workbook = Workbook()
+    halls = workbook.active
+    halls.title = "halls"
+    halls.append(HALL_HEADERS)
+    halls.append([_hall_values()[header] for header in HALL_HEADERS])
+    exhibits = workbook.create_sheet("exhibits")
+    exhibits.append(exhibit_headers)
+    values = _exhibit_values(image_url=image_url)
+    exhibits.append([values[header] for header in exhibit_headers])
+    workbook.save(workbook_path)
+
+    xlsx_dataset = load_museum_dataset(workbook_path)
+    assert xlsx_dataset.exhibits[0].image_url == image_url
+    assert xlsx_dataset.exhibits[0].image_url_present is True
+
+
+def test_import_rejects_non_https_image_url(tmp_path):
+    exhibit_headers = (*EXHIBIT_HEADERS, *EXHIBIT_OPTIONAL_HEADERS)
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    _write_csv(
+        tmp_path / "exhibits.csv",
+        exhibit_headers,
+        [_exhibit_values(image_url="http://museum.example/pottery.png")],
+    )
+
+    with pytest.raises(MuseumDataValidationError, match="absolute HTTPS URL"):
+        load_museum_dataset(tmp_path)
+
+
 def test_versioned_museum_template_has_trusted_nine_halls_and_no_fake_exhibits():
     template_dir = Path(__file__).resolve().parents[3] / "data" / "museum_template"
+    with (template_dir / "exhibits.csv").open(encoding="utf-8-sig", newline="") as csv_file:
+        assert "image_url" in (csv.DictReader(csv_file).fieldnames or [])
 
     dataset = load_museum_dataset(template_dir)
 
@@ -177,6 +241,8 @@ def test_versioned_museum_template_has_trusted_nine_halls_and_no_fake_exhibits()
 
 def test_versioned_test_dataset_is_explicit_and_covers_all_nine_halls():
     dataset_dir = Path(__file__).resolve().parents[3] / "data" / "museum_test_data"
+    with (dataset_dir / "exhibits.csv").open(encoding="utf-8-sig", newline="") as csv_file:
+        assert "image_url" in (csv.DictReader(csv_file).fieldnames or [])
 
     dataset = load_museum_dataset(dataset_dir)
 
@@ -188,6 +254,7 @@ def test_versioned_test_dataset_is_explicit_and_covers_all_nine_halls():
     assert all(exhibit.description.startswith("【测试数据，非馆方真实展品信息】") for exhibit in dataset.exhibits)
     assert all(exhibit.category == "测试数据" for exhibit in dataset.exhibits)
     assert all(exhibit.floor is None and exhibit.era is None for exhibit in dataset.exhibits)
+    assert all(exhibit.image_url is None and exhibit.image_url_present for exhibit in dataset.exhibits)
 
 
 def test_rejects_non_utf8_csv_as_structured_validation_error(tmp_path):
@@ -386,6 +453,36 @@ async def test_idempotent_upsert_indexes_only_new_or_changed(import_session):
 
 
 @pytest.mark.asyncio
+async def test_imported_image_url_updates_without_rebuilding_rag(import_session):
+    indexer = FakeIndexer()
+    service = MuseumDataImportService(import_session, indexer)
+    dataset = _dataset()
+    await service.import_dataset(dataset, source_name="banpo-2026")
+    with_image = MuseumDataset(
+        halls=dataset.halls,
+        exhibits=[
+            replace(
+                dataset.exhibits[0],
+                image_url="https://museum.example/pottery.png",
+                image_url_present=True,
+            )
+        ],
+    )
+
+    summary = await service.import_dataset(with_image, source_name="banpo-2026")
+
+    exhibit = await import_session.get(
+        Exhibit,
+        deterministic_exhibit_id("banpo-2026", "exhibit-001"),
+    )
+    assert exhibit.image_url == "https://museum.example/pottery.png"
+    assert exhibit.is_active is True
+    assert summary.exhibits_updated == 1
+    assert summary.exhibits_indexed == 0
+    assert len(indexer.indexed) == 1
+
+
+@pytest.mark.asyncio
 async def test_existing_hall_name_collision_is_structured_before_mutation(import_session):
     import_session.add(
         Hall(
@@ -577,6 +674,7 @@ async def test_authoritative_import_deactivates_omitted_and_legacy_only(
         is_active=True,
         source_name="banpo-2026",
         source_record_id="exhibit-old",
+        image_path="same-source-old-exhibit/upload.png",
     )
     legacy_exhibit = Exhibit(
         id="legacy-old-exhibit",
@@ -584,6 +682,7 @@ async def test_authoritative_import_deactivates_omitted_and_legacy_only(
         hall=legacy_hall.slug,
         document_id="legacy-old-document",
         is_active=True,
+        image_path="legacy-old-exhibit/upload.png",
     )
     other_exhibit = Exhibit(
         id="other-source-exhibit",
@@ -621,6 +720,10 @@ async def test_authoritative_import_deactivates_omitted_and_legacy_only(
     assert legacy_hall.is_active is False
     assert same_exhibit.is_active is False
     assert legacy_exhibit.is_active is False
+    # Deactivation preserves uploaded files and their references so a rollback
+    # or later reactivation can restore the exhibit without re-uploading.
+    assert same_exhibit.image_path == "same-source-old-exhibit/upload.png"
+    assert legacy_exhibit.image_path == "legacy-old-exhibit/upload.png"
     assert other_hall.is_active is True
     assert other_exhibit.is_active is True
     assert summary.authoritative is True

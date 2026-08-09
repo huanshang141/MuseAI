@@ -1,5 +1,13 @@
 # 后端变更日志
 
+## 2026-08-09
+
+- 建议条新增质量边界：过滤过短、模糊、测试数据、真实数据接入和上线流程类文案；展品有可信事实时，按名称、简介细节与分类确定性补齐，不增加运行时 LLM 调用。
+- 游览报告新增 `exploration_guidance`：返回标题、摘要和 1–3 个包含具体问题的后续观察任务，并在可确定时关联展厅/展品 ID；无历史也返回明确起点，不再使用“暂时不生成”类拒绝文案。
+- 展品数据新增 `image_url` / `image_path`：CSV/XLSX 可导入 HTTPS 外链，管理员可上传或删除单帧 JPEG/PNG/WebP，公开 API 仅为启用且属于可信九厅的展品提供图片。本地路径不对外暴露，无图时 `image_url` 为 `null`。
+- 新增 Alembic 迁移 `20260809_exhibit_images`、图片存储配置和 `docs/miniapp-content-maintenance.md`；生产应使用 Git 工作树外的持久目录，并在代码/数据回退时单独备份与恢复图片文件。
+- 建议、报告、导入与图片定向回归 197 项通过；契约修正后相关回归 169 项通过；最终全量回归 `1182 passed, 23 skipped, 10 warnings`，无失败。Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head 和两个 CSV 数据包 dry-run 均通过；提交 SHA、生产备份和部署验收结果在部署后补记。
+
 ## 2026-08-08
 
 - 将生产库 46 条无来源旧演示展品整理为 `data/museum_test_data` CSV 快照：名称、介绍、分类和稳定记录 ID 均明确标记为测试数据，并均匀分配到九个可信展厅；使用稳定来源 `banpo-museum-data`，后续真实权威快照可自动替换。

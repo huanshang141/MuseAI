@@ -26,6 +26,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.content_source import ContentMetadata, ContentSource
+from app.application.exhibit_images import normalize_external_image_url
 from app.infra.postgres.models import Exhibit, Hall
 
 HALL_HEADERS = (
@@ -55,10 +56,12 @@ EXHIBIT_HEADERS = (
     "is_active",
     "suggested_questions",
 )
+EXHIBIT_OPTIONAL_HEADERS = ("image_url",)
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
 EXHIBIT_ID_NAMESPACE = uuid.UUID("d7864da1-b507-5fb6-bb2d-c8de1dadbf58")
 MAX_ACTIVE_EXHIBITS = 2_000
+SUGGESTION_MAX_LENGTH = 120
 
 
 class MuseumDataValidationError(ValueError):
@@ -113,6 +116,8 @@ class ExhibitImportRow:
     location_y: float | None
     is_active: bool
     suggested_questions: list[str]
+    image_url: str | None = None
+    image_url_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -170,9 +175,7 @@ def deterministic_exhibit_id(source_name: str, source_record_id: str) -> str:
 def validate_source_name(source_name: str) -> str:
     normalized = source_name.strip()
     if not SOURCE_NAME_RE.fullmatch(normalized):
-        raise MuseumDataValidationError(
-            ["source_name must be 1-100 ASCII letters, digits, '.', '_', ':' or '-'"]
-        )
+        raise MuseumDataValidationError(["source_name must be 1-100 ASCII letters, digits, '.', '_', ':' or '-'"])
     return normalized
 
 
@@ -198,27 +201,42 @@ def _read_csv_pair(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
         raise MuseumDataValidationError([f"CSV directory is missing: {', '.join(missing)}"])
     return (
         _read_csv_table(path / "halls.csv", HALL_HEADERS, "halls.csv"),
-        _read_csv_table(path / "exhibits.csv", EXHIBIT_HEADERS, "exhibits.csv"),
+        _read_csv_table(
+            path / "exhibits.csv",
+            EXHIBIT_HEADERS,
+            "exhibits.csv",
+            optional_headers=EXHIBIT_OPTIONAL_HEADERS,
+        ),
     )
 
 
-def _read_csv_table(path: Path, expected_headers: tuple[str, ...], label: str) -> list[dict[str, Any]]:
+def _read_csv_table(
+    path: Path,
+    expected_headers: tuple[str, ...],
+    label: str,
+    *,
+    optional_headers: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
     try:
         with path.open("r", encoding="utf-8-sig", newline="") as file:
             reader = csv.reader(file, strict=True)
             try:
                 rows = list(reader)
             except csv.Error as exc:
-                raise MuseumDataValidationError(
-                    [f"{label} is malformed near line {reader.line_num}: {exc}"]
-                ) from None
+                raise MuseumDataValidationError([f"{label} is malformed near line {reader.line_num}: {exc}"]) from None
     except UnicodeDecodeError as exc:
         raise MuseumDataValidationError(
             [f"{label} must be UTF-8 encoded (decode failed near byte {exc.start})"]
         ) from None
     if not rows:
         raise MuseumDataValidationError([f"{label} is empty"])
-    return _table_to_dicts(rows[0], rows[1:], expected_headers, label)
+    return _table_to_dicts(
+        rows[0],
+        rows[1:],
+        expected_headers,
+        label,
+        optional_headers=optional_headers,
+    )
 
 
 def _read_xlsx(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -241,7 +259,13 @@ def _read_xlsx(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             rows = list(workbook[sheet_name].iter_rows(values_only=True))
             if not rows:
                 raise MuseumDataValidationError([f"sheet '{sheet_name}' is empty"])
-            parsed[sheet_name] = _table_to_dicts(rows[0], rows[1:], headers, f"sheet '{sheet_name}'")
+            parsed[sheet_name] = _table_to_dicts(
+                rows[0],
+                rows[1:],
+                headers,
+                f"sheet '{sheet_name}'",
+                optional_headers=(EXHIBIT_OPTIONAL_HEADERS if sheet_name == "exhibits" else ()),
+            )
         return parsed["halls"], parsed["exhibits"]
     except MuseumDataValidationError:
         raise
@@ -257,13 +281,15 @@ def _table_to_dicts(
     raw_rows: Any,
     expected_headers: tuple[str, ...],
     label: str,
+    *,
+    optional_headers: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     headers = [str(value).strip() if value is not None else "" for value in raw_headers]
     issues: list[str] = []
     if len(headers) != len(set(headers)):
         issues.append(f"{label} contains duplicate headers")
     missing = sorted(set(expected_headers) - set(headers))
-    extra = sorted(set(headers) - set(expected_headers))
+    extra = sorted(set(headers) - set(expected_headers) - set(optional_headers))
     if missing:
         issues.append(f"{label} is missing headers: {', '.join(missing)}")
     if extra:
@@ -275,16 +301,15 @@ def _table_to_dicts(
         cells = list(raw_row)
         if not any(value not in (None, "") for value in cells):
             continue
-        if len(cells) > len(headers) and any(value not in (None, "") for value in cells[len(headers):]):
+        if len(cells) > len(headers) and any(value not in (None, "") for value in cells[len(headers) :]):
             raise MuseumDataValidationError([f"{label} row {row_number} has values beyond the header columns"])
+        cells = cells[: len(headers)]
         cells.extend([None] * (len(headers) - len(cells)))
         result.append({"__row__": row_number, **dict(zip(headers, cells, strict=True))})
     return result
 
 
-def _validate_rows(
-    raw_halls: list[dict[str, Any]], raw_exhibits: list[dict[str, Any]]
-) -> MuseumDataset:
+def _validate_rows(raw_halls: list[dict[str, Any]], raw_exhibits: list[dict[str, Any]]) -> MuseumDataset:
     issues: list[str] = []
     halls: list[HallImportRow] = []
     exhibits: list[ExhibitImportRow] = []
@@ -314,9 +339,7 @@ def _validate_rows(
     hall_map = {row.slug: row for row in halls}
     for row in exhibits:
         if row.hall not in hall_map:
-            issues.append(
-                f"exhibit source_record_id '{row.source_record_id}' references unknown hall '{row.hall}'"
-            )
+            issues.append(f"exhibit source_record_id '{row.source_record_id}' references unknown hall '{row.hall}'")
         elif row.is_active and not hall_map[row.hall].is_active:
             issues.append(
                 f"active exhibit source_record_id '{row.source_record_id}' references inactive hall '{row.hall}'"
@@ -338,9 +361,7 @@ def _parse_hall(raw: dict[str, Any]) -> HallImportRow:
         name=_required_text(raw, "name", 255),
         description=_required_text(raw, "description", 20_000),
         floor=_optional_int(raw, "floor", minimum=-10, maximum=200),
-        estimated_duration_minutes=_required_int(
-            raw, "estimated_duration_minutes", minimum=0, maximum=480
-        ),
+        estimated_duration_minutes=_required_int(raw, "estimated_duration_minutes", minimum=0, maximum=480),
         display_order=_required_int(raw, "display_order", minimum=0, maximum=1_000_000),
         is_active=_required_bool(raw, "is_active"),
         suggested_questions=_questions(raw.get("suggested_questions"), "suggested_questions"),
@@ -357,14 +378,14 @@ def _parse_exhibit(raw: dict[str, Any]) -> ExhibitImportRow:
         category=_optional_text(raw, "category", 100),
         era=_optional_text(raw, "era", 100),
         importance=_required_int(raw, "importance", minimum=0, maximum=100),
-        estimated_visit_time=_optional_int(
-            raw, "estimated_visit_time", minimum=1, maximum=86_400
-        ),
+        estimated_visit_time=_optional_int(raw, "estimated_visit_time", minimum=1, maximum=86_400),
         display_order=_required_int(raw, "display_order", minimum=0, maximum=1_000_000),
         location_x=_optional_float(raw, "location_x"),
         location_y=_optional_float(raw, "location_y"),
         is_active=_required_bool(raw, "is_active"),
         suggested_questions=_questions(raw.get("suggested_questions"), "suggested_questions"),
+        image_url=_optional_image_url(raw, "image_url"),
+        image_url_present="image_url" in raw,
     )
 
 
@@ -394,6 +415,11 @@ def _optional_text(raw: dict[str, Any], key: str, maximum: int) -> str | None:
     return value
 
 
+def _optional_image_url(raw: dict[str, Any], key: str) -> str | None:
+    value = _optional_text(raw, key, 2048)
+    return normalize_external_image_url(value)
+
+
 def _required_int(raw: dict[str, Any], key: str, *, minimum: int, maximum: int) -> int:
     value = _optional_int(raw, key, minimum=minimum, maximum=maximum)
     if value is None:
@@ -401,9 +427,7 @@ def _required_int(raw: dict[str, Any], key: str, *, minimum: int, maximum: int) 
     return value
 
 
-def _optional_int(
-    raw: dict[str, Any], key: str, *, minimum: int, maximum: int
-) -> int | None:
+def _optional_int(raw: dict[str, Any], key: str, *, minimum: int, maximum: int) -> int | None:
     value = raw.get(key)
     if value in (None, ""):
         return None
@@ -469,8 +493,8 @@ def _questions(value: Any, key: str) -> list[str]:
     normalized = [item.strip() for item in parsed if item.strip()]
     if len(normalized) > 6:
         raise ValueError(f"{key} supports at most 6 questions")
-    if any(len(item) > 200 for item in normalized):
-        raise ValueError(f"{key} question exceeds 200 characters")
+    if any(len(item) > SUGGESTION_MAX_LENGTH for item in normalized):
+        raise ValueError(f"{key} question exceeds {SUGGESTION_MAX_LENGTH} characters")
     return normalized
 
 
@@ -509,12 +533,8 @@ class MuseumDataImportService:
             exhibits_seen=len(dataset.exhibits),
             authoritative=authoritative,
         )
-        summary.halls_planned_deactivation = sum(
-            1 for row in dataset.halls if not row.is_active
-        )
-        summary.exhibits_planned_deactivation = sum(
-            1 for row in dataset.exhibits if not row.is_active
-        )
+        summary.halls_planned_deactivation = sum(1 for row in dataset.halls if not row.is_active)
+        summary.exhibits_planned_deactivation = sum(1 for row in dataset.exhibits if not row.is_active)
         if dry_run:
             summary.authoritative_cleanup_deferred = authoritative
             summary.pending_index = [row.source_record_id for row in dataset.exhibits if row.is_active]
@@ -522,16 +542,12 @@ class MuseumDataImportService:
         if self.session is None:
             raise RuntimeError("A database session is required unless dry_run=True")
 
-        hall_by_slug, hall_by_source, hall_by_name = await self._existing_halls(
-            dataset, source_name
-        )
+        hall_by_slug, hall_by_source, hall_by_name = await self._existing_halls(dataset, source_name)
         exhibit_by_source = await self._existing_exhibits(dataset, source_name)
         authoritative_halls: list[Hall] = []
         authoritative_exhibits: list[Exhibit] = []
         if authoritative:
-            authoritative_halls, authoritative_exhibits = (
-                await self._authoritative_targets(dataset, source_name)
-            )
+            authoritative_halls, authoritative_exhibits = await self._authoritative_targets(dataset, source_name)
             for hall in authoritative_halls:
                 hall_by_slug.setdefault(hall.slug, hall)
 
@@ -556,46 +572,31 @@ class MuseumDataImportService:
                 protected_hall_slugs = {
                     str(hall)
                     for exhibit_id, hall in active_rows
-                    if exhibit_id not in target_exhibit_ids
-                    and exhibit_id not in incoming_relocated_or_inactive_ids
+                    if exhibit_id not in target_exhibit_ids and exhibit_id not in incoming_relocated_or_inactive_ids
                 }
-            authoritative_halls = [
-                model
-                for model in authoritative_halls
-                if model.slug not in protected_hall_slugs
-            ]
+            authoritative_halls = [model for model in authoritative_halls if model.slug not in protected_hall_slugs]
             summary.halls_planned_deactivation += len(authoritative_halls)
             summary.exhibits_planned_deactivation += len(authoritative_exhibits)
 
         collision_issues: list[str] = []
         existing_active_halls = set(
-            (
-                await self.session.execute(
-                    select(Hall.slug).where(Hall.is_active.is_(True))
-                )
-            ).scalars()
+            (await self.session.execute(select(Hall.slug).where(Hall.is_active.is_(True)))).scalars()
         )
         imported_hall_slugs = {row.slug for row in dataset.halls}
         authoritative_hall_slugs = {model.slug for model in authoritative_halls}
-        resulting_active_halls = (
-            existing_active_halls - imported_hall_slugs - authoritative_hall_slugs
-        ) | {row.slug for row in dataset.halls if row.is_active}
+        resulting_active_halls = (existing_active_halls - imported_hall_slugs - authoritative_hall_slugs) | {
+            row.slug for row in dataset.halls if row.is_active
+        }
         if len(resulting_active_halls) > 9:
             collision_issues.append(
                 "import would leave more than 9 active halls in the database; "
                 "explicitly include and deactivate obsolete halls first"
             )
         existing_active_exhibit_ids = set(
-            (
-                await self.session.execute(
-                    select(Exhibit.id).where(Exhibit.is_active.is_(True))
-                )
-            ).scalars()
+            (await self.session.execute(select(Exhibit.id).where(Exhibit.is_active.is_(True)))).scalars()
         )
         imported_existing_exhibit_ids = {
-            model.id
-            for row in dataset.exhibits
-            if (model := exhibit_by_source.get(row.source_record_id)) is not None
+            model.id for row in dataset.exhibits if (model := exhibit_by_source.get(row.source_record_id)) is not None
         }
         authoritative_exhibit_ids = {model.id for model in authoritative_exhibits}
         imported_active_exhibit_ids = {
@@ -608,9 +609,7 @@ class MuseumDataImportService:
             if row.is_active
         }
         resulting_active_exhibit_ids = (
-            existing_active_exhibit_ids
-            - imported_existing_exhibit_ids
-            - authoritative_exhibit_ids
+            existing_active_exhibit_ids - imported_existing_exhibit_ids - authoritative_exhibit_ids
         ) | imported_active_exhibit_ids
         if len(resulting_active_exhibit_ids) > MAX_ACTIVE_EXHIBITS:
             collision_issues.append(
@@ -622,9 +621,7 @@ class MuseumDataImportService:
             by_source = hall_by_source.get(row.source_record_id)
             by_name = hall_by_name.get(row.name)
             if by_slug is not None and by_slug.source_name not in {None, source_name}:
-                collision_issues.append(
-                    f"hall slug '{row.slug}' is owned by source '{by_slug.source_name}'"
-                )
+                collision_issues.append(f"hall slug '{row.slug}' is owned by source '{by_slug.source_name}'")
             if (
                 by_slug is not None
                 and by_slug.source_name == source_name
@@ -640,16 +637,10 @@ class MuseumDataImportService:
                     f"from '{by_source.slug}' to '{row.slug}'"
                 )
             if by_name is not None and by_name.slug != row.slug:
-                collision_issues.append(
-                    f"hall name '{row.name}' is already used by slug '{by_name.slug}'"
-                )
-        inactive_hall_slugs = {
-            row.slug for row in dataset.halls if not row.is_active
-        } | authoritative_hall_slugs
+                collision_issues.append(f"hall name '{row.name}' is already used by slug '{by_name.slug}'")
+        inactive_hall_slugs = {row.slug for row in dataset.halls if not row.is_active} | authoritative_hall_slugs
         if inactive_hall_slugs:
-            planned_exhibits = {
-                (source_name, row.source_record_id): row for row in dataset.exhibits
-            }
+            planned_exhibits = {(source_name, row.source_record_id): row for row in dataset.exhibits}
             active_exhibits = (
                 await self.session.execute(
                     select(Exhibit).where(
@@ -661,12 +652,8 @@ class MuseumDataImportService:
             for exhibit in active_exhibits:
                 if exhibit.id in authoritative_exhibit_ids:
                     continue
-                planned = planned_exhibits.get(
-                    (exhibit.source_name, exhibit.source_record_id)
-                )
-                if planned is not None and (
-                    not planned.is_active or planned.hall not in inactive_hall_slugs
-                ):
+                planned = planned_exhibits.get((exhibit.source_name, exhibit.source_record_id))
+                if planned is not None and (not planned.is_active or planned.hall not in inactive_hall_slugs):
                     continue
                 collision_issues.append(
                     f"inactive hall '{exhibit.hall}' would retain active exhibit "
@@ -676,9 +663,7 @@ class MuseumDataImportService:
         if collision_issues:
             raise MuseumDataValidationError(collision_issues)
 
-        hall_active_snapshots: dict[str, bool] = {
-            model.slug: bool(model.is_active) for model in authoritative_halls
-        }
+        hall_active_snapshots: dict[str, bool] = {model.slug: bool(model.is_active) for model in authoritative_halls}
         for row in dataset.halls:
             model = hall_by_slug.get(row.slug)
             was_active = bool(model and model.is_active)
@@ -718,7 +703,7 @@ class MuseumDataImportService:
         restore_snapshots: dict[str, dict[str, Any]] = {}
         for row in dataset.exhibits:
             model = exhibit_by_source.get(row.source_record_id)
-            values = {
+            indexed_values = {
                 "name": row.name,
                 "description": row.description,
                 "location_x": row.location_x,
@@ -734,6 +719,9 @@ class MuseumDataImportService:
                 "source_name": source_name,
                 "source_record_id": row.source_record_id,
             }
+            values = dict(indexed_values)
+            if row.image_url_present:
+                values["image_url"] = row.image_url
             was_active = bool(model and model.is_active)
             if model is None:
                 model = Exhibit(
@@ -744,20 +732,20 @@ class MuseumDataImportService:
                 self.session.add(model)
                 exhibit_by_source[row.source_record_id] = model
                 changed = True
+                index_changed = True
                 summary.exhibits_created += 1
             else:
-                original_values = {
-                    key: getattr(model, key) for key in values
-                }
+                original_values = {key: getattr(model, key) for key in values}
                 original_values["is_active"] = model.is_active
+                index_changed = any(getattr(model, key) != value for key, value in indexed_values.items())
                 changed = _apply_changes(model, values)
                 if changed or model.is_active != row.is_active:
                     summary.exhibits_updated += 1
                 else:
                     summary.unchanged += 1
-                if was_active and (changed or not row.is_active):
+                if was_active and (index_changed or not row.is_active):
                     restore_snapshots[model.id] = original_values
-            if row.is_active and (changed or not was_active):
+            if row.is_active and (index_changed or not was_active):
                 model.is_active = False
                 to_index.append((model, row))
                 summary.pending_index.append(row.source_record_id)
@@ -847,8 +835,7 @@ class MuseumDataImportService:
                     await self.indexing_service.delete_source(model.id, "exhibit")  # type: ignore[union-attr]
                 except Exception as cleanup_exc:
                     failures.append(
-                        f"{row.source_record_id}: partial-index cleanup failed "
-                        f"({type(cleanup_exc).__name__})"
+                        f"{row.source_record_id}: partial-index cleanup failed ({type(cleanup_exc).__name__})"
                     )
                 continue
             model.is_active = True
@@ -887,9 +874,7 @@ class MuseumDataImportService:
             by_name.update({row.name: row for row in rows})
         return by_slug, by_source, by_name
 
-    async def _existing_exhibits(
-        self, dataset: MuseumDataset, source_name: str
-    ) -> dict[str, Exhibit]:
+    async def _existing_exhibits(self, dataset: MuseumDataset, source_name: str) -> dict[str, Exhibit]:
         source_ids = [row.source_record_id for row in dataset.exhibits]
         if not source_ids:
             return {}
@@ -913,24 +898,17 @@ class MuseumDataImportService:
         incoming_hall_source_ids = {row.source_record_id for row in dataset.halls}
         hall_rows = (
             await self.session.execute(
-                select(Hall).where(
-                    or_(Hall.source_name.is_(None), Hall.source_name == source_name)
-                )
+                select(Hall).where(or_(Hall.source_name.is_(None), Hall.source_name == source_name))
             )
         ).scalars()
         halls = [
             model
             for model in hall_rows
             if model.slug not in incoming_hall_slugs
-            and not (
-                model.source_name == source_name
-                and model.source_record_id in incoming_hall_source_ids
-            )
+            and not (model.source_name == source_name and model.source_record_id in incoming_hall_source_ids)
         ]
 
-        incoming_exhibit_source_ids = {
-            row.source_record_id for row in dataset.exhibits
-        }
+        incoming_exhibit_source_ids = {row.source_record_id for row in dataset.exhibits}
         exhibit_rows = (
             await self.session.execute(
                 select(Exhibit).where(
@@ -944,10 +922,7 @@ class MuseumDataImportService:
         exhibits = [
             model
             for model in exhibit_rows
-            if not (
-                model.source_name == source_name
-                and model.source_record_id in incoming_exhibit_source_ids
-            )
+            if not (model.source_name == source_name and model.source_record_id in incoming_exhibit_source_ids)
         ]
         return halls, exhibits
 

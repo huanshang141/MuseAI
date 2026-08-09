@@ -25,6 +25,7 @@ class Settings(BaseSettings):
         if v not in allowed:
             raise ValueError(f"APP_ENV must be one of {allowed}, got {v!r}")
         return v
+
     DEBUG: bool = False  # Changed: Default to False
 
     @field_validator("DEBUG", mode="before")
@@ -208,6 +209,27 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000"  # Comma-separated list or "*"
     CORS_ALLOW_CREDENTIALS: bool = True
 
+    # Uploaded exhibit images live outside the public web root and are served
+    # through a validated API endpoint. Relative paths resolve from PROJECT_ROOT.
+    EXHIBIT_IMAGE_DIR: Path = PROJECT_ROOT / "var" / "exhibit-images"
+    EXHIBIT_IMAGE_MAX_BYTES: int = 5 * 1024 * 1024
+    EXHIBIT_IMAGE_MAX_PIXELS: int = 40_000_000
+
+    @field_validator("EXHIBIT_IMAGE_DIR", mode="before")
+    @classmethod
+    def normalize_exhibit_image_dir(cls, v: object) -> Path:
+        path = Path(str(v)).expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path.resolve()
+
+    @field_validator("EXHIBIT_IMAGE_MAX_BYTES", "EXHIBIT_IMAGE_MAX_PIXELS")
+    @classmethod
+    def validate_image_limit(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("exhibit image limits must be positive")
+        return v
+
     # Allow insecure dev defaults for local development
     ALLOW_INSECURE_DEV_DEFAULTS: bool = False
     RATE_LIMIT_ENABLED: bool = True
@@ -232,6 +254,7 @@ class Settings(BaseSettings):
         if v_upper not in allowed:
             raise ValueError(f"LOG_LEVEL must be one of {allowed}, got {v!r}")
         return v_upper
+
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "json"  # "json" or "text"
 
@@ -262,10 +285,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_production_secrets(self) -> "Settings":
         is_production = self.APP_ENV == "production"
-        allow_insecure_defaults = (
-            self.ALLOW_INSECURE_DEV_DEFAULTS
-            and self.APP_ENV in {"development", "test", "local"}
-        )
+        allow_insecure_defaults = self.ALLOW_INSECURE_DEV_DEFAULTS and self.APP_ENV in {"development", "test", "local"}
 
         if is_production:
             if not self.JWT_SECRET:

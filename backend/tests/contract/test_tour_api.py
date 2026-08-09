@@ -1382,6 +1382,17 @@ async def test_generate_tour_report(override_dependencies):
     assert "reflection" in data
     assert data["reflection"]["initial_assumption"]
     assert data["reflection"]["change_summary"]
+    assert data["exploration_guidance"]["title"]
+    assert data["exploration_guidance"]["summary"]
+    assert 1 <= len(data["exploration_guidance"]["actions"]) <= 3
+    assert all(
+        {"title", "description", "question"} <= set(action)
+        for action in data["exploration_guidance"]["actions"]
+    )
+    assert "暂时不生成" not in json.dumps(
+        data["exploration_guidance"], ensure_ascii=False
+    )
+    assert all("到访" not in item for item in data["highlights"])
     assert data["report_theme"] == "archaeology"
 
 
@@ -2364,7 +2375,7 @@ async def test_tour_suggestions_prefer_imported_hall_data(
             estimated_duration_minutes=25,
             display_order=1,
             is_active=True,
-            suggested_questions=["这座展厅最值得先观察什么？"],
+            suggested_questions=["教研中心的工具展签如何区分材料与制作痕迹？"],
             ),
             Hall(
                 slug="legacy-suggestion-hall",
@@ -2412,9 +2423,53 @@ async def test_tour_suggestions_prefer_imported_hall_data(
 
     assert response.status_code == 200
     assert response.json()["source"] == "hall"
-    assert response.json()["suggestions"] == ["这座展厅最值得先观察什么？"]
+    assert response.json()["suggestions"] == [
+        "教研中心的工具展签如何区分材料与制作痕迹？"
+    ]
     assert legacy_hall_response.status_code == 422
     assert legacy_exhibit_response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_tour_suggestions_replace_meta_copy_with_exhibit_facts(
+    override_dependencies,
+    db_session,
+):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
+    exhibit = Exhibit(
+        id="quality-filter-exhibit",
+        name="【测试】尖底瓶",
+        description="小口、鼓腹与使用痕迹记录了汲水和携带过程。",
+        category="陶器",
+        hall="kiln-hall",
+        is_active=True,
+        suggested_questions=["这是一条测试数据吗？", "真实数据接入后会如何替换？"],
+    )
+    db_session.add(exhibit)
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        created = (
+            await client.post(
+                "/api/v1/tour/sessions",
+                json={"interest_type": "D", "persona": "D", "assumption": "D"},
+            )
+        ).json()
+        response = await client.get(
+            f"/api/v1/tour/sessions/{created['id']}/suggestions",
+            params={"hall_id": "kiln-hall", "exhibit_id": exhibit.id},
+            headers={"X-Session-Token": created["session_token"]},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"] == "exhibit"
+    assert len(payload["suggestions"]) == 2
+    copy = "".join(payload["suggestions"])
+    assert "尖底瓶" in copy
+    assert "测试数据" not in copy
+    assert "真实数据接入" not in copy
 
 
 @pytest.mark.asyncio
@@ -2541,7 +2596,7 @@ async def test_temporary_hall_suggestions_follow_active_exhibit_upload_and_delet
         importance=10,
         display_order=1,
         is_active=True,
-        suggested_questions=["这件临展展品最值得观察什么？"],
+        suggested_questions=["临展问题展品的木构接点与烧灼痕迹分别记录了什么？"],
     )
     inactive = Exhibit(
         id="temporary-suggestion-inactive",
@@ -2572,7 +2627,9 @@ async def test_temporary_hall_suggestions_follow_active_exhibit_upload_and_delet
 
     assert response.status_code == 200
     assert response.json()["source"] == "exhibit"
-    assert response.json()["suggestions"] == ["这件临展展品最值得观察什么？"]
+    assert response.json()["suggestions"] == [
+        "临展问题展品的木构接点与烧灼痕迹分别记录了什么？"
+    ]
 
     await db_session.delete(suggested)
     await db_session.commit()

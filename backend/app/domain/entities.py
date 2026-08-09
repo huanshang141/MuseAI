@@ -140,6 +140,11 @@ class Exhibit:
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    # External images are stored as validated HTTPS URLs. Uploaded images use
+    # an opaque path relative to the configured exhibit-image directory; that
+    # internal path is never returned directly by the API.
+    image_url: str | None = None
+    image_path: str | None = None
 
 
 @dataclass
@@ -206,9 +211,7 @@ class Prompt:
             return self.content.format(**variables)
         except KeyError as e:
             missing_var = str(e).strip("'")
-            raise PromptVariableError(
-                f"Missing required variable: {missing_var}"
-            ) from e
+            raise PromptVariableError(f"Missing required variable: {missing_var}") from e
 
 
 @dataclass
@@ -261,10 +264,12 @@ class TourSession:
             raise ValueError("Can only complete from touring status")
         self.status = "completed"
         from datetime import UTC
+
         self.completed_at = datetime.now(UTC)
 
     def touch_active(self) -> None:
         from datetime import UTC
+
         self.last_active_at = datetime.now(UTC)
 
 

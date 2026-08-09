@@ -35,6 +35,8 @@ class Exhibit(Base):
     suggested_questions: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     source_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source_record_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
@@ -57,10 +59,16 @@ class Exhibit(Base):
             is_active=self.is_active,
             created_at=self.created_at,
             updated_at=self.updated_at,
+            image_url=self.image_url,
+            image_path=self.image_path,
         )
 
     document: Mapped[Document] = relationship(back_populates="exhibits")
 
     __table_args__ = (
         sa.UniqueConstraint("source_name", "source_record_id", name="uq_exhibits_source_record"),
+        sa.CheckConstraint(
+            "image_url IS NULL OR image_url LIKE 'https://%'",
+            name="ck_exhibits_image_url_https",
+        ),
     )

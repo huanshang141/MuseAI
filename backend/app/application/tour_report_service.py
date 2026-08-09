@@ -85,9 +85,9 @@ REVIEW_TOPIC_LINES = {
 }
 
 INSUFFICIENT_REVIEW_LINES = {
-    "focus": "有效互动还少，暂时不生成判断型总结。",
-    "evidence": "目前只保留展厅到访和少量操作记录；继续提问或查看展品后，复盘线索会更清楚。",
-    "next": "下一次可先选一个展厅或一件展品追问，例如“它有什么用途”“证据在哪里”。",
+    "focus": "本次记录已经形成复盘起点：先保留现场观察，不急于把可能性写成结论。",
+    "evidence": "在{halls}选择一件有明确展签的展品，记录材料、形制或纹饰中的一项可见信息。",
+    "next": "再把这项观察改写成可核对的问题：哪一处现场信息支持展签中的制作或用途说明？",
 }
 
 TOPIC_KEYWORDS = {
@@ -273,9 +273,18 @@ def build_reflection_summary(
 
     total_signals = question_count + deep_dive_count
     if total_signals < 2:
+        current_hall = normalize_hall(getattr(tour_session, "current_hall", None))
+        review_halls = signal_halls or ([current_hall] if current_hall else [])
+        hall_text = (
+            _format_review_halls(review_halls, hall_name_map)
+            if review_halls
+            else "当前开放展厅"
+        )
         return {
             "initial_assumption": INSUFFICIENT_REVIEW_LINES["focus"],
-            "observed_focus": INSUFFICIENT_REVIEW_LINES["evidence"],
+            "observed_focus": INSUFFICIENT_REVIEW_LINES["evidence"].format(
+                halls=hall_text
+            ),
             "change_summary": INSUFFICIENT_REVIEW_LINES["next"],
             "confidence": 0.35,
             "status": "insufficient",
@@ -301,7 +310,9 @@ def build_reflection_summary(
 
     if top_score <= 0:
         initial_assumption = INSUFFICIENT_REVIEW_LINES["focus"]
-        observed_focus = INSUFFICIENT_REVIEW_LINES["evidence"]
+        observed_focus = INSUFFICIENT_REVIEW_LINES["evidence"].format(
+            halls=hall_text
+        )
         change_summary = INSUFFICIENT_REVIEW_LINES["next"]
         status = "insufficient"
         confidence = 0.35
@@ -327,6 +338,153 @@ def build_reflection_summary(
         "status": status,
         "initial_focus": initial_label,
         "observed_focus_key": top_topic if top_score > 0 else None,
+    }
+
+
+def _guidance_event_exhibit_id(event: Any, metadata: dict[str, Any]) -> str | None:
+    raw_value = getattr(event, "exhibit_id", None) or metadata.get("exhibit_id")
+    if hasattr(raw_value, "value"):
+        raw_value = raw_value.value
+    value = str(raw_value or "").strip()
+    return value[:80] or None
+
+
+def _guidance_action(
+    title: str,
+    description: str,
+    question: str,
+    *,
+    hall_id: str | None = None,
+    exhibit_id: str | None = None,
+) -> dict[str, str]:
+    action = {
+        "title": _clean_record_text(title)[:80],
+        "description": _clean_record_text(description)[:240],
+        "question": _clean_record_text(question)[:200],
+    }
+    if hall_id:
+        action["hall_id"] = hall_id
+    if exhibit_id:
+        action["exhibit_id"] = exhibit_id
+    return action
+
+
+def build_exploration_guidance(
+    tour_session: Any,
+    events: list[Any],
+    *,
+    reflection: dict[str, Any] | None = None,
+    hall_name_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Return 1-3 concrete next actions from persisted visit records only."""
+    latest_question = ""
+    latest_hall: str | None = None
+    latest_exhibit_id: str | None = None
+    latest_exhibit_name = ""
+    viewed_count = 0
+
+    for event in events or []:
+        event_type = str(getattr(event, "event_type", "") or "")
+        metadata = getattr(event, "metadata", None) or {}
+        hall = normalize_hall(
+            getattr(event, "hall", None)
+            or metadata.get("hall")
+            or metadata.get("hall_slug")
+        )
+        exhibit_id = _guidance_event_exhibit_id(event, metadata)
+        exhibit_name = _clean_record_text(
+            metadata.get("exhibit_name")
+            or metadata.get("exhibitName")
+            or metadata.get("name")
+        )[:80]
+
+        if event_type == "exhibit_view":
+            viewed_count += 1
+            latest_hall = hall or latest_hall
+            latest_exhibit_id = exhibit_id or latest_exhibit_id
+            latest_exhibit_name = exhibit_name or latest_exhibit_name
+        elif event_type in {"exhibit_question", "assistant_answer"}:
+            question = _clean_record_text(
+                metadata.get("question")
+                or metadata.get("message")
+                or metadata.get("query")
+            )[:120]
+            if question:
+                latest_question = question
+            latest_hall = hall or latest_hall
+            latest_exhibit_id = exhibit_id or latest_exhibit_id
+            latest_exhibit_name = exhibit_name or latest_exhibit_name
+
+    current_hall = normalize_hall(getattr(tour_session, "current_hall", None))
+    latest_hall = latest_hall or current_hall
+    hall_name = (hall_name_map or {}).get(latest_hall or "", "")
+    if not hall_name and latest_hall:
+        hall_name = latest_hall
+
+    actions: list[dict[str, str]] = []
+    if latest_question:
+        question_excerpt = latest_question[:54].rstrip("，。！？? ")
+        actions.append(
+            _guidance_action(
+                "核对一个回答",
+                f"围绕“{question_excerpt}”，把回答中的结论与展签或实物细节逐项对应。",
+                "回答中的哪一条结论能够由展签、器物形制或现场位置直接验证？",
+                hall_id=latest_hall,
+                exhibit_id=latest_exhibit_id,
+            )
+        )
+
+    if latest_exhibit_name or latest_exhibit_id:
+        subject = latest_exhibit_name or "最近浏览的展品"
+        actions.append(
+            _guidance_action(
+                f"回看{subject}",
+                "先选定材料、形制、纹饰或使用痕迹中的一项，记录能直接看到的细节。",
+                f"“{subject}”上哪一处可见细节最能支持展签中的制作或用途说明？",
+                hall_id=latest_hall,
+                exhibit_id=latest_exhibit_id,
+            )
+        )
+
+    if latest_hall and len(actions) < 3:
+        subject = hall_name or "当前展厅"
+        actions.append(
+            _guidance_action(
+                f"补齐{subject}的观察记录",
+                f"在{subject}再选一件有明确展签的展品，依次核对材料、形制和使用痕迹。",
+                "这件展品的材料、形制和使用痕迹分别能确认哪些信息？",
+                hall_id=latest_hall,
+            )
+        )
+
+    if not actions:
+        actions.append(
+            _guidance_action(
+                "建立第一条观察记录",
+                "选择一件有明确名称和展签的展品，先记下一项能够直接看到的材料、形制或纹饰信息。",
+                "哪一处可见细节能够与展签中的制作或用途说明直接对应？",
+            )
+        )
+
+    observed_focus_key = (reflection or {}).get("observed_focus_key")
+    observed_label = REFLECTION_TOPIC_LABELS.get(observed_focus_key, "")
+    if latest_question and observed_label:
+        title = "把问题变成证据链"
+        summary = f"你的问题已经落在{observed_label}上；下一步把问答结论与现场信息逐项对应。"
+    elif latest_question:
+        title = "把问题变成证据链"
+        summary = "你已经留下具体问题；下一步核对回答中的每项判断来自哪一条现场信息。"
+    elif viewed_count or latest_exhibit_id:
+        title = "从观察走向提问"
+        summary = "已有浏览记录可以继续利用；先固定一项可见细节，再提出能够由展签回答的问题。"
+    else:
+        title = "建立第一条可核对的记录"
+        summary = "从一项能直接看到的细节开始，就能为后续提问和复盘留下清晰线索。"
+
+    return {
+        "title": title,
+        "summary": summary,
+        "actions": actions[:3],
     }
 
 

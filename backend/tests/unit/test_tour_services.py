@@ -1,10 +1,19 @@
 import asyncio
+import csv
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.api.tour import (
+    SUGGESTION_MAX_LENGTH,
+    SUGGESTION_META_FRAGMENTS,
+    _derive_exhibit_suggestions,
+    _is_meaningful_suggestion,
+    _quality_suggestions,
+)
 from app.application.tour_report_service import (
     RECORD_SUMMARY_ANSWER_MAX_CHARS,
     RECORD_SUMMARY_JSON_MAX_BYTES,
@@ -15,6 +24,7 @@ from app.application.tour_report_service import (
     _pick_one_liner,
     _structured_qa_payload,
     aggregate_stats,
+    build_exploration_guidance,
     build_record_summary,
     build_reflection_summary,
     calculate_radar_scores,
@@ -537,6 +547,8 @@ async def test_record_events():
 
     assert len(result) == 2
     assert mock_session.add.call_count == 2
+    added_models = [call.args[0] for call in mock_session.add.call_args_list]
+    assert added_models[0].created_at < added_models[1].created_at
     mock_session.commit.assert_called_once()
 
 
@@ -1327,6 +1339,135 @@ def test_reflection_summary_insufficient_evidence():
     assert reflection["observed_focus_key"] is None
     assert reflection["observed_focus"]
     assert reflection["change_summary"]
+    copy = "".join(str(value) for value in reflection.values())
+    assert "有效互动还少" not in copy
+    assert "暂时不生成" not in copy
+
+
+def test_exploration_guidance_turns_a_single_view_into_specific_actions():
+    session = _make_session(persona="default", current_hall="kiln-hall")
+    events = [
+        _make_event_model(
+            event_type="exhibit_view",
+            exhibit_id="exhibit-pointed-bottle",
+            hall="kiln-hall",
+            event_meta={"exhibit_name": "尖底瓶"},
+        ).to_entity(),
+    ]
+    reflection = build_reflection_summary(
+        session,
+        events,
+        hall_name_map={"kiln-hall": "陶窑遗址展示馆"},
+    )
+
+    guidance = build_exploration_guidance(
+        session,
+        events,
+        reflection=reflection,
+        hall_name_map={"kiln-hall": "陶窑遗址展示馆"},
+    )
+
+    assert guidance["title"] == "从观察走向提问"
+    assert 1 <= len(guidance["actions"]) <= 3
+    assert guidance["actions"][0]["exhibit_id"] == "exhibit-pointed-bottle"
+    assert guidance["actions"][0]["hall_id"] == "kiln-hall"
+    assert "尖底瓶" in json.dumps(guidance, ensure_ascii=False)
+    assert "暂时" not in json.dumps(guidance, ensure_ascii=False)
+
+
+def test_exploration_guidance_uses_the_visitors_latest_question():
+    session = _make_session(persona="D", current_hall="basic-exhibition-hall")
+    events = [
+        _make_event_model(
+            event_type="exhibit_question",
+            exhibit_id="exhibit-painted-basin",
+            hall="basic-exhibition-hall",
+            event_meta={
+                "question": "人面鱼纹的线条与盆内构图如何配合？",
+                "exhibit_name": "人面鱼纹彩陶盆",
+            },
+        ).to_entity(),
+    ]
+
+    guidance = build_exploration_guidance(
+        session,
+        events,
+        hall_name_map={"basic-exhibition-hall": "基本陈列厅"},
+    )
+
+    assert guidance["title"] == "把问题变成证据链"
+    assert guidance["actions"][0]["title"] == "核对一个回答"
+    assert "人面鱼纹的线条" in guidance["actions"][0]["description"]
+
+
+def test_exploration_guidance_without_events_still_provides_one_clear_start():
+    guidance = build_exploration_guidance(
+        _make_session(persona="default", current_hall=None),
+        [],
+    )
+
+    assert guidance["title"] == "建立第一条可核对的记录"
+    assert len(guidance["actions"]) == 1
+    assert "材料、形制或纹饰" in guidance["actions"][0]["description"]
+
+
+def test_suggestion_quality_filter_rejects_vague_and_maintenance_copy():
+    rejected = [
+        "眼前这些内容可以怎样理解？",
+        "眼前这些展品可以怎样理解？",
+        "这是一条测试数据吗？",
+        "真实数据接入后会如何替换？",
+        "这个展厅最值得先观察什么？",
+        "接下来还可以问什么？",
+        "这里有哪些可以直接观察的证据？",
+        "哪些结论仍需要保留不确定性？",
+        "最值得记录的观察点是什么？",
+        "我可以怎样整理这段参观笔记？",
+        "这些材料反映了怎样的史前生活？",
+        "它与更大的历史问题有什么联系？",
+        "可以从哪些材料和制作痕迹观察？",
+        "这些细节可能对应什么用途？",
+    ]
+    assert all(not _is_meaningful_suggestion(question) for question in rejected)
+
+    derived = _derive_exhibit_suggestions(
+        "【测试】尖底瓶",
+        "尖底瓶的小口、鼓腹与使用痕迹记录了汲水过程。",
+        "陶器",
+    )
+    assert len(derived) == 2
+    assert all(_is_meaningful_suggestion(question) for question in derived)
+    assert all("尖底瓶" in question for question in derived)
+
+    oversized = "尖底瓶的口沿磨损与使用方式之间可以怎样对应？" + (
+        "细节" * SUGGESTION_MAX_LENGTH
+    )
+    bounded = _quality_suggestions([oversized])
+    assert len(bounded) == 1
+    assert len(bounded[0]) == SUGGESTION_MAX_LENGTH
+
+
+def test_museum_test_csv_has_two_content_questions_per_exhibit():
+    csv_path = (
+        Path(__file__).resolve().parents[3]
+        / "data"
+        / "museum_test_data"
+        / "exhibits.csv"
+    )
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert len(rows) == 46
+    for row in rows:
+        questions = json.loads(row["suggested_questions"])
+        assert len(questions) >= 2, row["name"]
+        assert len(set(questions)) == len(questions), row["name"]
+        assert all(_is_meaningful_suggestion(question) for question in questions), row["name"]
+        assert not any(
+            fragment in question
+            for question in questions
+            for fragment in SUGGESTION_META_FRAGMENTS
+        ), row["name"]
 
 
 def test_report_copy_does_not_invent_legacy_museum_facts():

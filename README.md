@@ -6,7 +6,7 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
 
 ## 当前阶段
 
-当前处于 **上线准备与发布收口阶段**。后端已经支撑小程序的核心体验闭环，预想中的小程序功能已完成真机测试；ICP备案和微信 request 合法域名链路已通过，正式上线仍受真实数据、OCR 服务、API key 治理、运维托管和体验版发布流程影响。完整执行手册见 [上线准备.md](../project_materials/docs/上线准备.md)。
+当前处于 **数据驱动小程序框架验证阶段**。九个展厅的名称和简介为已确认内容；当前展品、图片和地图/路线仍是测试数据或待接入项。后端已提供统一 CSV/XLSX 导入、具体建议条、报告探索指引和展品图片管理能力；部署、实机回归和真实馆方数据验收仍需按发布批次执行。数据与图片维护见 [小程序内容维护指南](./docs/miniapp-content-maintenance.md)。
 
 ## 已实现能力
 
@@ -22,11 +22,15 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
 - 展厅进入、展厅离开、展品浏览、提问、AI 回答、深挖等事件记录。
 - `/api/v1/curator/plan-tour` AI 策展路线接口。
 - 展品列表、展品详情、按展厅筛选和文字搜索。
+- 数据驱动建议条：优先使用展品/展厅的具体建议问题；不合格内容会被过滤，再由展品名称、简介和分类确定性生成可观察的问题，不新增 LLM 调用。
+- 展品图片：CSV/XLSX 可提供 HTTPS `image_url`；管理员可上传、替换或删除 JPEG/PNG/WebP；无图时 API 返回 `null`，由小程序显示默认图。
 - 游览报告生成：到访展厅、展品浏览、认知变化、记录摘要、基础统计。
   - 到访展厅按已浏览展厅统计：`exhibit_question` 或 `exhibit_view` 会计入，`assistant_answer` 作为历史兼容事件保留。
+  - `halls_visited` 仅保留为后端内部统计和兼容字段；游客报告不显示到访展厅明细、数量或对应 highlight。
   - 问题统计按用户发送消息数统计：`exhibit_question` 每条计一次，不对相同文本去重。
   - 展品浏览单独统计：点进展品详情页记录 `exhibit_view`，同一展品重复查看只计一次。
   - 记录摘要按展厅聚合用户问题与 AI 回答，优先使用报告模型生成凝练摘要，失败时回退规则式摘要。
+  - `exploration_guidance` 根据最新提问、展品浏览和当前展厅返回 1–3 个可执行的后续观察任务，不再因互动较少而返回拒绝型文案。
 - Reflection Engine：不新增数据库、不新增 API、不新增模型调用，基于 session/events/report 规则推断认知变化。
 - RAG 链路：query rewrite、Elasticsearch 检索、rerank、文档过滤、流式生成。
 - LLM 分层模型：
@@ -54,7 +58,7 @@ HTTPS 状态拆分说明：
 - 官方馆方完整展品清单、展品图片、地图、点位和空间布局数据仍需确认；当前数据不是最终真实数据。
 - LLM Qwen API 由 Alex 提供，其他 API 由另一位同学提供；上线前必须明确 key 负责人、额度、付费、告警和轮换流程。
 - 当前 Qwen 调用消耗免费额度或试用额度；体验版前必须在服务商控制台确认额度、限流和账单策略。
-- 生产级进程管理（systemd）、日志轮转和数据库备份策略已有部署资产（见 `deploy/`），但尚未在服务器落地执行。
+- 生产后端已由 systemd 托管；日志轮转和 PostgreSQL 备份资产位于 `deploy/`，发布批次仍需记录实际备份、校验和恢复演练结果。
 - 体验版上传、测试成员分发和上传前完整回归尚未完成。
 
 ## 技术栈
@@ -108,6 +112,8 @@ backend/
 | 策展路线 | `POST /api/v1/curator/plan-tour` |
 | 展品列表 | `GET /api/v1/exhibits` |
 | 展品详情 | `GET /api/v1/exhibits/{id}` |
+| 展品公开图片 | `GET /api/v1/exhibits/{id}/image` |
+| 管理员上传/删除图片 | `POST` / `DELETE /api/v1/admin/exhibits/{id}/image` |
 | TTS 合成 | `POST /api/v1/tts/synthesize` |
 
 ## 报告与事件契约
@@ -127,9 +133,10 @@ backend/
 `POST /api/v1/tour/sessions/{session_id}/report` 当前重点返回：
 
 - `halls_visited`：已归一化的到访展厅 slug 列表。
-- `highlights`：本次导览亮点。
+- `highlights`：问题数、展品数等本次导览亮点，不包含到访展厅数量。
 - `reflection`：Reflection Engine 规则推断出的认知变化。
 - `record_notes`：按展厅合并用户问题和 AI 回答后的记录摘要，供前端直接渲染。
+- `exploration_guidance`：包含 `title`、`summary` 和 1–3 个 `actions`。每个 action 必有 `title`、`description`、`question`，在有可信关联时另带 `hall_id` / `exhibit_id`。
 
 报告生成不新增数据库表、不新增 API，也不改变 SSE 协议。`record_notes` 会优先调用报告模型生成不超过约 300 字的凝练记录摘要；模型不可用或生成失败时回退到规则式摘要，避免报告不可用。
 
@@ -170,6 +177,10 @@ TTS_PROVIDER=xiaomi
 TTS_API_KEY=
 TTS_MODEL=mimo-v2.5-tts
 TTS_DEFAULT_VOICE=冰糖
+
+EXHIBIT_IMAGE_DIR=var/exhibit-images
+EXHIBIT_IMAGE_MAX_BYTES=5242880
+EXHIBIT_IMAGE_MAX_PIXELS=40000000
 ```
 
 `.env` 不允许提交到仓库。线上修改 `.env` 后必须重启后端进程。
@@ -233,7 +244,7 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 - RAG、rerank、TTS 均依赖外部服务，线上应控制并发和超时，优先保证小程序导览流式响应。
 - Elasticsearch、Redis、PostgreSQL 如与后端同机部署，需要持续观察内存占用；数据量增长后优先拆分检索或数据库服务。
 
-服务器更新代码后通常需要：
+服务器更新代码前必须先备份 PostgreSQL，并在线上持久目录配置 `EXHIBIT_IMAGE_DIR`。完整的部署、导入、图片维护和回退命令见 [小程序内容维护指南](./docs/miniapp-content-maintenance.md)。更新代码后通常需要：
 
 ```bash
 cd ~/MuseAI

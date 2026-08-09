@@ -4,27 +4,32 @@
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi.responses import FileResponse
+from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.api.deps import SessionDep
+from app.application.exhibit_images import (
+    ExhibitImageError,
+    ExhibitImageStorage,
+    public_exhibit_image_url,
+)
 from app.application.exhibit_service import ExhibitService
 from app.application.hall_normalizer import CANONICAL_HALL_SLUGS, normalize_hall
+from app.config.settings import get_settings
 from app.infra.postgres.adapters import PostgresExhibitRepository
 from app.infra.postgres.models import Hall
 
 router = APIRouter(prefix="/exhibits", tags=["exhibits"])
+
 
 def _normalize_response_hall(value: str | None) -> str:
     return normalize_hall(value) or value or ""
 
 
 async def _load_hall_names(session: SessionDep, halls: list[str]) -> dict[str, str]:
-    slugs = {
-        normalized
-        for value in halls
-        if (normalized := normalize_hall(value))
-    } & CANONICAL_HALL_SLUGS
+    slugs = {normalized for value in halls if (normalized := normalize_hall(value))} & CANONICAL_HALL_SLUGS
     if not slugs:
         return {}
     result = await session.execute(
@@ -62,6 +67,7 @@ class ExhibitListItem(BaseModel):
     era: str
     importance: int
     estimated_visit_time: int
+    image_url: str | None
 
     model_config = {"from_attributes": True}
 
@@ -82,6 +88,7 @@ class ExhibitDetail(BaseModel):
     importance: int
     estimated_visit_time: int
     document_id: str
+    image_url: str | None
 
     model_config = {"from_attributes": True}
 
@@ -130,6 +137,15 @@ def get_exhibit_service(session: SessionDep) -> ExhibitService:
         visible_halls=CANONICAL_HALL_SLUGS,
     )
     return ExhibitService(repository)
+
+
+def get_exhibit_image_storage() -> ExhibitImageStorage:
+    settings = get_settings()
+    return ExhibitImageStorage(
+        settings.EXHIBIT_IMAGE_DIR,
+        max_bytes=settings.EXHIBIT_IMAGE_MAX_BYTES,
+        max_pixels=settings.EXHIBIT_IMAGE_MAX_PIXELS,
+    )
 
 
 # ============================================================================
@@ -184,11 +200,7 @@ async def list_exhibits(
         )
 
     hall_names = await _load_hall_names(session, [e.hall for e in exhibits])
-    exhibits = [
-        exhibit
-        for exhibit in exhibits
-        if _normalize_response_hall(exhibit.hall) in hall_names
-    ]
+    exhibits = [exhibit for exhibit in exhibits if _normalize_response_hall(exhibit.hall) in hall_names]
     return ExhibitListResponse(
         exhibits=[
             ExhibitListItem(
@@ -201,6 +213,7 @@ async def list_exhibits(
                 era=e.era,
                 importance=e.importance,
                 estimated_visit_time=e.estimated_visit_time,
+                image_url=public_exhibit_image_url(e),
             )
             for e in exhibits
         ],
@@ -236,14 +249,8 @@ async def get_exhibit_stats(
 
     return ExhibitStatsResponse(
         total_exhibits=len(all_exhibits),
-        categories=[
-            CategoryStats(category=cat, count=count)
-            for cat, count in sorted(category_counts.items())
-        ],
-        halls=[
-            HallStats(hall=hall, floor=floor, count=count)
-            for (hall, floor), count in sorted(hall_counts.items())
-        ],
+        categories=[CategoryStats(category=cat, count=count) for cat, count in sorted(category_counts.items())],
+        halls=[HallStats(hall=hall, floor=floor, count=count) for (hall, floor), count in sorted(hall_counts.items())],
     )
 
 
@@ -269,6 +276,43 @@ async def list_halls(
     """
     service = get_exhibit_service(session)
     return sorted(set(_normalize_response_hall(hall) for hall in await service.get_all_halls()))
+
+
+@router.get("/{exhibit_id}/image", response_class=FileResponse, summary="Get uploaded exhibit image")
+async def get_exhibit_image(
+    session: SessionDep,
+    exhibit_id: str,
+) -> FileResponse:
+    """Serve a validated local upload for an active, publicly visible exhibit."""
+    try:
+        UUID(exhibit_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid exhibit ID format: {exhibit_id}",
+        ) from None
+
+    exhibit = await get_exhibit_service(session).get_exhibit(exhibit_id)
+    if exhibit is None or not exhibit.is_active or not exhibit.image_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exhibit image not found")
+
+    storage = get_exhibit_image_storage()
+    try:
+        image_path = storage.resolve(exhibit.image_path)
+        media_type = storage.media_type(exhibit.image_path)
+    except (ExhibitImageError, OSError) as exc:
+        logger.warning("Rejected unsafe or invalid exhibit image reference for {}: {}", exhibit_id, type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exhibit image not found") from None
+    if not image_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Exhibit image not found")
+    return FileResponse(
+        image_path,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=300, must-revalidate",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get("/{exhibit_id}", response_model=ExhibitDetail, summary="Get exhibit detail")
@@ -320,4 +364,5 @@ async def get_exhibit(
         importance=exhibit.importance,
         estimated_visit_time=exhibit.estimated_visit_time,
         document_id=exhibit.document_id,
+        image_url=public_exhibit_image_url(exhibit),
     )

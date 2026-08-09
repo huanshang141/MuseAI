@@ -19,6 +19,8 @@ lib64/
 parts/
 sdist/
 var/
+# Local exhibit uploads (production should configure a persistent external path).
+var/exhibit-images/
 wheels/
 *.egg-info/
 .installed.cfg

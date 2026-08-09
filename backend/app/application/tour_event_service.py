@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from loguru import logger
 from sqlalchemy import select
@@ -22,10 +22,20 @@ async def record_events(
     if not events:
         return []
 
-    # Stable primary keys make an unknown commit outcome detectable even for
-    # events that predate client_event_id support.
-    prepared_events = [(str(uuid.uuid4()), event_data) for event_data in events]
-    now = datetime.now(UTC)
+    # Stable primary keys and timestamps make an unknown commit outcome
+    # retryable without losing the client's within-batch event order. A single
+    # timestamp for the whole batch leaves PostgreSQL free to return rows in an
+    # arbitrary order, which can make a report treat an older question as the
+    # latest one.
+    batch_started_at = datetime.now(UTC)
+    prepared_events = [
+        (
+            str(uuid.uuid4()),
+            event_data,
+            batch_started_at + timedelta(microseconds=index),
+        )
+        for index, event_data in enumerate(events)
+    ]
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             # The whole lock/dedup/insert/commit transaction is the retry unit.
@@ -51,7 +61,7 @@ async def record_events(
 
             models: list[TourEventModel] = []
             batch_client_ids: set[str] = set()
-            for event_id, event_data in prepared_events:
+            for event_id, event_data, event_created_at in prepared_events:
                 if event_id in existing_by_id:
                     models.append(existing_by_id[event_id])
                     continue
@@ -73,7 +83,7 @@ async def record_events(
                     hall=event_data.get("hall"),
                     duration_seconds=event_data.get("duration_seconds"),
                     event_meta=metadata,
-                    created_at=now,
+                    created_at=event_created_at,
                 )
                 session.add(model)
                 models.append(model)
@@ -102,7 +112,7 @@ async def get_events_by_session(
     stmt = (
         select(TourEventModel)
         .where(TourEventModel.tour_session_id == tour_session_id)
-        .order_by(TourEventModel.created_at.asc())
+        .order_by(TourEventModel.created_at.asc(), TourEventModel.id.asc())
     )
     result = await session.execute(stmt)
     return [model.to_entity() for model in result.scalars().all()]

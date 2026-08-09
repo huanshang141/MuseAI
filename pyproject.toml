@@ -37,6 +37,7 @@ dependencies = [
     "alembic>=1.18.4",
     "psycopg2-binary>=2.9.11",
     "openpyxl>=3.1.5,<4.0.0",
+    "pillow>=11.0.0,<13.0.0",
 ]
 
 [project.optional-dependencies]

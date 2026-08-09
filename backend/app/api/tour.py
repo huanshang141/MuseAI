@@ -38,7 +38,12 @@ from app.application.hall_normalizer import (
 )
 from app.application.tour_chat_service import ask_stream_tour, bound_conversation_history
 from app.application.tour_event_service import get_events_by_session, record_events
-from app.application.tour_report_service import build_reflection_summary, generate_report, get_report
+from app.application.tour_report_service import (
+    build_exploration_guidance,
+    build_reflection_summary,
+    generate_report,
+    get_report,
+)
 from app.application.tour_session_service import (
     SESSION_EXPIRY_HOURS,
     create_session,
@@ -391,13 +396,155 @@ class TourSuggestionResponse(BaseModel):
     source: Literal["exhibit", "hall", "deterministic"]
 
 
-DETERMINISTIC_SUGGESTIONS = {
-    "default": ["这个展厅最值得先看什么？", "眼前这些内容可以怎样理解？"],
-    "A": ["这里有哪些可以直接观察的证据？", "哪些结论仍需要保留不确定性？"],
-    "B": ["最值得记录的观察点是什么？", "我可以怎样整理这段参观笔记？"],
-    "C": ["这些材料反映了怎样的史前生活？", "它与更大的历史问题有什么联系？"],
-    "D": ["可以从哪些材料和制作痕迹观察？", "这些细节可能对应什么用途？"],
+SUGGESTION_PERSONAS = {"default", "A", "B", "C", "D"}
+SUGGESTION_MAX_LENGTH = 120
+SUGGESTION_META_FRAGMENTS = (
+    "测试数据",
+    "这是一条测试",
+    "真实数据接入",
+    "真实馆方数据",
+    "馆方数据接入",
+    "数据接入后",
+    "上线后",
+    "后续上线",
+    "如何替换",
+    "怎么替换",
+    "导入数据",
+    "上传数据",
+)
+SUGGESTION_GENERIC_COPY = {
+    "这里有哪些可以直接观察的证据",
+    "哪些结论仍需要保留不确定性",
+    "最值得记录的观察点是什么",
+    "我可以怎样整理这段参观笔记",
+    "这些材料反映了怎样的史前生活",
+    "它与更大的历史问题有什么联系",
+    "可以从哪些材料和制作痕迹观察",
+    "这些细节可能对应什么用途",
+    "这个展厅的核心主题是什么",
+    "这里最值得看什么",
+    "这个展厅讲什么",
 }
+SUGGESTION_VAGUE_PATTERNS = (
+    r"^(?:眼前|这里|这些|这个展厅|这座展厅).*(?:怎样|怎么|如何)理解",
+    r"^(?:眼前|这里|这些|这个展厅|这座展厅).*(?:值得|应该).*(?:看|观察|记录).*什么",
+    r"^这件.*展品.*(?:值得|应该).*(?:看|观察|记录).*什么$",
+    r"^(?:最值得|可以|应该).*(?:看|观察|记录).*(?:什么|哪些)$",
+    r"^(?:它|这件展品|这些内容|这些材料).*(?:有什么|有何)(?:意义|联系|价值)$",
+    r"^(?:可以|应该)?(?:怎样|怎么|如何)理解(?:这些|这个|它|眼前).*$",
+    r"^(?:还有|我还可以|接下来).*(?:问|了解)什么$",
+)
+SUGGESTION_DETAIL_TERMS = (
+    "壕沟",
+    "居住区",
+    "墓葬区",
+    "陶窑区",
+    "柱洞",
+    "火膛",
+    "窑室",
+    "窑箅",
+    "炭化木椽",
+    "草泥层",
+    "碳化谷粒",
+    "谷壳层",
+    "使用痕迹",
+    "磨痕",
+    "穿孔",
+    "倒刺",
+    "纹饰",
+    "鱼纹",
+    "鹿纹",
+    "人面纹",
+    "刻划符号",
+    "随葬品",
+    "骨骼",
+    "填土",
+    "烧结色带",
+    "火道",
+    "灶台",
+    "窖穴",
+    "木构架",
+    "榫卯",
+    "陶片",
+    "颜料残留",
+    "材料",
+    "器形",
+    "制作工艺",
+    "出土位置",
+    "空间布局",
+)
+
+
+def _clean_suggestion_subject(value: str | None) -> str:
+    text = re.sub(r"^【[^】]{1,20}】", "", str(value or "").strip())
+    return re.sub(r"\s+", " ", text).strip(" ，。！？?\"")[:80]
+
+
+def _is_meaningful_suggestion(value: object) -> bool:
+    question = re.sub(r"\s+", " ", str(value or "")).strip()[:SUGGESTION_MAX_LENGTH]
+    normalized = question.rstrip("？?。！! ")
+    if len(normalized) < 7:
+        return False
+    if any(fragment in question for fragment in SUGGESTION_META_FRAGMENTS):
+        return False
+    if normalized in SUGGESTION_GENERIC_COPY:
+        return False
+    return not any(re.search(pattern, normalized) for pattern in SUGGESTION_VAGUE_PATTERNS)
+
+
+def _quality_suggestions(values: object, *, limit: int = 6) -> list[str]:
+    if not isinstance(values, (list, tuple)):
+        return []
+    suggestions: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        question = re.sub(r"\s+", " ", str(value or "")).strip()[:SUGGESTION_MAX_LENGTH]
+        if not _is_meaningful_suggestion(question) or question in seen:
+            continue
+        seen.add(question)
+        suggestions.append(question)
+        if len(suggestions) >= limit:
+            break
+    return suggestions
+
+
+def _description_terms(description: str | None, *, limit: int = 2) -> list[str]:
+    text = str(description or "")
+    return [term for term in SUGGESTION_DETAIL_TERMS if term in text][:limit]
+
+
+def _derive_exhibit_suggestions(
+    name: str | None,
+    description: str | None,
+    category: str | None = None,
+) -> list[str]:
+    """Build bounded questions from persisted exhibit facts, never from persona filler."""
+    subject = _clean_suggestion_subject(name)
+    if not subject:
+        return []
+    terms = _description_terms(description)
+    category_text = _clean_suggestion_subject(category)
+    if len(terms) >= 2:
+        candidates = [
+            f"“{subject}”介绍中的“{terms[0]}”通过哪一处具体形制、位置或痕迹得到说明？",
+            f"对照“{subject}”的展签，“{terms[1]}”与“{terms[0]}”之间有哪些可核对的联系？",
+        ]
+    elif terms:
+        candidates = [
+            f"“{subject}”介绍中的“{terms[0]}”通过哪一处具体形制、位置或痕迹得到说明？",
+            f"观察“{subject}”时，哪一处可见细节能与展签中的制作或用途说明直接对应？",
+        ]
+    elif category_text:
+        candidates = [
+            f"“{subject}”被归入“{category_text}”的依据是材料、形制还是使用痕迹？",
+            f"“{subject}”的展签对制作方法与使用场景分别给出了哪些具体信息？",
+        ]
+    else:
+        candidates = [
+            f"“{subject}”的展签明确说明了哪些材料、形制或用途信息？",
+            f"观察“{subject}”时，哪一处可见细节能与展签说明直接对应？",
+        ]
+    return _quality_suggestions(candidates)
 
 
 def _short_hall_focus(description: str | None) -> str:
@@ -763,10 +910,8 @@ def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
     return normalize_halls(candidates)
 
 
-def _build_report_highlights(report, halls_visited: list[str]) -> list[str]:
+def _build_report_highlights(report, _halls_visited: list[str]) -> list[str]:
     highlights: list[str] = []
-    if halls_visited:
-        highlights.append(f"本次共到访 {len(halls_visited)} 个展厅")
     if report.total_questions:
         highlights.append(f"共提出 {report.total_questions} 个导览问题")
     if report.total_exhibits_viewed:
@@ -900,6 +1045,16 @@ def _format_report(
         if tour_session is not None
         else None
     )
+    exploration_guidance = (
+        build_exploration_guidance(
+            tour_session,
+            events or [],
+            reflection=reflection,
+            hall_name_map=hall_name_map,
+        )
+        if tour_session is not None
+        else None
+    )
     record_summary = getattr(report, "record_summary", None)
     if record_summary:
         record_notes = [{
@@ -940,6 +1095,7 @@ def _format_report(
         "highlights": _build_report_highlights(report, halls_visited),
         "record_notes": record_notes,
         "reflection": reflection,
+        "exploration_guidance": exploration_guidance,
         "created_at": report.created_at.isoformat(),
     }
 
@@ -1501,7 +1657,7 @@ async def get_tour_suggestions(
     exhibit_id: str | None = None,
 ):
     tour_session = await _verify_ownership(session_id, x_session_token, session)
-    persona = tour_session.persona if tour_session.persona in DETERMINISTIC_SUGGESTIONS else "default"
+    persona = tour_session.persona if tour_session.persona in SUGGESTION_PERSONAS else "default"
 
     normalized_hall = normalize_hall(hall_id or tour_session.current_hall)
     valid_halls = {
@@ -1531,19 +1687,33 @@ async def get_tour_suggestions(
                 status_code=422,
                 detail="exhibit_id does not belong to hall_id",
             )
-        suggestions = [
-            str(item).strip()[:200]
-            for item in (exhibit.suggested_questions or [])
-            if str(item).strip()
-        ][:6]
+        suggestions = _quality_suggestions(exhibit.suggested_questions)
+        if not suggestions:
+            suggestions = _derive_exhibit_suggestions(
+                exhibit.name,
+                exhibit.description,
+                exhibit.category,
+            )
         if suggestions:
             source = "exhibit"
         normalized_hall = exhibit_hall
 
     if not suggestions and normalized_hall:
-        if is_temporary_hall(normalized_hall):
+        if not is_temporary_hall(normalized_hall):
+            hall = await session.get(Hall, normalized_hall)
+            if hall is not None and hall.is_active:
+                suggestions = _quality_suggestions(hall.suggested_questions)
+                if suggestions:
+                    source = "hall"
+
+        if not suggestions:
             exhibit_stmt = (
-                select(Exhibit.name, Exhibit.suggested_questions)
+                select(
+                    Exhibit.name,
+                    Exhibit.description,
+                    Exhibit.category,
+                    Exhibit.suggested_questions,
+                )
                 .where(
                     Exhibit.hall == normalized_hall,
                     Exhibit.is_active.is_(True),
@@ -1557,38 +1727,24 @@ async def get_tour_suggestions(
             )
             active_exhibits = list((await session.execute(exhibit_stmt)).all())
             seen_questions: set[str] = set()
-            for _, raw_questions in active_exhibits:
-                for raw_question in raw_questions or []:
-                    question = str(raw_question or "").strip()[:200]
-                    if question and question not in seen_questions:
+            for name, description, category, raw_questions in active_exhibits:
+                exhibit_questions = _quality_suggestions(raw_questions)
+                if not exhibit_questions:
+                    exhibit_questions = _derive_exhibit_suggestions(
+                        name,
+                        description,
+                        category,
+                    )
+                for question in exhibit_questions:
+                    if question not in seen_questions:
                         seen_questions.add(question)
                         suggestions.append(question)
                     if len(suggestions) >= 6:
                         break
                 if len(suggestions) >= 6:
                     break
-            if not suggestions:
-                suggestions = [
-                    f"“{str(name).strip()}”有哪些值得观察的细节？"
-                    for name, _ in active_exhibits
-                    if str(name or "").strip()
-                ][:6]
             if suggestions:
                 source = "exhibit"
-
-    if not suggestions and normalized_hall and not is_temporary_hall(normalized_hall):
-        hall = await session.get(Hall, normalized_hall)
-        if hall is not None and hall.is_active:
-            suggestions = [
-                str(item).strip()[:200]
-                for item in (hall.suggested_questions or [])
-                if str(item).strip()
-            ][:6]
-            if suggestions:
-                source = "hall"
-
-    if not suggestions:
-        suggestions = DETERMINISTIC_SUGGESTIONS[persona]
 
     return TourSuggestionResponse(
         hall_id=normalized_hall,

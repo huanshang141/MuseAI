@@ -6,6 +6,8 @@ from app.domain.entities import Exhibit
 from app.domain.exceptions import EntityNotFoundError
 from app.domain.value_objects import ExhibitId, Location
 
+_UNSET = object()
+
 
 class ExhibitService:
     """展品管理服务，提供展品的CRUD操作。"""
@@ -26,6 +28,7 @@ class ExhibitService:
         importance: int,
         estimated_visit_time: int,
         document_id: str | None = None,
+        image_url: str | None = None,
     ) -> Exhibit:
         """创建新展品。
 
@@ -62,6 +65,7 @@ class ExhibitService:
             is_active=True,
             created_at=now,
             updated_at=now,
+            image_url=image_url,
         )
 
         return await self._repository.save(exhibit)
@@ -126,6 +130,7 @@ class ExhibitService:
         estimated_visit_time: int | None = None,
         document_id: str | None = None,
         is_active: bool | None = None,
+        image_url: str | None | object = _UNSET,
     ) -> Exhibit:
         """更新展品信息。
 
@@ -185,9 +190,29 @@ class ExhibitService:
             exhibit.document_id = document_id
         if is_active is not None:
             exhibit.is_active = is_active
+        if image_url is not _UNSET:
+            exhibit.image_url = image_url if isinstance(image_url, str) else None
 
         exhibit.updated_at = datetime.now(UTC)
 
+        return await self._repository.save(exhibit)
+
+    async def update_exhibit_image(
+        self,
+        exhibit_id: str,
+        *,
+        image_url: str | None | object = _UNSET,
+        image_path: str | None | object = _UNSET,
+    ) -> Exhibit:
+        """Update only exhibit image references without triggering RAG work."""
+        exhibit = await self._repository.get_by_id(ExhibitId(exhibit_id))
+        if exhibit is None:
+            raise EntityNotFoundError(f"Exhibit not found: {exhibit_id}")
+        if image_url is not _UNSET:
+            exhibit.image_url = image_url if isinstance(image_url, str) else None
+        if image_path is not _UNSET:
+            exhibit.image_path = image_path if isinstance(image_path, str) else None
+        exhibit.updated_at = datetime.now(UTC)
         return await self._repository.save(exhibit)
 
     async def delete_exhibit(self, exhibit_id: str) -> bool:

@@ -31,20 +31,21 @@ source_record_id,slug,name,description,floor,estimated_duration_minutes,display_
 - `floor` 可留空；时长为 0–480 分钟（`0` 表示尚未确认，小程序不展示预计时长）；`display_order` 为非负整数。
 - `is_active` 支持 `true/false`、`1/0`、`yes/no`、`是/否`。
 - 数据库一旦存在展厅记录即以其为准；若全部标记为停用，小程序展厅列表为空，不再回退静态开发数据。
-- `suggested_questions` 可写 JSON 字符串数组，或使用 `|` 分隔；最多 6 条，每条最多 200 字。
+- `suggested_questions` 可写 JSON 字符串数组，或使用 `|` 分隔；最多 6 条，每条最多 120 字。
 - 小程序完整恢复最多覆盖 9 个展厅，因此一次导入最多只能有 9 个 `is_active=true` 的展厅。
 - 当前小程序只识别基线模板中的九个 slug；其他合法 slug 可由管理侧保留审计，但不会进入游客展厅、会话或公开展品接口。
 
 ## exhibits 表头
 
 ```text
-source_record_id,name,description,hall,floor,category,era,importance,estimated_visit_time,display_order,location_x,location_y,is_active,suggested_questions
+source_record_id,name,description,hall,floor,category,era,importance,estimated_visit_time,display_order,location_x,location_y,is_active,suggested_questions,image_url
 ```
 
 - `hall` 必须引用本次 halls 数据中的 `slug`；启用的展品不能引用停用展厅。
 - `importance` 为 0–100；`estimated_visit_time` 单位为秒，可留空。
 - `location_x/location_y` 可留空，用于后续馆内路线与定位。
 - `source_record_id` 与命令行 `--source-name` 共同生成稳定展品 UUID。
+- `image_url` 为可选列；留空表示无外链，非空时只接受绝对 HTTPS URL。只要文件包含该列，空单元格也会清除数据库中的旧外链；长期外链必须保留在后续快照中。服务器本地上传图片不填写 URL，而通过管理员图片接口维护，`image_path` 不受该列影响。
 - 单次文件以及导入完成后的数据库最多保留 2000 个启用展品；超出时校验失败，需先显式停用旧展品。
 - 小程序普通展品列表、筛选和名称搜索按 `display_order` 从小到大展示；空值排在显式顺序之后，同序时依次按创建时间和稳定 ID 排序。
 

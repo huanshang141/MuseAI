@@ -1,4 +1,5 @@
 """Contract tests for api/exhibits.py — public (unauthenticated) endpoints."""
+
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,6 +17,8 @@ def _make_exhibit(
     id_: str = VALID_UUID,
     name: str = "青铜鼎",
     hall: str = "basic-exhibition-hall",
+    image_url: str | None = None,
+    image_path: str | None = None,
 ) -> Exhibit:
     now = datetime.now(UTC)
     return Exhibit(
@@ -32,6 +35,8 @@ def _make_exhibit(
         is_active=True,
         created_at=now,
         updated_at=now,
+        image_url=image_url,
+        image_path=image_path,
     )
 
 
@@ -45,9 +50,7 @@ def patch_exhibit_service(monkeypatch):
     mock.count_search_exhibits = AsyncMock(return_value=1)
     mock.get_exhibit = AsyncMock(return_value=_make_exhibit())
     mock.get_all_categories = AsyncMock(return_value=["bronze", "jade"])
-    mock.get_all_halls = AsyncMock(
-        return_value=["basic-exhibition-hall", "site-protection-hall"]
-    )
+    mock.get_all_halls = AsyncMock(return_value=["basic-exhibition-hall", "site-protection-hall"])
 
     def fake_factory(session):
         return mock
@@ -89,6 +92,7 @@ def test_list_exhibits_returns_200_with_pagination(override_db, patch_exhibit_se
     assert body["skip"] == 0
     assert body["limit"] == 10
     assert body["exhibits"][0]["hall_name"] == "基本陈列展厅"
+    assert body["exhibits"][0]["image_url"] is None
 
 
 def test_list_exhibits_resolves_real_hall_names_in_one_batch(
@@ -119,9 +123,7 @@ def test_list_exhibits_resolves_real_hall_names_in_one_batch(
     override_db.execute.assert_awaited_once()
 
 
-def test_list_exhibits_keeps_real_records_with_legacy_placeholder_names(
-    override_db, patch_exhibit_service
-):
+def test_list_exhibits_keeps_real_records_with_legacy_placeholder_names(override_db, patch_exhibit_service):
     patch_exhibit_service.list_exhibits.return_value = [
         _make_exhibit(name="半坡人"),
         _make_exhibit(id_="00000000-0000-0000-0000-000000000002", name="尖底瓶"),
@@ -141,9 +143,7 @@ def test_list_exhibits_does_not_create_name_for_missing_hall(
     override_db,
     patch_exhibit_service,
 ):
-    patch_exhibit_service.list_exhibits.return_value = [
-        _make_exhibit(hall="legacy-hall")
-    ]
+    patch_exhibit_service.list_exhibits.return_value = [_make_exhibit(hall="legacy-hall")]
     patch_exhibit_service.count_exhibits.return_value = 0
     override_db.execute.return_value.all.return_value = []
 
@@ -156,9 +156,7 @@ def test_list_exhibits_does_not_create_name_for_missing_hall(
 
 def test_list_exhibits_applies_filter_query_params(override_db, patch_exhibit_service):
     client = TestClient(app)
-    response = client.get(
-        "/api/v1/exhibits?category=bronze&hall=site-protection-hall&floor=1"
-    )
+    response = client.get("/api/v1/exhibits?category=bronze&hall=site-protection-hall&floor=1")
 
     assert response.status_code == 200
     call = patch_exhibit_service.list_exhibits.call_args
@@ -191,6 +189,23 @@ def test_get_exhibit_detail_returns_200(override_db, patch_exhibit_service):
     assert body["id"] == VALID_UUID
     assert body["name"] == "青铜鼎"
     assert body["hall_name"] == "基本陈列展厅"
+    assert body["image_url"] is None
+
+
+def test_exhibit_responses_use_https_external_url_or_uploaded_api_path(
+    override_db,
+    patch_exhibit_service,
+):
+    patch_exhibit_service.list_exhibits.return_value = [_make_exhibit(image_url="https://museum.example/pottery.png")]
+    external = TestClient(app).get("/api/v1/exhibits")
+    assert external.json()["exhibits"][0]["image_url"] == "https://museum.example/pottery.png"
+
+    patch_exhibit_service.get_exhibit.return_value = _make_exhibit(
+        image_url="https://museum.example/pottery.png",
+        image_path=f"{VALID_UUID}/uploaded.png",
+    )
+    uploaded = TestClient(app).get(f"/api/v1/exhibits/{VALID_UUID}")
+    assert uploaded.json()["image_url"] == f"/api/v1/exhibits/{VALID_UUID}/image"
 
 
 def test_get_exhibit_detail_returns_404_when_missing(override_db, patch_exhibit_service):
@@ -212,9 +227,7 @@ def test_get_exhibit_detail_returns_404_when_hall_is_not_visible(
     assert response.status_code == 404
 
 
-def test_get_exhibit_detail_keeps_real_record_with_legacy_placeholder_name(
-    override_db, patch_exhibit_service
-):
+def test_get_exhibit_detail_keeps_real_record_with_legacy_placeholder_name(override_db, patch_exhibit_service):
     patch_exhibit_service.get_exhibit.return_value = _make_exhibit(name="半坡人")
 
     client = TestClient(app)

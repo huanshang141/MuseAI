@@ -49,18 +49,12 @@ def _json_format(record: dict) -> str:
 
 
 def _text_format(record: dict) -> str:
-    """Format log record as human-readable text."""
-    timestamp = record["time"].strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-    level = record["level"].name
-    module = record["module"]
-    function = record["function"]
-    line = record["line"]
-    message = record["message"]
-
-    base = f"{timestamp} | {level: <8} | {module}:{function}:{line} - {message}"
-    if record["exception"]:
-        base += f"\n{record['exception']}"
-    return base
+    """Return a Loguru template without re-parsing braces in message values."""
+    del record
+    return (
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+        "{module}:{function}:{line} - {message}\n{exception}"
+    )
 
 
 def setup_logging(settings: Settings) -> None:

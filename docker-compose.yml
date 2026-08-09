@@ -8,6 +8,7 @@ services:
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms256m -Xmx256m"
     mem_limit: 768m
+    restart: unless-stopped
     ports:
       - "127.0.0.1:9200:9200"
     volumes:
@@ -22,16 +23,17 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: museai-postgres
+    restart: unless-stopped
     environment:
-      - POSTGRES_USER=museai
-      - POSTGRES_PASSWORD=museai123
-      - POSTGRES_DB=museai
+      - POSTGRES_USER=${POSTGRES_USER:-museai}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      - POSTGRES_DB=${POSTGRES_DB:-museai}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U museai -d museai"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -39,6 +41,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: museai-redis
+    restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
     volumes:

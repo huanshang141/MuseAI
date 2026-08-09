@@ -2,7 +2,8 @@
 
 小程序运行数据支持两种等价输入：一个 `museum_data.xlsx`，或同一目录中的
 `halls.csv` 与 `exhibits.csv`。CSV 必须使用 UTF-8（可带 BOM）；Excel 必须且只能包含
-`halls`、`exhibits` 两个工作表。表头顺序不限，但字段必须完整且不得增加未知字段。
+`halls`、`exhibits` 两个工作表。表头顺序不限，必需字段必须完整；可选字段按下文说明，
+不得增加未知字段。
 
 仓库内 `data/museum_template/` 是可直接校验的基线 CSV：包含已确认的九个展厅，
 `exhibits.csv` 只有表头，不含任何演示展品。接入馆方数据时复制该目录并向展品表填入真实记录。
@@ -23,15 +24,17 @@ uv run python scripts/import_museum_data.py .\data\museum_test_data --source-nam
 ## halls 表头
 
 ```text
-source_record_id,slug,name,description,floor,estimated_duration_minutes,display_order,is_active,suggested_questions
+source_record_id,slug,name,description,floor,estimated_duration_minutes,display_order,is_active,suggested_questions,short_description
 ```
 
 - `source_record_id`：馆方数据中的稳定主键，后续更新不得改变。
 - `slug`：小写英文或数字，以单个连字符分隔，最长 100 字符；作为展厅 API 标识。
 - `floor` 可留空；时长为 0–480 分钟（`0` 表示尚未确认，小程序不展示预计时长）；`display_order` 为非负整数。
 - `is_active` 支持 `true/false`、`1/0`、`yes/no`、`是/否`。
+- `short_description` 是可选列；它用于小程序展厅卡片的单行短介绍，最多 48 个字符，正式文案建议实际写成 14–18 个字符且不包含换行。更新已有展厅时，省略整列会保留数据库现值；包含该列但单元格留空则会显式清空现值。
 - 数据库一旦存在展厅记录即以其为准；若全部标记为停用，小程序展厅列表为空，不再回退静态开发数据。
-- `suggested_questions` 可写 JSON 字符串数组，或使用 `|` 分隔；最多 6 条，每条最多 120 字。
+- `suggested_questions` 可写 JSON 字符串数组，或使用 `|` 分隔；最多 6 条，每条 8–18 个字符，末尾必须使用中文问号 `？`。问题必须指向明确展厅、展品或可观察细节（如材料、外形、器形、纹饰、位置、制作或使用痕迹）；“形制”因过于抽象仍按无效表达拒绝，不得使用模糊表达、测试数据说明或部署维护话题。
+- 显式提供的建议执行整批严格校验：任一值无效都会使整个 dry-run/import 以失败退出且不写入。导入器不会静默过滤或替换无效 provided suggestion；希望按可信数据自动派生时，必须将对应 `suggested_questions` 单元格整体留空。JSON `[]`、空字符串元素和 `|` 分隔产生的空段均按显式无效值拒绝。
 - 小程序完整恢复最多覆盖 9 个展厅，因此一次导入最多只能有 9 个 `is_active=true` 的展厅。
 - 当前小程序只识别基线模板中的九个 slug；其他合法 slug 可由管理侧保留审计，但不会进入游客展厅、会话或公开展品接口。
 

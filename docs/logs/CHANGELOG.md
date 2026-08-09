@@ -2,11 +2,32 @@
 
 ## 2026-08-09
 
-- 建议条新增质量边界：过滤过短、模糊、测试数据、真实数据接入和上线流程类文案；展品有可信事实时，按名称、简介细节与分类确定性补齐，不增加运行时 LLM 调用。
-- 游览报告新增 `exploration_guidance`：返回标题、摘要和 1–3 个包含具体问题的后续观察任务，并在可确定时关联展厅/展品 ID；无历史也返回明确起点，不再使用“暂时不生成”类拒绝文案。
+- 导览聊天新增确定性 grounding gate，不增加 LLM 分类调用：纯数字/全角数字/序号/标点及无同厅完整问答支撑的泛指直接流式澄清；明确展厅级、类别、唯一展品名称及同厅完整问答追问继续。API 不隐式复用 session 残留 `current_exhibit_id`，多名称匹配最多列出三项要求确认，system prompt 明确禁止把 RAG 首条结果当作用户指代。
+- 展厅新增单一持久化字段 `short_description`（最多 48 字）和迁移 `20260809_hall_short_description`；统一 CSV 可选列已为九厅写入一一对应短简介。`/tour/halls` 返回主字段 `short_description` 与同值兼容别名 `card_description`，完整简介保持不变。
+- 报告 `exploration_guidance` 新增单句 `next_step`（硬上限 60 字、当前文案目标不超过 30 字），旧 `actions` 收敛为一条。确定性澄清事件携带 `clarification_required=true`，并从问题统计、记录摘要、复盘和探索指导中排除；有效泛指追问使用固定具体指导，不把“为什么/它呢”机械拼入建议。
+- 建议条新增 8–18 字具体问句质量边界：过滤过短、模糊、测试数据、真实数据接入和上线流程类文案；展品有可信事实时，按名称、简介细节与分类确定性补齐，不增加运行时 LLM 调用。
+- 游览报告新增 `exploration_guidance`：当前以单句 `next_step` 为主，并保留标题、摘要和一条含具体问题的兼容观察任务；可确定时关联展厅/展品 ID，无历史也返回明确起点，不再使用“暂时不生成”类拒绝文案。
 - 展品数据新增 `image_url` / `image_path`：CSV/XLSX 可导入 HTTPS 外链，管理员可上传或删除单帧 JPEG/PNG/WebP，公开 API 仅为启用且属于可信九厅的展品提供图片。本地路径不对外暴露，无图时 `image_url` 为 `null`。
 - 新增 Alembic 迁移 `20260809_exhibit_images`、图片存储配置和 `docs/miniapp-content-maintenance.md`；生产应使用 Git 工作树外的持久目录，并在代码/数据回退时单独备份与恢复图片文件。
-- 建议、报告、导入与图片定向回归 197 项通过；契约修正后相关回归 169 项通过；最终全量回归 `1182 passed, 23 skipped, 10 warnings`，无失败。Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head 和两个 CSV 数据包 dry-run 均通过；提交 SHA、生产备份和部署验收结果在部署后补记。
+- 建议、报告、导入与图片定向回归 197 项通过；契约修正后相关回归 169 项通过；最终全量回归 `1182 passed, 23 skipped, 10 warnings`，无失败。Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head 和两个 CSV 数据包 dry-run 均通过。
+- 功能提交 `b823bf2` 已推送并部署；生产迁移为 `20260809_exhibit_images (head)`。权威导入更新并重新索引 46 件测试展品，停用 0、待索引 0；九厅、46 展品、92 条建议、公开接口和报告指导内容均通过实测。
+- 最新数据库回退基线为 `museai_20260809_094329.sql.gz`（SHA-256 `450d1ab0371ac6d38f73d6b3893747e7e5974c52d0fe2475f19e8b6db626745a`）。生产图片上传烟测因现有唯一管理员口令不匹配而在写入前停止；数据库图片字段和持久目录保持为空，待明确授权处理凭据后补测。
+- 本轮未提交、未推送、未部署的后续改动已通过 scoped Ruff 和相关 5 个完整测试文件 `255 passed`（仅 1 条既有 AsyncMock warning）；`/tour` 完整契约 `62 passed`，模板与测试数据 dry-run 分别验证九厅/0 展品和九厅/46 展品，Alembic 单一 head 及从 `20260809_exhibit_images` 到新 head 的离线 SQL 通过。
+- 独立复核继续修正未提交实现：代词、比较、序数和“详细一点”类追问只有服务端持久化同厅完整问答才可进入 `history_followup`，客户端单独上传的 `conversation_history` 不能建立指代依据；显式写出两个不同展品名（包括嵌套名称）时不再绑定最长单件。澄清事件不再计入报告到访展厅。
+- Hall 导入为可选 `short_description` 增加列存在性：CSV/XLSX 省略整列保留数据库现值，包含空列则显式清空。长展品名在缺少分类和简介锚点时会确定性提取可辨器物名并生成 1–2 条 8–18 字问句，不增加 LLM。相关 4 个完整测试文件 `255 passed`（1 条既有 AsyncMock warning），scoped Ruff、两套数据 dry-run、Alembic 单一 head 与直接降到 `20260809_exhibit_images` 的离线 SQL 均通过。
+- 会话恢复与模型记忆完成物理隔离：新增仅服务端写入、API 不暴露的 `trusted_hall_chat_history` 及独立迁移 `20260809_trusted_hall_chat_history`。PATCH 可写的每厅最近 30 条 `hall_chat_history` 只供界面恢复；客户端 `conversation_history` 和伪造 assistant 文本不再进入 prompt、检索改写或 grounding。服务端完成轮次同时写入展示/可信历史，重启后仍可继续同厅追问。
+- grounding 改为通用复数、比较、序数、前后、其中/另外和选择指代检测，并在展厅级与已选单展品绑定前处理；明确写出两件对象的比较仍是清晰问题。建议条按编号、出土残片、房址/墓葬/遗址、雕塑/模型/分布图和器物工具选择不同问法，继续拒绝“形制”并接受日常“器形”。CSV/XLSX 显式建议任一无效即整批失败，留空才自动派生；生产文档移除 `pull main`、进程名 `pkill` 和 `nohup` 旧流程。
+- 本地未提交、未推送、未部署的最终相关组合为 `261 passed`、无 warning；同时修正测试桩把同步 `AsyncSession.add` 误建为异步 mock 的噪声。scoped Ruff、`uv lock --check`、九厅/0 展品与九厅/46 展品双 dry-run、Alembic 单一 head 和从 `20260809_trusted_hall_chat_history` 直接回退到 `20260809_exhibit_images` 的离线 SQL、`git diff --check` 均通过。
+- 独立发布复核后继续修正 grounding 正反语义矩阵：纯选择、中文数词、口语复数、相对位置和示指比较只有服务端完整可信轮次支撑时才延续；量词后含陶器、房址、柱洞、随葬品、保护措施等实义对象，以及明确时期/展厅/工具/区域/纹样 WH 问句保持清晰。明确展厅问题优先于当前单件，且只有 `bound_exhibit` 才向 system prompt、检索查询和事件写入展品上下文/ID。
+- 建议派生改为名称主对象优先：模型、雕塑、房址、分布图、编号、石斧、骨针和残片不会因简介提到墓葬区/居住区而生成区域用途题；仅纹饰、磨损等强相关细节可替换第二条。名称正文残留“测试/占位/维护”等噪声时返回空，不把维护命名转成问题。
+- 建议导入严格区分整格留空和显式空值：JSON `[]`、空字符串元素以及 `|` / ` || ` 空段在 CSV/XLSX 中都会使整批失败且不写入；版本化两套 `halls.csv` 已改为空单元格。英文 README 删除旧手工部署并同步可信历史、导入、图片和 `next_step`；中文报告与上线口径同步。PostgreSQL 备份改为临时文件、`gzip -t` 后原子发布，发布记录保存备份路径和 SHA-256。
+- 本次复核定向测试：聊天 `87 passed`、建议/会话 `95 passed`、导入 `58 passed`、展厅迁移基线 `4 passed`，合计 `244 passed`；scoped Ruff、双数据包 dry-run、`bash -n deploy/pg_backup.sh` 和 `git diff --check` 通过。未执行全量，未提交、未推送、未部署。
+- 部署流程 P1 收口：容器备份默认并显式使用 Compose 角色 `museai`；权威发布/回退命令统一 `set -euo pipefail`，以 `0600 current-release.env` 固定指针恢复批次记录并在每个阶段落盘。发布门禁改为 `/api/v1/ready`，权威链路固定为 systemd `127.0.0.1:8000` + HTTPS，旧 3000 必须无监听。新增可执行临时库恢复演练、候选生产库切换及拒绝危险 tar 条目的图片恢复流程；备份成功/失败 mock 回归、2 个脚本 Bash 语法、15 个权威 Bash 文档块语法/fail-closed 检查均通过。未提交、未推送、未部署。
+- 建议条复核修正：名称缺失或仅为“图/墓/A/1/-”等单字符噪声时，不再用墓葬区、居住区、陶窑区等弱锚点生成问题；只有名称/分类无安全主体时才从全部简介锚点中筛选强具体细节。新增“示例/样例/模拟/虚拟/临时数据/待补充/demo/test”等噪声识别，标准化前缀标签可剥离后使用真实对象，残留或非标准拼接则整名拒绝。`test_tour_services.py` `119 passed`、导入服务 `58 passed`，相关 Ruff 通过。未提交、未推送、未部署。
+- grounding 有限矩阵最终覆盖厅级口语、明确双对象比较、数字/序号多选、复数量词与集合、余项/相对位置、疑问指示、项/点/类别序号和单件示指；186 条独立重放 `186/186`。无同厅完整可信历史时模糊输入澄清，有完整可信轮次才追问；厅级与双名称问题不会携带旧单件 prompt、检索词或事件 ID。
+- 会话历史幂等改为服务端可信窗口内的稳定 `turn_id`：同 ID 的相邻或延迟重试保留第一次结果，不同 ID 的完全相同问答仍完整恢复；客户端展示历史提前同步时不会重复。私有 `_turn_id` 不由 PATCH 接受、不由 GET 暴露，也不会进入模型上下文。
+- 部署门禁删除 Compose 固定数据库弱口令，缺少 `POSTGRES_PASSWORD` 时 fail-closed；PostgreSQL、Redis、Elasticsearch 使用并现场核对 `restart: unless-stopped`。备份统一经 Bash 调用并使用纳秒文件名，systemd 拉起 Docker，readiness 同时核对 loopback 8000 与当前主进程 PID；README 统一 HTTPS-only。
+- 最终全量回归 `1480 passed, 23 skipped, 9 warnings`，无失败；改动文件 Ruff、`uv lock --check`、`uv pip check`、Alembic 单一 head、两套数据 dry-run、直接回退离线 SQL、备份成功/失败 mock、Compose 密码门禁和 `git diff --check` 均通过。9 条 warning 为既有测试桩或第三方弃用提示。
 
 ## 2026-08-08
 

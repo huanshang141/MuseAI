@@ -79,6 +79,9 @@ class TourSessionModel(Base):
     questionnaire: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     resume_state: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     hall_chat_history: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    trusted_hall_chat_history: Mapped[dict] = mapped_column(
+        JSON, default=dict, nullable=False
+    )
     state_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
@@ -110,6 +113,7 @@ class TourSessionModel(Base):
             questionnaire=self.questionnaire or {},
             resume_state=self.resume_state or {},
             hall_chat_history=self.hall_chat_history or {},
+            trusted_hall_chat_history=self.trusted_hall_chat_history or {},
             state_version=self.state_version or 1,
         )
 

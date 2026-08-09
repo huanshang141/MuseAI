@@ -6,7 +6,7 @@ MuseAI backend is the FastAPI service for the Banpo Museum WeChat mini-program. 
 
 ## Current Stage
 
-The backend is now in the **launch preparation and release closeout stage**. The core mini-program experience is supported and the planned mini-program features have completed real-device testing. ICP filing and the WeChat request legal-domain flow have passed; formal release still depends on real data, OCR service decisions, API-key governance, production process management, and experience-version release work. See [上线准备.md](../project_materials/docs/上线准备.md) for the operational checklist.
+The backend is in the **data-driven mini-program framework validation stage**. The names and introductions of the nine halls are confirmed; current exhibits and images are test data or pending replacement, while maps, routes, and spatial points still await museum data. The backend now provides one CSV/XLSX import contract, deterministic content-specific suggestions, report `next_step` guidance, and exhibit-image management. Production uses systemd, while each release still requires its own backup, migration, health-check, rollback, and real-data acceptance evidence. See [Mini-program content maintenance](./docs/miniapp-content-maintenance.md) for the authoritative maintenance and deployment procedure.
 
 
 ## Implemented Capabilities
@@ -23,11 +23,15 @@ The backend is now in the **launch preparation and release closeout stage**. The
 - Event tracking for hall enter, exhibit view, questions, and deep dives.
 - AI curator route API: `/api/v1/curator/plan-tour`.
 - Exhibit listing, detail lookup, hall filtering, and text search.
+- Unified CSV/XLSX museum-data import with whole-batch validation, stable source IDs, dry-run support, and authoritative replacement.
+- Data-driven 8–18 character suggestion questions. Explicit values must all pass validation; only a wholly blank cell enables deterministic derivation from trusted exhibit fields.
+- Exhibit images through HTTPS `image_url` imports or administrator upload/replace/delete for JPEG, PNG, and WebP. Public APIs return `null` when no image exists so the mini-program can use its default image.
 - Visit report generation: visited halls, exhibit views, reflection, record summary, and basic stats.
-  - Visited halls are counted from `exhibit_question` or `exhibit_view`, with `assistant_answer` retained for historical compatibility.
+  - Visited halls are counted from non-clarification `exhibit_question` or `exhibit_view` events; deterministic clarification turns are excluded.
   - Question totals count user-sent messages: every `exhibit_question` counts once, without deduplicating repeated question text.
   - Exhibit views are counted separately from hall visits and deduped by exhibit.
   - Record notes are grouped by hall from user questions and AI answers, using the report model first and falling back to a rule-based summary if generation fails.
+  - `exploration_guidance` is led by one concise `next_step` and retains exactly one compatibility `action`; it no longer emits refusal copy for low interaction.
 - Reflection Engine without new database tables, new APIs, or new model calls.
 - RAG pipeline with query rewrite, Elasticsearch retrieval, rerank, document filtering, and streaming generation.
 - LLM model tiers:
@@ -37,7 +41,7 @@ The backend is now in the **launch preparation and release closeout stage**. The
 - OpenAI-compatible DeepSeek/Qwen calling:
   - DeepSeek thinking can be disabled.
   - Qwen/DashScope thinking can be disabled.
-- Structured `conversation_history` for guide chat, improving follow-up relevance.
+- Server-persisted trusted history is compressed per hall for follow-ups. Client-restored display history and client-supplied `conversation_history` never enter model prompts, retrieval rewrites, or grounding.
 - Degraded startup if Redis or Elasticsearch is unavailable.
 - TTS synthesis API at `/api/v1/tts/synthesize`, currently defaulting to the "冰糖" voice and returning audio data playable by the mini-program.
 
@@ -46,7 +50,7 @@ The backend is now in the **launch preparation and release closeout stage**. The
 HTTPS status, split in two parts:
 
 - Done: ICP filing for `banpo-museai.xyz` has passed; `api.banpo-museai.xyz` DNS, SSL certificate, and Nginx 443 reverse proxy are configured; `https://api.banpo-museai.xyz/api/v1/health` returns healthy.
-- Current development state: the mini-program frontend now uses `https://api.banpo-museai.xyz/api/v1` for testing; the public HTTP development endpoint is retained only as emergency fallback or historical debugging context.
+- Current development state: the mini-program uses `https://api.banpo-museai.xyz/api/v1` exclusively; the legacy public HTTP development endpoint is disabled and is no longer a fallback or debugging path.
 - Done (WeChat side): the WeChat request legal domain is configured, DevTools domain settings were refreshed, and real-device testing passed with the legal-domain exemption turned off.
 
 Other items:
@@ -55,7 +59,7 @@ Other items:
 - Official museum exhibit catalogue, images, map, positions, and spatial layout still need confirmation. The current data is not the final real museum data.
 - The LLM Qwen API is provided by Alex, while other API keys are provided by another teammate. Release needs explicit ownership, quota, billing, alerting, and rotation rules.
 - Current Qwen calls consume free or trial quota. Confirm quota, rate limits, and billing policy in the provider console before experience-version testing.
-- Production process management (systemd), log rotation, and database backup now have deployment assets (see `deploy/`), but they have not been applied on the server yet.
+- The production backend is managed by systemd. Log rotation and PostgreSQL backup assets live under `deploy/`; each release still records its actual backup, checksum, health checks, and rollback evidence.
 - Experience-version upload, tester distribution, and a final full regression before upload are not complete.
 
 ## Tech Stack
@@ -214,8 +218,7 @@ The current server resource budget is now **2 CPU cores / 8 GB RAM**. Deployment
 
 - Uvicorn listens on `127.0.0.1:8000`.
 - Nginx proxies traffic to the backend.
-- The mini-program should now use `https://api.banpo-museai.xyz/api/v1` for testing. If it temporarily falls back to `http://122.152.232.190:3000/api/v1`, release builds must switch back to HTTPS and disable the WeChat DevTools legal-domain exemption.
-- Historical note: early development used `http://122.152.232.190:3000/api/v1`; the public HTTP entry should be closed once HTTPS real-device validation passes (see `deploy/DEPLOYMENT_NOTES.md`).
+- The mini-program uses `https://api.banpo-museai.xyz/api/v1` exclusively. Port `3000` is no longer a release, debugging, or rollback path; both WeChat DevTools and real-device checks must exercise the HTTPS domain.
 
 Recommended for 2 CPU cores / 8 GB RAM:
 
@@ -223,19 +226,9 @@ Recommended for 2 CPU cores / 8 GB RAM:
 - RAG, rerank, and TTS rely on external services; control concurrency and timeouts to protect streaming guide latency.
 - If Elasticsearch, Redis, PostgreSQL, and the backend run on the same host, monitor memory continuously and split search or database services first as data grows.
 
-Typical manual update flow:
+Production releases use systemd only. Back up PostgreSQL before switching code and include the persistent exhibit-image directory in the same release backup whenever uploaded images exist. The exact release source is `origin/codex/data-driven-miniapp-framework`; do not pull `main`, kill processes by name, or use `nohup` as a production launcher.
 
-```bash
-cd ~/MuseAI
-git pull myfork main
-pkill -f "uv run uvicorn backend.app.main:app" || true
-nohup uv run uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 > backend_uvicorn.log 2>&1 &
-sleep 3
-curl -i http://127.0.0.1:8000/api/v1/health
-curl -i https://api.banpo-museai.xyz/api/v1/health
-```
-
-Before launch, replace manual `nohup` with systemd or Docker Compose.
+The single authoritative procedure for backup, exact-SHA checkout, frozen dependency sync, migrations, systemd stop/start, health checks, and rollback is [Mini-program content maintenance: production deployment and acceptance](./docs/miniapp-content-maintenance.md#7-生产部署和验收). `deploy/DEPLOYMENT_NOTES.md` documents installation and configuration of systemd, Nginx, log rotation, and backup assets; it does not define a second release procedure.
 
 ## Launch Blockers
 
@@ -246,7 +239,7 @@ Before launch, replace manual `nohup` with systemd or Docker Compose.
 - Confirm Qwen/DashScope free quota, paid activation, rate limits, and bill alerts.
 - Define API-key owners and rotation process.
 - Rotate any AppSecret or API keys that were exposed during testing.
-- Add systemd/Docker Compose, log rotation, database backups, and rollback steps.
+- Record and verify the backup, checksum, systemd health checks, and rollback evidence for each production release.
 - Complete iOS/Android real-device validation for onboarding, routes, tour chat, TTS, OCR, and reports.
 
 ## Security Notes

@@ -76,7 +76,7 @@ def test_trusted_hall_migration_baseline_matches_import_template():
     assert all(
         row["source_record_id"] == f"hall-{row['slug']}"
         and row["is_active"].strip().lower() == "true"
-        and row["suggested_questions"].strip() == "[]"
+        and row["suggested_questions"].strip() == ""
         for row in template_rows
     )
 

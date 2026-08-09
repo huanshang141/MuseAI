@@ -7,13 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from app.api.tour import (
-    SUGGESTION_MAX_LENGTH,
-    SUGGESTION_META_FRAGMENTS,
-    _derive_exhibit_suggestions,
-    _is_meaningful_suggestion,
-    _quality_suggestions,
-)
 from app.application.tour_report_service import (
     RECORD_SUMMARY_ANSWER_MAX_CHARS,
     RECORD_SUMMARY_JSON_MAX_BYTES,
@@ -34,6 +27,14 @@ from app.application.tour_report_service import (
     get_report_theme,
     select_identity_tags,
     summarize_record_qa,
+)
+from app.application.tour_suggestion_service import (
+    SUGGESTION_JARGON_FRAGMENTS,
+    SUGGESTION_MAX_LENGTH,
+    SUGGESTION_META_FRAGMENTS,
+    derive_exhibit_suggestions,
+    is_meaningful_suggestion,
+    quality_suggestions,
 )
 from app.domain.entities import TourSession
 from app.domain.exceptions import TourSessionExpired, TourSessionNotFound, TourSessionTokenMismatch
@@ -63,6 +64,8 @@ def _make_model(**overrides):
         started_at=now,
         completed_at=None,
         created_at=now,
+        hall_chat_history={},
+        trusted_hall_chat_history={},
     )
     defaults.update(overrides)
     model = MagicMock(spec=TourSessionModel)
@@ -160,7 +163,8 @@ async def test_create_session():
     mock_session = AsyncMock()
     model = _make_model()
     mock_session.get.return_value = None
-    mock_session.add.return_value = None
+    # AsyncSession.add is synchronous even though commit/refresh are awaited.
+    mock_session.add = MagicMock()
     mock_session.commit.return_value = None
     mock_session.refresh.return_value = None
 
@@ -294,11 +298,15 @@ async def test_append_hall_chat_turn_merges_latest_history_and_caps_thirty():
         {"role": "user", "content": "新问题"},
         {"role": "assistant", "content": "新回答"},
     ]
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"][-2:] == [
+        {"role": "user", "content": "新问题"},
+        {"role": "assistant", "content": "新回答"},
+    ]
     assert model.state_version == 5
 
 
 @pytest.mark.asyncio
-async def test_append_hall_chat_turn_does_not_duplicate_frontend_synced_turn():
+async def test_append_hall_chat_turn_trusts_server_turn_even_if_display_was_synced():
     from app.application.tour_session_service import append_hall_chat_turn
 
     completed_turn = [
@@ -320,7 +328,185 @@ async def test_append_hall_chat_turn_does_not_duplicate_frontend_synced_turn():
     )
 
     assert model.hall_chat_history["basic-exhibition-hall"] == completed_turn
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == completed_turn
+    assert model.state_version == 9
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_is_idempotent_when_both_histories_have_turn():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    completed_turn = [
+        {"role": "user", "content": "同一问题"},
+        {"role": "assistant", "content": "同一回答"},
+    ]
+    model = _make_model(
+        hall_chat_history={"basic-exhibition-hall": completed_turn.copy()},
+        trusted_hall_chat_history={
+            "basic-exhibition-hall": completed_turn.copy()
+        },
+    )
+    model.state_version = 8
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "同一问题",
+        "同一回答",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == completed_turn
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == completed_turn
     assert model.state_version == 8
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_deduplicates_only_the_same_stable_turn_id():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    display_turn = [
+        {"role": "user", "content": "同一问题"},
+        {"role": "assistant", "content": "同一回答"},
+    ]
+    trusted_turn = [
+        {**display_turn[0], "_turn_id": "turn-1"},
+        {**display_turn[1], "_turn_id": "turn-1"},
+    ]
+    model = _make_model(
+        hall_chat_history={"basic-exhibition-hall": display_turn.copy()},
+        trusted_hall_chat_history={"basic-exhibition-hall": trusted_turn.copy()},
+    )
+    model.state_version = 8
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "同一问题",
+        "重试时即使模型给出不同回答也不能重复写入",
+        turn_id="turn-1",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == display_turn
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == trusted_turn
+    assert model.state_version == 8
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_keeps_identical_consecutive_turns_with_new_ids():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    display_turn = [
+        {"role": "user", "content": "同一问题"},
+        {"role": "assistant", "content": "同一回答"},
+    ]
+    trusted_turn = [
+        {**display_turn[0], "_turn_id": "turn-1"},
+        {**display_turn[1], "_turn_id": "turn-1"},
+    ]
+    model = _make_model(
+        hall_chat_history={"basic-exhibition-hall": display_turn.copy()},
+        trusted_hall_chat_history={"basic-exhibition-hall": trusted_turn.copy()},
+    )
+    model.state_version = 8
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "同一问题",
+        "同一回答",
+        turn_id="turn-2",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == display_turn * 2
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == trusted_turn + [
+        {**display_turn[0], "_turn_id": "turn-2"},
+        {**display_turn[1], "_turn_id": "turn-2"},
+    ]
+    assert model.state_version == 9
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_deduplicates_delayed_retry_within_retained_history():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    display_history = [
+        {"role": "user", "content": "问题 A"},
+        {"role": "assistant", "content": "回答 A"},
+        {"role": "user", "content": "问题 B"},
+        {"role": "assistant", "content": "回答 B"},
+    ]
+    trusted_history = [
+        {**display_history[0], "_turn_id": "turn-A"},
+        {**display_history[1], "_turn_id": "turn-A"},
+        {**display_history[2], "_turn_id": "turn-B"},
+        {**display_history[3], "_turn_id": "turn-B"},
+    ]
+    model = _make_model(
+        hall_chat_history={"basic-exhibition-hall": display_history.copy()},
+        trusted_hall_chat_history={"basic-exhibition-hall": trusted_history.copy()},
+    )
+    model.state_version = 3
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "问题 A",
+        "延迟重试产生的不同回答",
+        turn_id="turn-A",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == display_history
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"] == trusted_history
+    assert model.state_version == 3
+
+
+@pytest.mark.asyncio
+async def test_append_hall_chat_turn_does_not_duplicate_display_history_synced_ahead():
+    from app.application.tour_session_service import append_hall_chat_turn
+
+    display_turn = [
+        {"role": "user", "content": "同一问题"},
+        {"role": "assistant", "content": "同一回答"},
+    ]
+    trusted_turn = [
+        {**display_turn[0], "_turn_id": "turn-1"},
+        {**display_turn[1], "_turn_id": "turn-1"},
+    ]
+    model = _make_model(
+        hall_chat_history={"basic-exhibition-hall": display_turn * 2},
+        trusted_hall_chat_history={"basic-exhibition-hall": trusted_turn.copy()},
+    )
+    model.state_version = 8
+    mock_session = AsyncMock()
+    mock_session.get.return_value = model
+
+    await append_hall_chat_turn(
+        mock_session,
+        "test-session-id",
+        "basic-exhibition-hall",
+        "同一问题",
+        "同一回答",
+        turn_id="turn-2",
+    )
+
+    assert model.hall_chat_history["basic-exhibition-hall"] == display_turn * 2
+    assert model.trusted_hall_chat_history["basic-exhibition-hall"][-2:] == [
+        {**display_turn[0], "_turn_id": "turn-2"},
+        {**display_turn[1], "_turn_id": "turn-2"},
+    ]
+    assert model.state_version == 9
 
 
 @pytest.mark.asyncio
@@ -347,6 +533,8 @@ async def test_append_hall_chat_turn_evicts_oldest_hall_when_tenth_is_added():
     assert len(model.hall_chat_history) == 9
     assert "hall-0" not in model.hall_chat_history
     assert "hall-9" in model.hall_chat_history
+    assert len(model.trusted_hall_chat_history) == 1
+    assert "hall-9" in model.trusted_hall_chat_history
 
 
 @pytest.mark.asyncio
@@ -1368,9 +1556,11 @@ def test_exploration_guidance_turns_a_single_view_into_specific_actions():
     )
 
     assert guidance["title"] == "从观察走向提问"
-    assert 1 <= len(guidance["actions"]) <= 3
+    assert len(guidance["actions"]) == 1
     assert guidance["actions"][0]["exhibit_id"] == "exhibit-pointed-bottle"
     assert guidance["actions"][0]["hall_id"] == "kiln-hall"
+    assert "尖底瓶" in guidance["next_step"]
+    assert len(guidance["next_step"]) <= 30
     assert "尖底瓶" in json.dumps(guidance, ensure_ascii=False)
     assert "暂时" not in json.dumps(guidance, ensure_ascii=False)
 
@@ -1398,6 +1588,8 @@ def test_exploration_guidance_uses_the_visitors_latest_question():
     assert guidance["title"] == "把问题变成证据链"
     assert guidance["actions"][0]["title"] == "核对一个回答"
     assert "人面鱼纹的线条" in guidance["actions"][0]["description"]
+    assert guidance["next_step"].startswith("用展签核对")
+    assert len(guidance["next_step"]) <= 30
 
 
 def test_exploration_guidance_without_events_still_provides_one_clear_start():
@@ -1409,6 +1601,61 @@ def test_exploration_guidance_without_events_still_provides_one_clear_start():
     assert guidance["title"] == "建立第一条可核对的记录"
     assert len(guidance["actions"]) == 1
     assert "材料、形制或纹饰" in guidance["actions"][0]["description"]
+    assert guidance["next_step"] == "选一件有明确展签的展品，记录一处材料或纹饰细节。"
+
+
+def test_clarification_turns_are_excluded_from_report_signals():
+    session = _make_session(persona="default", current_hall="kiln-hall")
+    events = [
+        _make_event_model(
+            event_type="exhibit_question",
+            hall="kiln-hall",
+            event_meta={
+                "question": "1",
+                "client_event_id": "clarification-1",
+            },
+        ).to_entity(),
+        _make_event_model(
+            event_type="assistant_answer",
+            hall="kiln-hall",
+            event_meta={
+                "question": "1",
+                "answer": "我还不知道你指的是哪件展品。",
+                "clarification_required": True,
+                "question_client_event_id": "clarification-1",
+            },
+        ).to_entity(),
+    ]
+
+    stats = aggregate_stats(events, session)
+    guidance = build_exploration_guidance(
+        session,
+        events,
+        hall_name_map={"kiln-hall": "陶窑展厅"},
+    )
+
+    assert stats["total_questions"] == 0
+    assert collect_qa_pairs(events) == []
+    assert "1" not in guidance["next_step"]
+
+
+def test_generic_history_followup_uses_a_concrete_report_next_step():
+    session = _make_session(persona="default", current_hall="kiln-hall")
+    events = [
+        _make_event_model(
+            event_type="assistant_answer",
+            hall="kiln-hall",
+            event_meta={
+                "question": "为什么？",
+                "answer": "可从器形与磨损痕迹一起判断。",
+            },
+        ).to_entity(),
+    ]
+
+    guidance = build_exploration_guidance(session, events)
+
+    assert guidance["next_step"] == "把刚才的回答与展签或实物细节对照一下。"
+    assert "“为什么”" not in guidance["next_step"]
 
 
 def test_suggestion_quality_filter_rejects_vague_and_maintenance_copy():
@@ -1427,24 +1674,271 @@ def test_suggestion_quality_filter_rejects_vague_and_maintenance_copy():
         "它与更大的历史问题有什么联系？",
         "可以从哪些材料和制作痕迹观察？",
         "这些细节可能对应什么用途？",
+        "柱洞层位怎么判断？",
+        "尖底瓶形制怎么看？",
+        "鱼纹证据链是什么？",
+        "纹样对应关系是什么？",
     ]
-    assert all(not _is_meaningful_suggestion(question) for question in rejected)
+    assert all(not is_meaningful_suggestion(question) for question in rejected)
+    assert is_meaningful_suggestion("尖底瓶器形怎么看？")
 
-    derived = _derive_exhibit_suggestions(
+    derived = derive_exhibit_suggestions(
         "【测试】尖底瓶",
         "尖底瓶的小口、鼓腹与使用痕迹记录了汲水过程。",
         "陶器",
     )
     assert len(derived) == 2
-    assert all(_is_meaningful_suggestion(question) for question in derived)
-    assert all("尖底瓶" in question for question in derived)
+    assert all(is_meaningful_suggestion(question) for question in derived)
+    assert any("尖底瓶" in question for question in derived)
+    assert all(len(question) <= SUGGESTION_MAX_LENGTH for question in derived)
+
+    unseen_name = derive_exhibit_suggestions(
+        "馆藏彩绘兽面纹高足陶罐修复件",
+        "罐身保留鱼纹，腹部还能看到烧制痕迹。",
+        "陶器",
+    )
+    assert len(unseen_name) == 2
+    assert all(is_meaningful_suggestion(question) for question in unseen_name)
+    assert any("陶器" in question or "鱼纹" in question for question in unseen_name)
+
+    long_name_fallback = derive_exhibit_suggestions(
+        "【馆藏编号】新石器时代仰韶文化人面鱼纹彩陶盆—修复展示",
+        "没有可提取的具体描述。",
+        None,
+    )
+    assert len(long_name_fallback) == 2
+    assert all(is_meaningful_suggestion(question) for question in long_name_fallback)
+    assert all(8 <= len(question) <= SUGGESTION_MAX_LENGTH for question in long_name_fallback)
+    assert all(question.endswith("？") for question in long_name_fallback)
+    assert any("人面鱼纹彩陶盆" in question for question in long_name_fallback)
 
     oversized = "尖底瓶的口沿磨损与使用方式之间可以怎样对应？" + (
         "细节" * SUGGESTION_MAX_LENGTH
     )
-    bounded = _quality_suggestions([oversized])
-    assert len(bounded) == 1
-    assert len(bounded[0]) == SUGGESTION_MAX_LENGTH
+    assert quality_suggestions([oversized]) == []
+    assert oversized.endswith("细节")
+
+
+def test_long_exhibit_name_without_category_or_anchor_has_concrete_fallback():
+    suggestions = derive_exhibit_suggestions(
+        "半坡遗址出土用于汲水的小口尖底瓶修复件",
+        "暂无更多说明。",
+        None,
+    )
+
+    assert len(suggestions) == 2
+    assert all(is_meaningful_suggestion(question) for question in suggestions)
+    assert all(8 <= len(question) <= SUGGESTION_MAX_LENGTH for question in suggestions)
+    assert all(question.endswith("？") for question in suggestions)
+    assert all("尖底瓶" in question for question in suggestions)
+    assert all("测试" not in question and "数据" not in question for question in suggestions)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_subject", "expected_intent", "forbidden_intents"),
+    [
+        (
+            "馆藏编号BP-2026-001",
+            "BP-2026-001",
+            "是什么",
+            ("怎么用", "怎么做"),
+        ),
+        (
+            "M1:23号墓出土残片（整理编号2026）",
+            "23号墓残片",
+            "是什么",
+            ("怎么用", "怎么做"),
+        ),
+        (
+            "半坡遗址大型房址复原件",
+            "房址",
+            "发现了什么",
+            ("怎么用", "怎么做"),
+        ),
+        (
+            "聚落布局复原模型",
+            "模型",
+            "展示了什么",
+            ("怎么用", "怎么做"),
+        ),
+        (
+            "半坡遗址平面分布图",
+            "分布图",
+            "展示了什么",
+            ("发现了什么", "怎么用", "怎么做"),
+        ),
+        (
+            "墓葬分布图",
+            "分布图",
+            "展示了什么",
+            ("发现了什么", "怎么用", "怎么做"),
+        ),
+        (
+            "半坡遗址出土磨制石斧修复件",
+            "石斧",
+            "怎么用",
+            (),
+        ),
+    ],
+)
+def test_long_name_fallback_uses_object_specific_questions(
+    name,
+    expected_subject,
+    expected_intent,
+    forbidden_intents,
+):
+    suggestions = derive_exhibit_suggestions(name, "暂无更多说明。", None)
+
+    assert suggestions
+    assert all(is_meaningful_suggestion(question) for question in suggestions)
+    assert all(8 <= len(question) <= SUGGESTION_MAX_LENGTH for question in suggestions)
+    assert any(
+        expected_subject in question and expected_intent in question
+        for question in suggestions
+    )
+    assert not any(
+        intent in question
+        for question in suggestions
+        for intent in forbidden_intents
+    )
+
+
+def test_fragment_name_stays_primary_over_unrelated_description_anchor():
+    suggestions = derive_exhibit_suggestions(
+        "M1:23号墓出土残片（整理编号2026）",
+        "该记录来自墓葬区的整理资料。",
+        None,
+    )
+
+    assert suggestions == [
+        "23号墓残片具体是什么？",
+        "23号墓残片保留了什么？",
+    ]
+    assert all("墓区" not in question for question in suggestions)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "一段非常长的任意名称用于测试提取",
+        "一段非常长的任意名称【测试】",
+        "一段非常长的占位名称待替换",
+    ],
+)
+def test_unbounded_test_or_maintenance_name_does_not_generate_suggestions(name):
+    assert derive_exhibit_suggestions(
+        name,
+        "说明中提到墓葬区和陶窑区。",
+        "陶器",
+    ) == []
+
+
+@pytest.mark.parametrize("name", [None, "", "图", "墓", "A", "1", "-"])
+def test_missing_or_one_character_subject_does_not_use_area_anchors(name):
+    assert derive_exhibit_suggestions(
+        name,
+        "说明只提到墓葬区、居住区和陶窑区。",
+        None,
+    ) == []
+
+
+def test_missing_subject_can_only_fall_back_to_strong_detail_anchors():
+    assert derive_exhibit_suggestions(
+        "图",
+        "墓葬区、居住区和陶窑区之后，器物保留鱼纹和磨痕。",
+        None,
+    ) == [
+        "鱼纹画的是什么？",
+        "磨痕是怎么留下的？",
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "【示例】尖底瓶",
+        "[样例]尖底瓶",
+        "(模拟)尖底瓶",
+        "虚拟：尖底瓶",
+        "临时数据-尖底瓶",
+        "待补充/尖底瓶",
+        "DEMO_尖底瓶",
+        "test | 尖底瓶",
+    ],
+)
+def test_standardized_placeholder_label_is_stripped_from_real_subject(name):
+    suggestions = derive_exhibit_suggestions(
+        name,
+        "尖底瓶保留小口和磨痕。",
+        None,
+    )
+
+    assert suggestions
+    assert any("尖底瓶" in question for question in suggestions)
+    rendered = " ".join(suggestions).lower()
+    assert not any(
+        label in rendered
+        for label in (
+            "示例",
+            "样例",
+            "模拟",
+            "虚拟",
+            "临时数据",
+            "待补充",
+            "demo",
+            "test",
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "示例尖底瓶",
+        "尖底瓶【样例】",
+        "模拟用陶罐",
+        "虚拟展品骨针",
+        "临时数据",
+        "待补充名称",
+        "demo陶罐",
+        "陶罐-test",
+    ],
+)
+def test_unstructured_placeholder_noise_rejects_the_whole_name(name):
+    assert derive_exhibit_suggestions(
+        name,
+        "说明中还有鱼纹和磨痕。",
+        "陶器",
+    ) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_subject"),
+    [
+        ("聚落布局复原模型", "模型"),
+        ("半坡姑娘雕塑", "半坡姑娘雕塑"),
+        ("半坡遗址大型房址复原件", "房址"),
+        ("墓葬分布图", "墓葬分布图"),
+        ("馆藏编号BP-2026-001", "BP-2026-001"),
+        ("半坡遗址出土磨制石斧修复件", "石斧"),
+        ("新石器时代骨针", "骨针"),
+    ],
+)
+def test_unrelated_area_anchors_never_replace_primary_subject_questions(
+    name,
+    expected_subject,
+):
+    suggestions = derive_exhibit_suggestions(
+        name,
+        "说明同时提到墓葬区、居住区和陶窑区。",
+        None,
+    )
+
+    assert suggestions
+    assert all(expected_subject in question for question in suggestions)
+    assert all("墓区主要有什么用" not in question for question in suggestions)
+    assert all("住屋区主要有什么用" not in question for question in suggestions)
+    assert all("陶窑区主要有什么用" not in question for question in suggestions)
 
 
 def test_museum_test_csv_has_two_content_questions_per_exhibit():
@@ -1462,11 +1956,17 @@ def test_museum_test_csv_has_two_content_questions_per_exhibit():
         questions = json.loads(row["suggested_questions"])
         assert len(questions) >= 2, row["name"]
         assert len(set(questions)) == len(questions), row["name"]
-        assert all(_is_meaningful_suggestion(question) for question in questions), row["name"]
+        assert all(8 <= len(question) <= 16 for question in questions), row["name"]
+        assert all(is_meaningful_suggestion(question) for question in questions), row["name"]
         assert not any(
             fragment in question
             for question in questions
             for fragment in SUGGESTION_META_FRAGMENTS
+        ), row["name"]
+        assert not any(
+            fragment in question
+            for question in questions
+            for fragment in SUGGESTION_JARGON_FRAGMENTS
         ), row["name"]
 
 

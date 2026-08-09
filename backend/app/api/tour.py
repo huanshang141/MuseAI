@@ -1,5 +1,6 @@
 import json
 import re
+import unicodedata
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -36,13 +37,20 @@ from app.application.hall_normalizer import (
     normalize_halls,
     temporary_hall_description,
 )
-from app.application.tour_chat_service import ask_stream_tour, bound_conversation_history
+from app.application.tour_chat_service import (
+    ask_stream_tour,
+    bound_conversation_history,
+    grounding_subject,
+    is_hall_level_question,
+)
 from app.application.tour_event_service import get_events_by_session, record_events
 from app.application.tour_report_service import (
     build_exploration_guidance,
     build_reflection_summary,
+    clarification_question_keys,
     generate_report,
     get_report,
+    is_clarification_event,
 )
 from app.application.tour_session_service import (
     SESSION_EXPIRY_HOURS,
@@ -50,6 +58,16 @@ from app.application.tour_session_service import (
     get_session,
     update_session,
     verify_session_token,
+)
+from app.application.tour_suggestion_service import (
+    SUGGESTION_MAX_LENGTH,
+    SUGGESTION_MIN_LENGTH,
+)
+from app.application.tour_suggestion_service import (
+    derive_exhibit_suggestions as _derive_exhibit_suggestions,
+)
+from app.application.tour_suggestion_service import (
+    quality_suggestions as _quality_suggestions,
 )
 from app.domain.exceptions import (
     TourSessionExpired,
@@ -69,6 +87,8 @@ VISITED_HALL_EVENT_TYPES = {
 }
 MAX_SESSION_STATE_PATCH_BYTES = 2 * 1024 * 1024
 TOUR_HALL_FOCUS_MAX_LENGTH = 120
+TOUR_HALL_CARD_DESCRIPTION_MAX_LENGTH = 48
+UNKNOWN_HALL_CARD_DESCRIPTION = "进入展厅查看当前展陈内容。"
 
 
 class TourQuestionnaire(BaseModel):
@@ -378,6 +398,8 @@ class TourHallItem(BaseModel):
     slug: str
     name: str
     description: str
+    short_description: str = Field(max_length=TOUR_HALL_CARD_DESCRIPTION_MAX_LENGTH)
+    card_description: str = Field(max_length=TOUR_HALL_CARD_DESCRIPTION_MAX_LENGTH)
     exhibit_count: int
     estimated_duration_minutes: int
     highlights: list[str] = Field(default_factory=list, max_length=3)
@@ -392,163 +414,39 @@ class TourSuggestionResponse(BaseModel):
     hall_id: str | None
     exhibit_id: str | None
     persona: TourPersonaCode
-    suggestions: list[str]
+    suggestions: list[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=SUGGESTION_MIN_LENGTH,
+                max_length=SUGGESTION_MAX_LENGTH,
+            ),
+        ]
+    ]
     source: Literal["exhibit", "hall", "deterministic"]
 
 
 SUGGESTION_PERSONAS = {"default", "A", "B", "C", "D"}
-SUGGESTION_MAX_LENGTH = 120
-SUGGESTION_META_FRAGMENTS = (
-    "测试数据",
-    "这是一条测试",
-    "真实数据接入",
-    "真实馆方数据",
-    "馆方数据接入",
-    "数据接入后",
-    "上线后",
-    "后续上线",
-    "如何替换",
-    "怎么替换",
-    "导入数据",
-    "上传数据",
-)
-SUGGESTION_GENERIC_COPY = {
-    "这里有哪些可以直接观察的证据",
-    "哪些结论仍需要保留不确定性",
-    "最值得记录的观察点是什么",
-    "我可以怎样整理这段参观笔记",
-    "这些材料反映了怎样的史前生活",
-    "它与更大的历史问题有什么联系",
-    "可以从哪些材料和制作痕迹观察",
-    "这些细节可能对应什么用途",
-    "这个展厅的核心主题是什么",
-    "这里最值得看什么",
-    "这个展厅讲什么",
-}
-SUGGESTION_VAGUE_PATTERNS = (
-    r"^(?:眼前|这里|这些|这个展厅|这座展厅).*(?:怎样|怎么|如何)理解",
-    r"^(?:眼前|这里|这些|这个展厅|这座展厅).*(?:值得|应该).*(?:看|观察|记录).*什么",
-    r"^这件.*展品.*(?:值得|应该).*(?:看|观察|记录).*什么$",
-    r"^(?:最值得|可以|应该).*(?:看|观察|记录).*(?:什么|哪些)$",
-    r"^(?:它|这件展品|这些内容|这些材料).*(?:有什么|有何)(?:意义|联系|价值)$",
-    r"^(?:可以|应该)?(?:怎样|怎么|如何)理解(?:这些|这个|它|眼前).*$",
-    r"^(?:还有|我还可以|接下来).*(?:问|了解)什么$",
-)
-SUGGESTION_DETAIL_TERMS = (
-    "壕沟",
-    "居住区",
-    "墓葬区",
-    "陶窑区",
-    "柱洞",
-    "火膛",
-    "窑室",
-    "窑箅",
-    "炭化木椽",
-    "草泥层",
-    "碳化谷粒",
-    "谷壳层",
-    "使用痕迹",
-    "磨痕",
-    "穿孔",
-    "倒刺",
-    "纹饰",
-    "鱼纹",
-    "鹿纹",
-    "人面纹",
-    "刻划符号",
-    "随葬品",
-    "骨骼",
-    "填土",
-    "烧结色带",
-    "火道",
-    "灶台",
-    "窖穴",
-    "木构架",
-    "榫卯",
-    "陶片",
-    "颜料残留",
-    "材料",
-    "器形",
-    "制作工艺",
-    "出土位置",
-    "空间布局",
-)
-
-
-def _clean_suggestion_subject(value: str | None) -> str:
-    text = re.sub(r"^【[^】]{1,20}】", "", str(value or "").strip())
-    return re.sub(r"\s+", " ", text).strip(" ，。！？?\"")[:80]
-
-
-def _is_meaningful_suggestion(value: object) -> bool:
-    question = re.sub(r"\s+", " ", str(value or "")).strip()[:SUGGESTION_MAX_LENGTH]
-    normalized = question.rstrip("？?。！! ")
-    if len(normalized) < 7:
-        return False
-    if any(fragment in question for fragment in SUGGESTION_META_FRAGMENTS):
-        return False
-    if normalized in SUGGESTION_GENERIC_COPY:
-        return False
-    return not any(re.search(pattern, normalized) for pattern in SUGGESTION_VAGUE_PATTERNS)
-
-
-def _quality_suggestions(values: object, *, limit: int = 6) -> list[str]:
-    if not isinstance(values, (list, tuple)):
-        return []
-    suggestions: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        question = re.sub(r"\s+", " ", str(value or "")).strip()[:SUGGESTION_MAX_LENGTH]
-        if not _is_meaningful_suggestion(question) or question in seen:
-            continue
-        seen.add(question)
-        suggestions.append(question)
-        if len(suggestions) >= limit:
-            break
-    return suggestions
-
-
-def _description_terms(description: str | None, *, limit: int = 2) -> list[str]:
-    text = str(description or "")
-    return [term for term in SUGGESTION_DETAIL_TERMS if term in text][:limit]
-
-
-def _derive_exhibit_suggestions(
-    name: str | None,
-    description: str | None,
-    category: str | None = None,
-) -> list[str]:
-    """Build bounded questions from persisted exhibit facts, never from persona filler."""
-    subject = _clean_suggestion_subject(name)
-    if not subject:
-        return []
-    terms = _description_terms(description)
-    category_text = _clean_suggestion_subject(category)
-    if len(terms) >= 2:
-        candidates = [
-            f"“{subject}”介绍中的“{terms[0]}”通过哪一处具体形制、位置或痕迹得到说明？",
-            f"对照“{subject}”的展签，“{terms[1]}”与“{terms[0]}”之间有哪些可核对的联系？",
-        ]
-    elif terms:
-        candidates = [
-            f"“{subject}”介绍中的“{terms[0]}”通过哪一处具体形制、位置或痕迹得到说明？",
-            f"观察“{subject}”时，哪一处可见细节能与展签中的制作或用途说明直接对应？",
-        ]
-    elif category_text:
-        candidates = [
-            f"“{subject}”被归入“{category_text}”的依据是材料、形制还是使用痕迹？",
-            f"“{subject}”的展签对制作方法与使用场景分别给出了哪些具体信息？",
-        ]
-    else:
-        candidates = [
-            f"“{subject}”的展签明确说明了哪些材料、形制或用途信息？",
-            f"观察“{subject}”时，哪一处可见细节能与展签说明直接对应？",
-        ]
-    return _quality_suggestions(candidates)
 
 
 def _short_hall_focus(description: str | None) -> str:
     return str(description or "").strip()[:TOUR_HALL_FOCUS_MAX_LENGTH]
+
+
+def _hall_card_description(hall: Hall) -> str:
+    concise = re.sub(r"\s+", " ", str(hall.short_description or "")).strip()
+    if concise:
+        return concise[:TOUR_HALL_CARD_DESCRIPTION_MAX_LENGTH]
+
+    slug = normalize_hall(hall.slug)
+    if slug not in CANONICAL_HALL_SLUGS:
+        return UNKNOWN_HALL_CARD_DESCRIPTION
+
+    description = re.sub(r"\s+", " ", str(hall.description or "")).strip()
+    if not description:
+        return UNKNOWN_HALL_CARD_DESCRIPTION
+    first_clause = re.split(r"[，。；！？]", description, maxsplit=1)[0].strip()
+    return (first_clause or description)[:TOUR_HALL_CARD_DESCRIPTION_MAX_LENGTH]
 
 
 async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
@@ -565,17 +463,20 @@ async def _load_tour_halls(session: SessionDep) -> list[TourHallItem]:
     hall_rows = list(result.scalars().all())
 
     if hall_rows:
-        return [
-            TourHallItem(
+        items: list[TourHallItem] = []
+        for hall in hall_rows:
+            card_description = _hall_card_description(hall)
+            items.append(TourHallItem(
                 slug=normalize_hall(hall.slug) or hall.slug,
                 name=hall.name,
                 description=hall.description or "",
+                short_description=card_description,
+                card_description=card_description,
                 exhibit_count=0,
                 estimated_duration_minutes=hall.estimated_duration_minutes,
                 focus=_short_hall_focus(hall.description),
-            )
-            for hall in hall_rows
-        ]
+            ))
+        return items
 
     return []
 
@@ -698,6 +599,125 @@ async def _resolve_chat_exhibit_context(
     return "\n".join(parts)[:1200]
 
 
+def _compact_exhibit_match_text(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).lower()
+    return re.sub(r"[^0-9a-z\u3400-\u9fff]+", "", normalized)
+
+
+def _mentions_distinct_exhibit_names(
+    message_key: str,
+    mentions: list[tuple[Exhibit, str]],
+) -> bool:
+    """Detect separately written names, including one name nested in another."""
+    spans_by_name = {
+        name: [(match.start(), match.end()) for match in re.finditer(re.escape(name), message_key)]
+        for _, name in mentions
+    }
+    for index, (_, first_name) in enumerate(mentions):
+        for _, second_name in mentions[index + 1 :]:
+            if first_name == second_name:
+                continue
+            if any(
+                first_end <= second_start or second_end <= first_start
+                for first_start, first_end in spans_by_name[first_name]
+                for second_start, second_end in spans_by_name[second_name]
+            ):
+                return True
+    return False
+
+
+def _ambiguous_exhibit_message(subject: str, exhibits: list[Exhibit]) -> str:
+    names = []
+    for exhibit in exhibits:
+        name = str(exhibit.name or "").strip()[:24]
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= 3:
+            break
+    choices = "、".join(f"“{name}”" for name in names)
+    return (
+        f"你提到的名称可能对应{choices}。"
+        "请说完整名称，或点“搜展品”选择。"
+    )
+
+
+async def _resolve_message_exhibit(
+    session,
+    hall_id: str | None,
+    message: str,
+) -> tuple[Exhibit | None, str | None]:
+    """Resolve only an explicit, unique current-hall name; never trust rank."""
+    hall = normalize_hall(hall_id)
+    subject = _compact_exhibit_match_text(grounding_subject(message))
+    if not hall or len(subject) < 2 or is_hall_level_question(message):
+        return None, None
+
+    result = await session.execute(
+        select(Exhibit)
+        .where(
+            Exhibit.hall == hall,
+            Exhibit.is_active.is_(True),
+        )
+        .order_by(
+            Exhibit.display_order.asc().nulls_last(),
+            Exhibit.importance.desc(),
+            Exhibit.created_at.asc(),
+            Exhibit.id.asc(),
+        )
+    )
+    exhibits = list(result.scalars().all())
+    if not exhibits:
+        return None, None
+
+    message_key = _compact_exhibit_match_text(message)
+    exact_mentions = [
+        (exhibit, _compact_exhibit_match_text(exhibit.name))
+        for exhibit in exhibits
+        if _compact_exhibit_match_text(exhibit.name)
+        and _compact_exhibit_match_text(exhibit.name) in message_key
+    ]
+    if exact_mentions:
+        if _mentions_distinct_exhibit_names(message_key, exact_mentions):
+            # This is a comparison/multi-object question. Do not collapse it
+            # onto the longest name; let the normal clear-question RAG path
+            # answer with both explicitly named objects in the query.
+            return None, None
+        longest = max(len(name) for _, name in exact_mentions)
+        longest_matches = [
+            exhibit for exhibit, name in exact_mentions if len(name) == longest
+        ]
+        longest_name = next(
+            name for _, name in exact_mentions if len(name) == longest
+        )
+        names_are_nested = all(
+            name in longest_name for _, name in exact_mentions
+        )
+        if len(longest_matches) == 1 and names_are_nested:
+            return longest_matches[0], None
+        if not names_are_nested:
+            return None, None
+        return None, _ambiguous_exhibit_message(subject, longest_matches)
+
+    categories = {
+        category
+        for exhibit in exhibits
+        if (category := _compact_exhibit_match_text(exhibit.category))
+    }
+    if subject in categories:
+        return None, None
+
+    partial_matches = [
+        exhibit
+        for exhibit in exhibits
+        if subject in _compact_exhibit_match_text(exhibit.name)
+    ]
+    if len(partial_matches) == 1:
+        return partial_matches[0], None
+    if len(partial_matches) > 1:
+        return None, _ambiguous_exhibit_message(subject, partial_matches)
+    return None, None
+
+
 async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None:
     normalized = normalize_hall(hall_id)
     if not normalized:
@@ -746,53 +766,6 @@ async def _resolve_chat_hall_context(session, hall_id: str | None) -> str | None
         return "\n".join(parts)[:1000]
 
     return f"{hall.name}：{str(hall.description or '').strip()}"[:1000]
-
-
-def _merge_same_hall_conversation_history(
-    stored: list[dict[str, str]] | None,
-    client: list[dict[str, str]] | None,
-) -> list[dict[str, str]]:
-    """Preserve durable history while recovering a newer same-hall client tail."""
-    durable = bound_conversation_history(stored)
-    recovered = bound_conversation_history(client)
-    if not durable:
-        return recovered
-    if not recovered:
-        return durable
-    if durable == recovered:
-        return durable
-
-    def contains_complete_turn(messages: list[dict[str, str]]) -> bool:
-        return any(
-            first.get("role") == "user" and second.get("role") == "assistant"
-            for first, second in zip(messages, messages[1:], strict=False)
-        )
-
-    durable_size = len(durable)
-    recovered_size = len(recovered)
-    if contains_complete_turn(durable):
-        matching_starts = [
-            start
-            for start in range(recovered_size - durable_size + 1)
-            if recovered[start : start + durable_size] == durable
-        ]
-        if matching_starts:
-            start = matching_starts[-1]
-            return bound_conversation_history(
-                durable + recovered[start + durable_size :]
-            )
-    for start in range(durable_size - recovered_size + 1):
-        if durable[start : start + recovered_size] == recovered:
-            return durable
-
-    for overlap in range(min(durable_size, recovered_size), 1, -1):
-        shared = durable[-overlap:]
-        if shared == recovered[:overlap] and contains_complete_turn(shared):
-            return bound_conversation_history(durable + recovered[overlap:])
-
-    # A single-message match or a divergent payload cannot prove one complete
-    # user/assistant turn of continuity. Keep the durable server copy.
-    return durable
 
 
 def _validated_hall_chat_history(value: dict | None) -> dict[str, list[dict[str, str]]]:
@@ -896,7 +869,10 @@ def _validated_tour_started_at(value) -> datetime:
 
 def _collect_visited_halls(tour_session=None, events=None) -> list[str]:
     candidates: list[str] = []
+    clarification_keys = clarification_question_keys(events)
     for event in events or []:
+        if is_clarification_event(event, clarification_keys):
+            continue
         event_type = getattr(event, "event_type", None)
         if event_type not in VISITED_HALL_EVENT_TYPES:
             continue
@@ -956,11 +932,14 @@ def _build_report_record_notes(
     answered_entries: list[dict[str, str]] = []
     question_entries: list[dict[str, str]] = []
     seen_answer_ids: set[str] = set()
+    clarification_keys = clarification_question_keys(events)
     for event in events or []:
         event_type = getattr(event, "event_type", None)
         if event_type not in {"assistant_answer", "exhibit_question"}:
             continue
         metadata = getattr(event, "metadata", None) or {}
+        if is_clarification_event(event, clarification_keys):
+            continue
         hall = normalize_hall(
             getattr(event, "hall", None)
             or metadata.get("hall")
@@ -1558,7 +1537,13 @@ async def tour_chat_stream(
     if effective_hall and effective_hall not in valid_halls:
         raise HTTPException(status_code=422, detail="Unknown hall_id")
 
-    hall_changed = bool(requested_hall and requested_hall != trusted_hall)
+    clarification_message = None
+    if exhibit_row is None and not requested_exhibit_id:
+        exhibit_row, clarification_message = await _resolve_message_exhibit(
+            session,
+            effective_hall,
+            body.message,
+        )
 
     session_updates: dict[str, str | None] = {}
     if requested_hall:
@@ -1567,9 +1552,11 @@ async def tour_chat_stream(
             # A hall switch without a trusted exhibit must not retain the
             # previous hall's foreign key.
             session_updates["current_exhibit_id"] = (
-                exhibit_row.id if exhibit_row is not None else None
+                exhibit_row.id
+                if requested_exhibit_id and exhibit_row is not None
+                else None
             )
-        elif exhibit_row is not None:
+        elif requested_exhibit_id and exhibit_row is not None:
             session_updates["current_exhibit_id"] = exhibit_row.id
         elif requested_exhibit_id:
             session_updates["current_exhibit_id"] = None
@@ -1590,24 +1577,13 @@ async def tour_chat_stream(
         session, tour_session.current_hall
     )
     current_hall_key = normalize_hall(tour_session.current_hall) or ""
-    stored_history = bound_conversation_history(
-        (tour_session.hall_chat_history or {}).get(current_hall_key, [])
+    trusted_history = bound_conversation_history(
+        (tour_session.trusted_hall_chat_history or {}).get(current_hall_key, [])
     )
-    # A fallback payload has no hall key.  It is usable only while remaining in
-    # the already trusted hall; on a hall switch it may belong to the old page.
-    client_history = (
-        []
-        if hall_changed
-        else bound_conversation_history(
-            [item.model_dump() for item in body.conversation_history]
-            if body.conversation_history
-            else None
-        )
-    )
-    conversation_history = (
-        _merge_same_hall_conversation_history(stored_history, client_history)
-        or None
-    )
+    # Client-restored/display history is intentionally excluded from model
+    # inference. Only completed server-persisted turns may ground follow-ups or
+    # enter the prompt/retrieval rewrite history.
+    conversation_history = trusted_history or None
 
     # The dependency-scoped session otherwise remains checked out for the full
     # SSE lifetime.  Everything the stream needs is now a detached snapshot;
@@ -1628,12 +1604,14 @@ async def tour_chat_stream(
             client_event_id=body.client_event_id,
             client_context=None,
             conversation_history=conversation_history,
+            grounding_history=trusted_history or None,
             style=body.style,
             degraded_services=degraded,
             tts_provider=tts_provider if body.tts else None,
             tts_service=tts_service if body.tts else None,
             persona=persona,
             tour_session=tour_session,
+            clarification_message=clarification_message,
         ),
         media_type="text/event-stream",
         headers={
@@ -1805,6 +1783,8 @@ async def list_tour_halls(
                 slug=slug,
                 name=h.name,
                 description=description,
+                short_description=h.short_description,
+                card_description=h.card_description,
                 exhibit_count=counts.get(slug, 0),
                 estimated_duration_minutes=h.estimated_duration_minutes,
                 highlights=highlights.get(slug, []),

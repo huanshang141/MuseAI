@@ -27,6 +27,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.content_source import ContentMetadata, ContentSource
 from app.application.exhibit_images import normalize_external_image_url
+from app.application.tour_suggestion_service import (
+    normalize_suggestion,
+    suggestion_rejection_reason,
+)
 from app.infra.postgres.models import Exhibit, Hall
 
 HALL_HEADERS = (
@@ -40,6 +44,7 @@ HALL_HEADERS = (
     "is_active",
     "suggested_questions",
 )
+HALL_OPTIONAL_HEADERS = ("short_description",)
 EXHIBIT_HEADERS = (
     "source_record_id",
     "name",
@@ -61,7 +66,6 @@ SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SOURCE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$")
 EXHIBIT_ID_NAMESPACE = uuid.UUID("d7864da1-b507-5fb6-bb2d-c8de1dadbf58")
 MAX_ACTIVE_EXHIBITS = 2_000
-SUGGESTION_MAX_LENGTH = 120
 
 
 class MuseumDataValidationError(ValueError):
@@ -98,6 +102,8 @@ class HallImportRow:
     display_order: int
     is_active: bool
     suggested_questions: list[str]
+    short_description: str | None = None
+    short_description_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -200,7 +206,12 @@ def _read_csv_pair(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any
     if missing:
         raise MuseumDataValidationError([f"CSV directory is missing: {', '.join(missing)}"])
     return (
-        _read_csv_table(path / "halls.csv", HALL_HEADERS, "halls.csv"),
+        _read_csv_table(
+            path / "halls.csv",
+            HALL_HEADERS,
+            "halls.csv",
+            optional_headers=HALL_OPTIONAL_HEADERS,
+        ),
         _read_csv_table(
             path / "exhibits.csv",
             EXHIBIT_HEADERS,
@@ -264,7 +275,11 @@ def _read_xlsx(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                 rows[1:],
                 headers,
                 f"sheet '{sheet_name}'",
-                optional_headers=(EXHIBIT_OPTIONAL_HEADERS if sheet_name == "exhibits" else ()),
+                optional_headers=(
+                    EXHIBIT_OPTIONAL_HEADERS
+                    if sheet_name == "exhibits"
+                    else HALL_OPTIONAL_HEADERS
+                ),
             )
         return parsed["halls"], parsed["exhibits"]
     except MuseumDataValidationError:
@@ -365,6 +380,8 @@ def _parse_hall(raw: dict[str, Any]) -> HallImportRow:
         display_order=_required_int(raw, "display_order", minimum=0, maximum=1_000_000),
         is_active=_required_bool(raw, "is_active"),
         suggested_questions=_questions(raw.get("suggested_questions"), "suggested_questions"),
+        short_description=_optional_text(raw, "short_description", 48),
+        short_description_present="short_description" in raw,
     )
 
 
@@ -473,28 +490,39 @@ def _required_bool(raw: dict[str, Any], key: str) -> bool:
 
 
 def _questions(value: Any, key: str) -> list[str]:
-    if value in (None, ""):
+    if value is None:
         return []
     if isinstance(value, str):
         stripped = value.strip()
+        if not stripped:
+            return []
         if stripped.startswith("["):
             try:
                 parsed = json.loads(stripped)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{key} contains invalid JSON") from exc
         else:
-            parsed = [part.strip() for part in stripped.split("|") if part.strip()]
+            parsed = [part.strip() for part in stripped.split("|")]
     elif isinstance(value, (list, tuple)):
         parsed = list(value)
     else:
         raise ValueError(f"{key} must be a JSON list or | separated text")
-    if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+    if not isinstance(parsed, list) or any(
+        not isinstance(item, str) for item in parsed
+    ):
         raise ValueError(f"{key} must contain only strings")
-    normalized = [item.strip() for item in parsed if item.strip()]
+    if not parsed or any(not item.strip() for item in parsed):
+        raise ValueError(
+            f"{key} explicit value contains an empty question; "
+            "leave the entire cell blank for automatic derivation"
+        )
+    normalized = [normalize_suggestion(item) for item in parsed]
     if len(normalized) > 6:
         raise ValueError(f"{key} supports at most 6 questions")
-    if any(len(item) > SUGGESTION_MAX_LENGTH for item in normalized):
-        raise ValueError(f"{key} question exceeds {SUGGESTION_MAX_LENGTH} characters")
+    for item in normalized:
+        reason = suggestion_rejection_reason(item)
+        if reason:
+            raise ValueError(f"{key} question {reason}: {item!r}")
     return normalized
 
 
@@ -680,6 +708,8 @@ class MuseumDataImportService:
                 "source_name": source_name,
                 "source_record_id": row.source_record_id,
             }
+            if row.short_description_present:
+                values["short_description"] = row.short_description
             if model is None:
                 model = Hall(slug=row.slug, **values)
                 self.session.add(model)

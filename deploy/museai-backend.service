@@ -18,13 +18,13 @@ Description=MuseAI FastAPI backend (uvicorn)
 # Infrastructure (PostgreSQL/Redis/Elasticsearch) runs via docker compose;
 # start after docker so dependencies have a chance to come up first.
 After=network-online.target docker.service
-Wants=network-online.target
+Wants=network-online.target docker.service
 
 [Service]
 Type=simple
 User=ubuntu
 WorkingDirectory=/home/ubuntu/MuseAI
-# The app also loads backend/.env itself (pydantic-settings), so this is a
+# The app also loads repository-root .env itself (pydantic-settings), so this is a
 # safety net for values referenced at process start. systemd parses this file
 # strictly: values with spaces must be quoted, no `export` keyword.
 EnvironmentFile=/home/ubuntu/MuseAI/.env

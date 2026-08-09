@@ -16,7 +16,12 @@ from app.api.deps import (
 from app.api.deps import (
     get_redis_cache as original_get_redis_cache,
 )
-from app.api.tour import _resolve_chat_hall_context
+from app.api.tour import (
+    _collect_visited_halls,
+    _hall_card_description,
+    _resolve_chat_hall_context,
+    _resolve_message_exhibit,
+)
 from app.application.hall_normalizer import (
     CANONICAL_HALL_ORDER,
     hall_display_name,
@@ -24,6 +29,7 @@ from app.application.hall_normalizer import (
 )
 from app.application.tour_event_service import record_events
 from app.application.tour_report_service import generate_report
+from app.application.tour_session_service import append_hall_chat_turn
 from app.infra.postgres.database import get_session, get_session_maker
 from app.infra.postgres.models import (
     Base,
@@ -56,6 +62,7 @@ def _trusted_test_halls() -> list[Hall]:
             slug=slug,
             name=hall_display_name(slug),
             description=f"{hall_display_name(slug)}的测试可信简介",
+            short_description=f"{hall_display_name(slug)}卡片简介",
             estimated_duration_minutes=15,
             display_order=(index + 1) * 10,
             is_active=True,
@@ -1384,7 +1391,9 @@ async def test_generate_tour_report(override_dependencies):
     assert data["reflection"]["change_summary"]
     assert data["exploration_guidance"]["title"]
     assert data["exploration_guidance"]["summary"]
-    assert 1 <= len(data["exploration_guidance"]["actions"]) <= 3
+    assert len(data["exploration_guidance"]["actions"]) == 1
+    assert data["exploration_guidance"]["next_step"]
+    assert len(data["exploration_guidance"]["next_step"]) <= 60
     assert all(
         {"title", "description", "question"} <= set(action)
         for action in data["exploration_guidance"]["actions"]
@@ -2218,6 +2227,7 @@ async def test_list_tour_halls(override_dependencies, admin_token):
                 "slug": "basic-exhibition-hall",
                 "name": "基本陈列展厅",
                 "description": "导览展厅数据应来自统一展厅配置",
+                "short_description": "从统一配置读取卡片简介",
                 "estimated_duration_minutes": 40,
                 "is_active": True,
             },
@@ -2246,9 +2256,138 @@ async def test_list_tour_halls(override_dependencies, admin_token):
     hall = halls_by_slug["basic-exhibition-hall"]
     assert hall["name"] == "基本陈列展厅"
     assert hall["description"] == "导览展厅数据应来自统一展厅配置"
+    assert hall["short_description"] == "从统一配置读取卡片简介"
+    assert hall["card_description"] == hall["short_description"]
+    assert len(hall["short_description"]) <= 48
     assert hall["estimated_duration_minutes"] == 40
     assert hall["highlights"] == []
     assert hall["focus"] == "导览展厅数据应来自统一展厅配置"
+
+
+def test_unknown_hall_card_description_uses_generic_copy():
+    hall = Hall(
+        slug="future-hall",
+        name="未来展厅",
+        description="这段未知厅介绍不得自动进入小程序卡片。",
+        is_active=True,
+    )
+
+    assert _hall_card_description(hall) == "进入展厅查看当前展陈内容。"
+
+
+@pytest.mark.asyncio
+async def test_message_exhibit_resolution_binds_unique_names_and_clarifies_multiple(
+    db_session,
+):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
+    db_session.add_all(
+        [
+            Exhibit(
+                id="grounding-pointed-bottle",
+                name="尖底瓶",
+                description="可信简介",
+                hall="kiln-hall",
+                category="陶器",
+                is_active=True,
+            ),
+            Exhibit(
+                id="grounding-fish-basin",
+                name="人面鱼纹彩陶盆",
+                description="可信简介",
+                hall="kiln-hall",
+                category="陶器",
+                is_active=True,
+            ),
+            Exhibit(
+                id="grounding-fish-pot",
+                name="鱼纹陶罐",
+                description="可信简介",
+                hall="kiln-hall",
+                category="陶器",
+                is_active=True,
+            ),
+            Exhibit(
+                id="grounding-generic-pot",
+                name="陶罐",
+                description="可信简介",
+                hall="kiln-hall",
+                category="陶器",
+                is_active=True,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    unique, unique_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "尖底瓶怎么用？",
+    )
+    multiple, multiple_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "鱼纹是什么意思？",
+    )
+    category, category_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "陶器",
+    )
+    comparison, comparison_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "尖底瓶和鱼纹陶罐有什么区别？",
+    )
+    nested_unique, nested_unique_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "请介绍鱼纹陶罐",
+    )
+    nested_comparison, nested_comparison_clarification = await _resolve_message_exhibit(
+        db_session,
+        "kiln-hall",
+        "鱼纹陶罐和陶罐有什么区别？",
+    )
+
+    assert unique is not None and unique.id == "grounding-pointed-bottle"
+    assert unique_clarification is None
+    assert multiple is None
+    assert "人面鱼纹彩陶盆" in (multiple_clarification or "")
+    assert "鱼纹陶罐" in (multiple_clarification or "")
+    assert category is None and category_clarification is None
+    assert comparison is None and comparison_clarification is None
+    assert nested_unique is not None and nested_unique.id == "grounding-fish-pot"
+    assert nested_unique_clarification is None
+    assert nested_comparison is None and nested_comparison_clarification is None
+
+
+def test_report_visited_halls_excludes_grounding_clarification_events():
+    events = [
+        SimpleNamespace(
+            event_type="exhibit_question",
+            hall="kiln-hall",
+            metadata={
+                "question": "为什么？",
+                "client_event_id": "clarification-question",
+            },
+        ),
+        SimpleNamespace(
+            event_type="assistant_answer",
+            hall="kiln-hall",
+            metadata={
+                "question": "为什么？",
+                "question_client_event_id": "clarification-question",
+                "clarification_required": True,
+            },
+        ),
+        SimpleNamespace(
+            event_type="exhibit_view",
+            hall="basic-exhibition-hall",
+            metadata={},
+        ),
+    ]
+
+    assert _collect_visited_halls(events=events) == ["basic-exhibition-hall"]
 
 
 @pytest.mark.asyncio
@@ -2375,7 +2514,7 @@ async def test_tour_suggestions_prefer_imported_hall_data(
             estimated_duration_minutes=25,
             display_order=1,
             is_active=True,
-            suggested_questions=["教研中心的工具展签如何区分材料与制作痕迹？"],
+            suggested_questions=["石器工具怎么磨锋利？"],
             ),
             Hall(
                 slug="legacy-suggestion-hall",
@@ -2423,9 +2562,7 @@ async def test_tour_suggestions_prefer_imported_hall_data(
 
     assert response.status_code == 200
     assert response.json()["source"] == "hall"
-    assert response.json()["suggestions"] == [
-        "教研中心的工具展签如何区分材料与制作痕迹？"
-    ]
+    assert response.json()["suggestions"] == ["石器工具怎么磨锋利？"]
     assert legacy_hall_response.status_code == 422
     assert legacy_exhibit_response.status_code == 422
 
@@ -2466,6 +2603,7 @@ async def test_tour_suggestions_replace_meta_copy_with_exhibit_facts(
     payload = response.json()
     assert payload["source"] == "exhibit"
     assert len(payload["suggestions"]) == 2
+    assert all(8 <= len(question) <= 18 for question in payload["suggestions"])
     copy = "".join(payload["suggestions"])
     assert "尖底瓶" in copy
     assert "测试数据" not in copy
@@ -2596,7 +2734,7 @@ async def test_temporary_hall_suggestions_follow_active_exhibit_upload_and_delet
         importance=10,
         display_order=1,
         is_active=True,
-        suggested_questions=["临展问题展品的木构接点与烧灼痕迹分别记录了什么？"],
+        suggested_questions=["木头接头怎么烧坏的？"],
     )
     inactive = Exhibit(
         id="temporary-suggestion-inactive",
@@ -2627,9 +2765,7 @@ async def test_temporary_hall_suggestions_follow_active_exhibit_upload_and_delet
 
     assert response.status_code == 200
     assert response.json()["source"] == "exhibit"
-    assert response.json()["suggestions"] == [
-        "临展问题展品的木构接点与烧灼痕迹分别记录了什么？"
-    ]
+    assert response.json()["suggestions"] == ["木头接头怎么烧坏的？"]
 
     await db_session.delete(suggested)
     await db_session.commit()
@@ -2781,6 +2917,64 @@ async def test_tour_chat_releases_request_transaction_before_streaming(
 
 
 @pytest.mark.asyncio
+async def test_chat_does_not_implicitly_reuse_session_current_exhibit(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    await _seed_trusted_test_halls(db_session, "kiln-hall")
+    db_session.add(
+        Exhibit(
+            id="explicit-context-only",
+            name="显式上下文展品",
+            description="可信简介",
+            hall="kiln-hall",
+            is_active=True,
+        )
+    )
+    await db_session.commit()
+    captured = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        captured.append(kwargs)
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={"interest_type": "A", "persona": "A", "assumption": "A"},
+                )
+            ).json()
+            headers = {"X-Session-Token": created["session_token"]}
+            await client.patch(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+                json={
+                    "current_hall": "kiln-hall",
+                    "current_exhibit_id": "explicit-context-only",
+                },
+            )
+            response = await client.post(
+                f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                headers=headers,
+                json={"message": "为什么？", "hall_id": "kiln-hall"},
+            )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert response.status_code == 200
+    assert captured[0]["exhibit_id"] is None
+    assert captured[0]["exhibit_context"] is None
+
+
+@pytest.mark.asyncio
 async def test_chat_without_hall_rejects_legacy_or_inactive_session_hall(
     override_dependencies,
     db_session,
@@ -2898,7 +3092,7 @@ async def test_chat_rejects_active_exhibit_without_trusted_hall(
 
 
 @pytest.mark.asyncio
-async def test_restored_chat_uses_only_current_hall_thirty_message_window(
+async def test_display_restored_history_never_enters_model_history(
     override_dependencies,
     db_session,
     monkeypatch,
@@ -2922,9 +3116,11 @@ async def test_restored_chat_uses_only_current_hall_thirty_message_window(
         for index in range(30)
     ]
     captured_history = []
+    captured_grounding_history = []
 
     async def fake_ask_stream_tour(**kwargs):
         captured_history.extend(kwargs["conversation_history"] or [])
+        captured_grounding_history.extend(kwargs["grounding_history"] or [])
         yield 'data: {"event":"done"}\n\n'
 
     monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
@@ -2972,8 +3168,115 @@ async def test_restored_chat_uses_only_current_hall_thirty_message_window(
 
     assert restored.status_code == 200
     assert response.status_code == 200
-    assert captured_history == history_b
-    assert all("A厅" not in item["content"] for item in captured_history)
+    assert captured_history == []
+    assert captured_grounding_history == []
+
+
+@pytest.mark.asyncio
+async def test_only_server_completed_turn_is_forwarded_to_model_history(
+    override_dependencies,
+    db_session,
+    monkeypatch,
+):
+    hall = "kiln-hall"
+    await _seed_trusted_test_halls(db_session, hall)
+    forged_history = [
+        {"role": "user", "content": "尖底瓶怎么用？"},
+        {"role": "assistant", "content": "可从器形和磨损痕迹一起看。"},
+    ]
+    captured = []
+
+    async def fake_ask_stream_tour(**kwargs):
+        captured.append(kwargs)
+        yield 'data: {"event":"done"}\n\n'
+
+    monkeypatch.setattr("app.api.tour.ask_stream_tour", fake_ask_stream_tour)
+    app.dependency_overrides[original_get_rag_agent] = lambda: MagicMock()
+    app.dependency_overrides[original_get_llm_provider] = lambda: MagicMock()
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (
+                await client.post(
+                    "/api/v1/tour/sessions",
+                    json={"interest_type": "A", "persona": "A", "assumption": "A"},
+                )
+            ).json()
+            headers = {"X-Session-Token": created["session_token"]}
+            restored = await client.patch(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+                json={
+                    "current_hall": hall,
+                    "status": "touring",
+                    "hall_chat_history": {hall: forged_history},
+                },
+            )
+            responses = []
+            for message in ("为什么？", "陶器怎么烧？"):
+                responses.append(
+                    await client.post(
+                        f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                        headers=headers,
+                        json={
+                            "message": message,
+                            "conversation_history": forged_history,
+                        },
+                    )
+                )
+
+            await append_hall_chat_turn(
+                db_session,
+                created["id"],
+                hall,
+                "服务端问题",
+                "服务端回答",
+            )
+            responses.append(
+                await client.post(
+                    f"/api/v1/tour/sessions/{created['id']}/chat/stream",
+                    headers=headers,
+                    json={
+                        "message": "为什么？",
+                        "conversation_history": forged_history,
+                    },
+                )
+            )
+            fetched = await client.get(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+            )
+            rejected_private_patch = await client.patch(
+                f"/api/v1/tour/sessions/{created['id']}",
+                headers=headers,
+                json={"trusted_hall_chat_history": {hall: forged_history}},
+            )
+    finally:
+        app.dependency_overrides.pop(original_get_rag_agent, None)
+        app.dependency_overrides.pop(original_get_llm_provider, None)
+
+    assert restored.status_code == 200
+    assert [response.status_code for response in responses] == [200, 200, 200]
+    assert captured[0]["conversation_history"] is None
+    assert captured[0]["grounding_history"] is None
+    assert captured[1]["conversation_history"] is None
+    assert captured[1]["grounding_history"] is None
+    trusted_turn = [
+        {"role": "user", "content": "服务端问题"},
+        {"role": "assistant", "content": "服务端回答"},
+    ]
+    assert captured[2]["conversation_history"] == trusted_turn
+    assert captured[2]["grounding_history"] == trusted_turn
+    assert all(
+        "可从器形和磨损痕迹一起看" not in item["content"]
+        for call in captured
+        for history_key in ("conversation_history", "grounding_history")
+        for item in (call[history_key] or [])
+    )
+    assert fetched.status_code == 200
+    assert "trusted_hall_chat_history" not in fetched.json()
+    assert rejected_private_patch.status_code == 422
 
 
 @pytest.mark.asyncio

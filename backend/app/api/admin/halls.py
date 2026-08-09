@@ -16,6 +16,7 @@ class HallCreateRequest(BaseModel):
     slug: str = Field(..., min_length=1, max_length=100)
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
+    short_description: str | None = Field(default=None, max_length=48)
     floor: int | None = Field(default=None, ge=1, le=10)
     estimated_duration_minutes: int = Field(default=0, ge=0, le=480)
     display_order: int = Field(default=0, ge=0, le=100000)
@@ -25,6 +26,7 @@ class HallCreateRequest(BaseModel):
 class HallUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
+    short_description: str | None = Field(default=None, max_length=48)
     floor: int | None = Field(default=None, ge=1, le=10)
     estimated_duration_minutes: int | None = Field(default=None, ge=0, le=480)
     display_order: int | None = Field(default=None, ge=0, le=100000)
@@ -35,6 +37,7 @@ class HallResponse(BaseModel):
     slug: str
     name: str
     description: str | None
+    short_description: str | None
     floor: int | None
     estimated_duration_minutes: int
     display_order: int
@@ -58,6 +61,7 @@ def _to_response(hall: Hall) -> HallResponse:
         slug=hall.slug,
         name=hall.name,
         description=hall.description,
+        short_description=hall.short_description,
         floor=hall.floor,
         estimated_duration_minutes=hall.estimated_duration_minutes,
         display_order=hall.display_order,
@@ -107,6 +111,11 @@ async def create_hall(
         slug=slug,
         name=request.name.strip(),
         description=request.description,
+        short_description=(
+            request.short_description.strip() or None
+            if request.short_description is not None
+            else None
+        ),
         floor=request.floor,
         estimated_duration_minutes=request.estimated_duration_minutes,
         display_order=request.display_order,
@@ -137,6 +146,8 @@ async def update_hall(
         hall.name = request.name.strip()
     if request.description is not None:
         hall.description = request.description
+    if request.short_description is not None:
+        hall.short_description = request.short_description.strip() or None
     if request.floor is not None:
         hall.floor = request.floor
     if request.estimated_duration_minutes is not None:

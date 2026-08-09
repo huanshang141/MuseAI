@@ -8,8 +8,8 @@ from app.application.museum_data_import_service import (
     EXHIBIT_HEADERS,
     EXHIBIT_OPTIONAL_HEADERS,
     HALL_HEADERS,
+    HALL_OPTIONAL_HEADERS,
     MAX_ACTIVE_EXHIBITS,
-    SUGGESTION_MAX_LENGTH,
     ExhibitImportRow,
     HallImportRow,
     MuseumDataImportService,
@@ -19,6 +19,7 @@ from app.application.museum_data_import_service import (
     deterministic_exhibit_id,
     load_museum_dataset,
 )
+from app.application.tour_suggestion_service import SUGGESTION_MAX_LENGTH
 from app.infra.postgres.models import Base, Exhibit, Hall
 from openpyxl import Workbook
 from sqlalchemy import func, select
@@ -35,7 +36,8 @@ def _hall_values(**overrides):
         "estimated_duration_minutes": 30,
         "display_order": 1,
         "is_active": True,
-        "suggested_questions": "这里最值得看什么？|这个展厅讲什么？",
+        "suggested_questions": "彩陶盆先看哪里？|鱼纹为什么连着人脸？",
+        "short_description": "从考古发现理解半坡生活",
     }
     values.update(overrides)
     return values
@@ -56,7 +58,7 @@ def _exhibit_values(**overrides):
         "location_x": 10.5,
         "location_y": 20.25,
         "is_active": True,
-        "suggested_questions": '["纹样能说明什么？"]',
+        "suggested_questions": '["鱼纹为什么连着人脸？"]',
     }
     values.update(overrides)
     return values
@@ -81,7 +83,9 @@ def _dataset(*, exhibit_description="真实展品介绍", exhibit_active=True):
                 estimated_duration_minutes=30,
                 display_order=1,
                 is_active=True,
-                suggested_questions=["这里最值得看什么？"],
+                suggested_questions=["彩陶盆先看哪里？"],
+                short_description="从考古发现理解半坡生活",
+                short_description_present=True,
             )
         ],
         exhibits=[
@@ -99,7 +103,7 @@ def _dataset(*, exhibit_description="真实展品介绍", exhibit_active=True):
                 location_x=10.5,
                 location_y=20.25,
                 is_active=exhibit_active,
-                suggested_questions=["纹样能说明什么？"],
+                suggested_questions=["鱼纹为什么连着人脸？"],
             )
         ],
     )
@@ -150,8 +154,107 @@ def test_loads_utf8_sig_csv_pair_and_pipe_or_json_questions(tmp_path):
     dataset = load_museum_dataset(tmp_path)
 
     assert dataset.halls[0].name == "基本展厅"
-    assert dataset.halls[0].suggested_questions == ["这里最值得看什么？", "这个展厅讲什么？"]
-    assert dataset.exhibits[0].suggested_questions == ["纹样能说明什么？"]
+    assert dataset.halls[0].suggested_questions == [
+        "彩陶盆先看哪里？",
+        "鱼纹为什么连着人脸？",
+    ]
+    assert dataset.exhibits[0].suggested_questions == ["鱼纹为什么连着人脸？"]
+    assert dataset.halls[0].short_description is None
+    assert dataset.halls[0].short_description_present is False
+
+
+def test_csv_accepts_optional_hall_short_description(tmp_path):
+    hall_headers = HALL_HEADERS + HALL_OPTIONAL_HEADERS
+    _write_csv(tmp_path / "halls.csv", hall_headers, [_hall_values()])
+    _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [_exhibit_values()])
+
+    dataset = load_museum_dataset(tmp_path)
+
+    assert dataset.halls[0].short_description == "从考古发现理解半坡生活"
+    assert dataset.halls[0].short_description_present is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("input_format", ["csv", "xlsx"])
+async def test_omitted_hall_short_description_preserves_db_and_present_blank_clears(
+    tmp_path,
+    import_session,
+    input_format,
+):
+    def write_source(label: str, *, include_short_description: bool, value):
+        hall_headers = list(HALL_HEADERS)
+        if include_short_description:
+            hall_headers.extend(HALL_OPTIONAL_HEADERS)
+        hall_values = _hall_values(short_description=value)
+        if input_format == "csv":
+            directory = tmp_path / label
+            directory.mkdir()
+            _write_csv(
+                directory / "halls.csv",
+                hall_headers,
+                [hall_values],
+            )
+            _write_csv(
+                directory / "exhibits.csv",
+                EXHIBIT_HEADERS,
+                [_exhibit_values()],
+            )
+            return directory
+
+        path = tmp_path / f"{label}.xlsx"
+        workbook = Workbook()
+        halls = workbook.active
+        halls.title = "halls"
+        halls.append(hall_headers)
+        halls.append([hall_values[header] for header in hall_headers])
+        exhibits = workbook.create_sheet("exhibits")
+        exhibits.append(EXHIBIT_HEADERS)
+        exhibit_values = _exhibit_values()
+        exhibits.append([exhibit_values[header] for header in EXHIBIT_HEADERS])
+        workbook.save(path)
+        return path
+
+    service = MuseumDataImportService(import_session, FakeIndexer())
+    await service.import_dataset(_dataset(), source_name="banpo-2026")
+
+    omitted = load_museum_dataset(
+        write_source(
+            "short-description-omitted",
+            include_short_description=False,
+            value=None,
+        )
+    )
+    assert omitted.halls[0].short_description is None
+    assert omitted.halls[0].short_description_present is False
+    await service.import_dataset(omitted, source_name="banpo-2026")
+    hall = await import_session.get(Hall, "basic-hall")
+    assert hall.short_description == "从考古发现理解半坡生活"
+
+    blank = load_museum_dataset(
+        write_source(
+            "short-description-blank",
+            include_short_description=True,
+            value=None,
+        )
+    )
+    assert blank.halls[0].short_description is None
+    assert blank.halls[0].short_description_present is True
+    await service.import_dataset(blank, source_name="banpo-2026")
+    await import_session.refresh(hall)
+    assert hall.short_description is None
+
+
+def test_rejects_hall_short_description_over_card_contract(tmp_path):
+    hall_headers = HALL_HEADERS + HALL_OPTIONAL_HEADERS
+    _write_csv(
+        tmp_path / "halls.csv",
+        hall_headers,
+        [_hall_values(short_description="展" * 49)],
+    )
+    _write_csv(tmp_path / "exhibits.csv", EXHIBIT_HEADERS, [_exhibit_values()])
+
+    with pytest.raises(MuseumDataValidationError, match="exceeds 48 characters"):
+        load_museum_dataset(tmp_path)
 
 
 def test_rejects_suggestion_over_runtime_length_contract(tmp_path):
@@ -167,6 +270,97 @@ def test_rejects_suggestion_over_runtime_length_contract(tmp_path):
         match=rf"exceeds {SUGGESTION_MAX_LENGTH} characters",
     ):
         load_museum_dataset(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("question", "reason"),
+    [
+        ("眼前这些怎么理解？", "does not name a concrete exhibit"),
+        ("尖底瓶形制怎么看？", "specialist wording"),
+        ("这是一条测试数据吗？", "maintenance or test-data wording"),
+        ("尖底瓶当时怎么用", "must end with a question mark"),
+    ],
+)
+def test_rejects_vague_academic_or_non_question_suggestions(
+    tmp_path,
+    question,
+    reason,
+):
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    _write_csv(
+        tmp_path / "exhibits.csv",
+        EXHIBIT_HEADERS,
+        [_exhibit_values(suggested_questions=question)],
+    )
+
+    with pytest.raises(MuseumDataValidationError, match=reason):
+        load_museum_dataset(tmp_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("file_format", ["csv", "xlsx"])
+@pytest.mark.parametrize(
+    "invalid_questions",
+    [
+        '[]',
+        '[""]',
+        '["尖底瓶器形怎么看？", ""]',
+        '|',
+        ' || ',
+    ],
+)
+async def test_explicit_empty_suggestion_rejects_entire_csv_or_xlsx_batch(
+    tmp_path,
+    import_session,
+    file_format,
+    invalid_questions,
+):
+    if file_format == "csv":
+        _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+        _write_csv(
+            tmp_path / "exhibits.csv",
+            EXHIBIT_HEADERS,
+            [_exhibit_values(suggested_questions=invalid_questions)],
+        )
+        input_path = tmp_path
+    else:
+        input_path = tmp_path / "museum_data.xlsx"
+        workbook = Workbook()
+        halls = workbook.active
+        halls.title = "halls"
+        halls.append(HALL_HEADERS)
+        halls.append([_hall_values()[header] for header in HALL_HEADERS])
+        exhibits = workbook.create_sheet("exhibits")
+        exhibits.append(EXHIBIT_HEADERS)
+        values = _exhibit_values(suggested_questions=invalid_questions)
+        exhibits.append([values[header] for header in EXHIBIT_HEADERS])
+        workbook.save(input_path)
+
+    with pytest.raises(
+        MuseumDataValidationError,
+        match="leave the entire cell blank for automatic derivation",
+    ):
+        load_museum_dataset(input_path)
+
+    assert await import_session.scalar(select(func.count()).select_from(Hall)) == 0
+    assert await import_session.scalar(select(func.count()).select_from(Exhibit)) == 0
+
+
+@pytest.mark.parametrize("blank_value", [None, "", "   "])
+def test_blank_suggestion_cell_is_the_only_automatic_derivation_signal(
+    tmp_path,
+    blank_value,
+):
+    _write_csv(tmp_path / "halls.csv", HALL_HEADERS, [_hall_values()])
+    _write_csv(
+        tmp_path / "exhibits.csv",
+        EXHIBIT_HEADERS,
+        [_exhibit_values(suggested_questions=blank_value)],
+    )
+
+    dataset = load_museum_dataset(tmp_path)
+
+    assert dataset.exhibits[0].suggested_questions == []
 
 
 def test_csv_and_xlsx_accept_optional_https_image_url(tmp_path):
@@ -234,6 +428,9 @@ def test_versioned_museum_template_has_trusted_nine_halls_and_no_fake_exhibits()
     ]
     assert [hall.display_order for hall in dataset.halls] == list(range(10, 100, 10))
     assert all(hall.name and hall.description and hall.is_active for hall in dataset.halls)
+    assert all(hall.short_description for hall in dataset.halls)
+    assert all(len(hall.short_description or "") <= 48 for hall in dataset.halls)
+    assert len({hall.short_description for hall in dataset.halls}) == 9
     assert all(hall.floor is None for hall in dataset.halls)
     assert all(hall.estimated_duration_minutes == 0 for hall in dataset.halls)
     assert dataset.exhibits == []
@@ -247,6 +444,8 @@ def test_versioned_test_dataset_is_explicit_and_covers_all_nine_halls():
     dataset = load_museum_dataset(dataset_dir)
 
     assert len(dataset.halls) == 9
+    assert all(hall.short_description for hall in dataset.halls)
+    assert len({hall.short_description for hall in dataset.halls}) == 9
     assert len(dataset.exhibits) == 46
     assert {exhibit.hall for exhibit in dataset.exhibits} == {hall.slug for hall in dataset.halls}
     assert all(exhibit.source_record_id.startswith("legacy-test-") for exhibit in dataset.exhibits)
@@ -291,6 +490,7 @@ def test_loads_exact_two_sheet_xlsx(tmp_path):
     dataset = load_museum_dataset(path)
 
     assert len(dataset.halls) == 1
+    assert dataset.halls[0].short_description_present is False
     assert dataset.exhibits[0].name == "人面鱼纹彩陶盆"
 
 
@@ -446,6 +646,9 @@ async def test_idempotent_upsert_indexes_only_new_or_changed(import_session):
     assert changed.exhibits_indexed == 1
     assert len(indexer.indexed) == 2
     assert (await import_session.scalar(select(func.count()).select_from(Hall))) == 1
+    imported_hall = await import_session.get(Hall, "basic-hall")
+    assert imported_hall is not None
+    assert imported_hall.short_description == "从考古发现理解半坡生活"
     assert (await import_session.scalar(select(func.count()).select_from(Exhibit))) == 1
     exhibit = await import_session.get(Exhibit, deterministic_exhibit_id("banpo-2026", "exhibit-001"))
     assert exhibit.description == "更新后的真实介绍"

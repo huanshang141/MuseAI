@@ -122,6 +122,26 @@ RECORD_SUMMARY_MAX_PAIRS = 40
 RECORD_SUMMARY_QUESTION_MAX_CHARS = 160
 RECORD_SUMMARY_ANSWER_MAX_CHARS = 400
 RECORD_SUMMARY_JSON_MAX_BYTES = 64 * 1024
+EXPLORATION_NEXT_STEP_MAX_CHARS = 60
+GENERIC_FOLLOWUP_QUESTIONS = {
+    "为什么",
+    "为何",
+    "它呢",
+    "这个呢",
+    "那个呢",
+    "这个",
+    "那个",
+    "它",
+    "再说说",
+    "继续",
+    "继续说",
+    "还有呢",
+    "然后呢",
+}
+CLARIFICATION_ANSWER_MARKERS = (
+    "我还不知道你指的是哪件展品",
+    "你提到的名称可能对应",
+)
 RECORD_SUMMARY_SYSTEM_PROMPT = (
     "你是博物馆参观记录摘要器。\n"
     "你的唯一证据是下一条 user message 中由后端生成的 JSON 数据，其中只包含已持久化的真实问答。\n"
@@ -219,6 +239,41 @@ def _format_review_halls(
     return "、".join(names[:3])
 
 
+def _clarification_question_key(event: Any, metadata: dict[str, Any]) -> str:
+    event_type = str(getattr(event, "event_type", "") or "")
+    if event_type == "assistant_answer":
+        raw_value = (
+            metadata.get("question_client_event_id")
+            or metadata.get("client_event_id")
+        )
+    else:
+        raw_value = metadata.get("client_event_id")
+    value = str(raw_value or "").strip()
+    return value.removesuffix(":assistant")
+
+
+def clarification_question_keys(events: list[Any] | None) -> set[str]:
+    keys: set[str] = set()
+    for event in events or []:
+        metadata = getattr(event, "metadata", None) or {}
+        answer = str(metadata.get("answer") or "")
+        if metadata.get("clarification_required") is not True and not any(
+            marker in answer for marker in CLARIFICATION_ANSWER_MARKERS
+        ):
+            continue
+        if key := _clarification_question_key(event, metadata):
+            keys.add(key)
+    return keys
+
+
+def is_clarification_event(event: Any, clarification_keys: set[str]) -> bool:
+    metadata = getattr(event, "metadata", None) or {}
+    if metadata.get("clarification_required") is True:
+        return True
+    key = _clarification_question_key(event, metadata)
+    return bool(key and key in clarification_keys)
+
+
 def build_reflection_summary(
     tour_session,
     events: list,
@@ -241,10 +296,13 @@ def build_reflection_summary(
     deep_dive_count = 0
     scores: dict[str, float] = {key: 0.0 for key in REFLECTION_TOPIC_LABELS}
     signal_halls: list[str] = []
+    clarification_keys = clarification_question_keys(events)
 
     for event in events or []:
         event_type = getattr(event, "event_type", "") or ""
         metadata = getattr(event, "metadata", None) or {}
+        if is_clarification_event(event, clarification_keys):
+            continue
         hall = normalize_hall(getattr(event, "hall", None)) or ""
         text = _reflection_event_text(metadata)
 
@@ -369,6 +427,11 @@ def _guidance_action(
     return action
 
 
+def _is_generic_followup_question(value: str) -> bool:
+    compact = re.sub(r"[\s，。！？?、,.；;：:]+", "", str(value or ""))
+    return compact in GENERIC_FOLLOWUP_QUESTIONS
+
+
 def build_exploration_guidance(
     tour_session: Any,
     events: list[Any],
@@ -376,16 +439,19 @@ def build_exploration_guidance(
     reflection: dict[str, Any] | None = None,
     hall_name_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Return 1-3 concrete next actions from persisted visit records only."""
+    """Return one primary next step plus one compatibility action."""
     latest_question = ""
     latest_hall: str | None = None
     latest_exhibit_id: str | None = None
     latest_exhibit_name = ""
     viewed_count = 0
+    clarification_keys = clarification_question_keys(events)
 
     for event in events or []:
         event_type = str(getattr(event, "event_type", "") or "")
         metadata = getattr(event, "metadata", None) or {}
+        if is_clarification_event(event, clarification_keys):
+            continue
         hall = normalize_hall(
             getattr(event, "hall", None)
             or metadata.get("hall")
@@ -481,10 +547,27 @@ def build_exploration_guidance(
         title = "建立第一条可核对的记录"
         summary = "从一项能直接看到的细节开始，就能为后续提问和复盘留下清晰线索。"
 
+    if latest_question:
+        if _is_generic_followup_question(latest_question):
+            next_step = "把刚才的回答与展签或实物细节对照一下。"
+        else:
+            question_excerpt = latest_question[:12].rstrip("，。！？? ")
+            next_step = f"用展签核对“{question_excerpt}”的一条答案。"
+    elif latest_exhibit_name or latest_exhibit_id:
+        subject = (latest_exhibit_name or "最近浏览的展品")[:10]
+        next_step = f"回看“{subject}”，记录一处材料或纹饰。"
+    elif latest_hall:
+        subject = (hall_name or "当前展厅")[:10]
+        next_step = f"在{subject}选一件展品，记录材料与用途。"
+    else:
+        next_step = "选一件有明确展签的展品，记录一处材料或纹饰细节。"
+    next_step = _clean_record_text(next_step)[:EXPLORATION_NEXT_STEP_MAX_CHARS]
+
     return {
         "title": title,
         "summary": summary,
-        "actions": actions[:3],
+        "actions": actions[:1],
+        "next_step": next_step,
     }
 
 
@@ -571,9 +654,12 @@ def aggregate_stats(events: list, tour_session) -> dict:
     seen_question_events: set[str] = set()
     recent_question_signatures: dict[str, tuple[float, bool, bool]] = {}
     seen_duration_events: set[str] = set()
+    clarification_keys = clarification_question_keys(events)
 
     for event in events:
         metadata = _event_metadata(event)
+        if is_clarification_event(event, clarification_keys):
+            continue
         if event.event_type == "exhibit_view":
             exhibit_id = getattr(event, "exhibit_id", None)
             eid = str(
@@ -968,12 +1054,15 @@ def collect_qa_pairs(events: list) -> list[dict[str, str]]:
     pairs: list[dict[str, str]] = []
     pending_by_client_id: dict[str, dict[str, str]] = {}
     seen_answer_events: set[str] = set()
+    clarification_keys = clarification_question_keys(events)
 
     for index, event in enumerate(events or []):
         event_type = getattr(event, "event_type", None)
         if event_type not in {"assistant_answer", "exhibit_question"}:
             continue
         metadata = getattr(event, "metadata", None) or {}
+        if is_clarification_event(event, clarification_keys):
+            continue
         question = _clean_record_text(
             metadata.get("question") or metadata.get("message") or metadata.get("query")
         )

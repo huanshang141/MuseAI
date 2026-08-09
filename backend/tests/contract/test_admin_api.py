@@ -587,20 +587,26 @@ async def test_admin_halls_crud_endpoint(db_session, admin_token):
                     "slug": "kiln-hall",
                     "name": "陶窑展厅",
                     "description": "馆方初始陶窑展厅说明",
+                    "short_description": "认识史前制陶流程",
                     "estimated_duration_minutes": 18,
                     "is_active": True,
                 },
             )
             assert create_response.status_code == 201
+            assert create_response.json()["short_description"] == "认识史前制陶流程"
 
             # Admin edits a canonical hall's description; it must survive reads.
             update_response = await client.put(
                 "/api/v1/admin/halls/kiln-hall",
                 headers={"Authorization": f"Bearer {admin_token}"},
-                json={"description": "管理员补充的陶窑展厅说明"},
+                json={
+                    "description": "管理员补充的陶窑展厅说明",
+                    "short_description": "查看制坯与烧成",
+                },
             )
             assert update_response.status_code == 200
             assert update_response.json()["description"] == "管理员补充的陶窑展厅说明"
+            assert update_response.json()["short_description"] == "查看制坯与烧成"
 
             # Re-list is read-only; the admin description still persists.
             relist = await client.get(
@@ -609,6 +615,7 @@ async def test_admin_halls_crud_endpoint(db_session, admin_token):
             )
             kiln = next(h for h in relist.json()["halls"] if h["slug"] == "kiln-hall")
             assert kiln["description"] == "管理员补充的陶窑展厅说明"
+            assert kiln["short_description"] == "查看制坯与烧成"
     finally:
         app.dependency_overrides = {}
 

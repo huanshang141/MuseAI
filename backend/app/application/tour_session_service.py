@@ -53,6 +53,7 @@ async def create_session(
         questionnaire=questionnaire or {},
         resume_state=resume_state or {},
         hall_chat_history={},
+        trusted_hall_chat_history={},
         state_version=1,
         created_at=now,
     )
@@ -150,6 +151,8 @@ async def append_hall_chat_turn(
     hall: str,
     user_content: str,
     assistant_content: str,
+    *,
+    turn_id: str | None = None,
 ) -> TourSession:
     """Merge one completed turn into the latest persisted hall history.
 
@@ -158,22 +161,87 @@ async def append_hall_chat_turn(
     after the merge.
     """
     model = await get_session_model(session, session_id, for_update=True)
-    history = dict(model.hall_chat_history or {})
-    if hall not in history and len(history) >= 9:
-        oldest_hall = next(iter(history))
-        history.pop(oldest_hall, None)
-    messages = list(history.get(hall) or [])
     completed_turn = [
         {"role": "user", "content": str(user_content)[:1000]},
         {"role": "assistant", "content": str(assistant_content)[:1000]},
     ]
-    if messages[-2:] == completed_turn:
+    stable_turn_id = str(turn_id or "").strip()[:120] or None
+    trusted_turn = [dict(message) for message in completed_turn]
+    if stable_turn_id:
+        for message in trusted_turn:
+            message["_turn_id"] = stable_turn_id
+
+    def turn_content_matches(messages: list[dict]) -> bool:
+        if len(messages) < 2:
+            return False
+        return all(
+            str(actual.get("role") or "") == expected["role"]
+            and str(actual.get("content") or "") == expected["content"]
+            for actual, expected in zip(messages[-2:], completed_turn, strict=True)
+        )
+
+    def trailing_turn_count(messages: list[dict]) -> int:
+        count = 0
+        end = len(messages)
+        while end >= 2 and turn_content_matches(messages[:end]):
+            count += 1
+            end -= 2
+        return count
+
+    def append_turn(
+        history_value: dict | None,
+        turn: list[dict],
+        *,
+        should_append: bool,
+    ) -> tuple[dict, bool]:
+        history = dict(history_value or {})
+        messages = list(history.get(hall) or [])
+        if not should_append:
+            return history, False
+        if hall not in history and len(history) >= 9:
+            oldest_hall = next(iter(history))
+            history.pop(oldest_hall, None)
+        messages.extend(turn)
+        history[hall] = messages[-30:]
+        return history, True
+
+    display_messages = list((model.hall_chat_history or {}).get(hall) or [])
+    trusted_messages = list(
+        (model.trusted_hall_chat_history or {}).get(hall) or []
+    )
+    same_stable_turn = bool(
+        stable_turn_id
+        and any(
+            str(message.get("_turn_id") or "") == stable_turn_id
+            for message in trusted_messages
+        )
+    )
+    if same_stable_turn:
         await session.commit()
         await session.refresh(model)
         return model.to_entity()
-    messages.extend(completed_turn)
-    history[hall] = messages[-30:]
-    model.hall_chat_history = history
+
+    display_turns = trailing_turn_count(display_messages)
+    trusted_turns = trailing_turn_count(trusted_messages)
+    legacy_duplicate = stable_turn_id is None and trusted_turns > 0
+    display_history, display_changed = append_turn(
+        model.hall_chat_history,
+        completed_turn,
+        should_append=not legacy_duplicate and display_turns <= trusted_turns,
+    )
+    trusted_history, trusted_changed = append_turn(
+        model.trusted_hall_chat_history,
+        trusted_turn,
+        should_append=not legacy_duplicate,
+    )
+    if not display_changed and not trusted_changed:
+        await session.commit()
+        await session.refresh(model)
+        return model.to_entity()
+    if display_changed:
+        model.hall_chat_history = display_history
+    if trusted_changed:
+        model.trusted_hall_chat_history = trusted_history
     current_version = model.state_version if isinstance(model.state_version, int) else 1
     model.state_version = current_version + 1
     model.last_active_at = datetime.now(UTC)

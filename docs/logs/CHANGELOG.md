@@ -1,5 +1,11 @@
 # 后端变更日志
 
+## 2026-08-10
+
+- 修复报告页前置会话同步 422：小程序九厅 `route_plan.steps` 已保存 `short`、`exhibitCount`、`exhibitCountKnown`，后端严格恢复模型此前未声明这三项，导致 9 厅产生 27 条 `extra_forbidden` 并在报告生成前被阻断。`TourRouteStep` 现只新增这三个受约束字段，未知字段仍拒绝，不放宽整体 schema，也不把展示计数作为 Agent 事实。
+- 回归契约改为完整九厅路线快照，覆盖九厅逐项 PATCH、GET 等值恢复、旧快照默认值、字段边界和未知字段仍返回 422；`test_tour_api.py` 66 项、完整后端 `1590 passed, 23 skipped, 9 warnings`、scoped Ruff 与 `git diff --check` 通过。小程序 16 组检查与 64 文件发布预检通过。
+- 完成服务器存储只读盘点并新增 `docs/server-storage-layout.md`。当前磁盘使用约 23%，本轮未移动或删除任何文件；后续按“回退基线→复制目标目录→原子切换后端/管理端→Compose 与备份分离→观察后清理”执行。
+
 ## 2026-08-09
 
 - 导览聊天新增确定性 grounding gate，不增加 LLM 分类调用：纯数字/全角数字/序号/标点及无同厅完整问答支撑的泛指直接流式澄清；明确展厅级、类别、唯一展品名称及同厅完整问答追问继续。API 不隐式复用 session 残留 `current_exhibit_id`，多名称匹配最多列出三项要求确认，system prompt 明确禁止把 RAG 首条结果当作用户指代。

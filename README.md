@@ -246,6 +246,8 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 
 唯一权威的备份、精确 SHA 切换、依赖同步、迁移、systemd 启停、健康检查和回退流程见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、日志轮转和备份资产的安装与配置，不另行定义发布流程。
 
+服务器代码、配置、持久图片、日志、备份和管理端静态文件的长期分离方案见 [服务器存储重排方案](./docs/server-storage-layout.md)。该方案必须先复制验证再切换引用，不能在普通功能发布中顺手移动运行目录或 Docker 卷。
+
 ## 上线前阻断项
 
 - 微信公众平台 request 合法域名已配置并通过关闭豁免后的真机测试；如后续使用上传/下载文件 URL，再确认 uploadFile/downloadFile 合法域名。

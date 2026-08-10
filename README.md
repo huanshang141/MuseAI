@@ -242,7 +242,7 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 - RAG、rerank、TTS 均依赖外部服务，线上应控制并发和超时，优先保证小程序导览流式响应。
 - Elasticsearch、Redis、PostgreSQL 如与后端同机部署，需要持续观察内存占用；数据量增长后优先拆分检索或数据库服务。
 
-生产发布只使用 systemd 托管，并在切换代码前备份 PostgreSQL；有上传图片时还必须同批次备份持久图片目录。当前精确发布来源为 `origin/codex/data-driven-miniapp-framework`，不得改拉 `main`，也不得用进程名 `pkill` 或 `nohup` 启动替代受控发布。
+生产发布只使用 systemd 托管，并在切换代码前备份 PostgreSQL；有上传图片时还必须同批次备份持久图片目录。当前精确发布来源为 `origin/main`；必须先 fetch 并记录目标 SHA，不得使用无条件 `git pull`，也不得用进程名 `pkill` 或 `nohup` 启动替代受控发布。
 
 唯一权威的备份、精确 SHA 切换、依赖同步、迁移、systemd 启停、健康检查和回退流程见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、日志轮转和备份资产的安装与配置，不另行定义发布流程。
 

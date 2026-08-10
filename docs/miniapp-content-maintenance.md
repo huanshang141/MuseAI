@@ -212,7 +212,7 @@ PY
 
 ## 7. 生产部署和验收
 
-部署在 2C8G 服务器上串行执行，不同时运行全量测试、依赖同步、迁移和权威导入。以下假设服务器 checkout 为 `/home/ubuntu/MuseAI`，目标代码在 `origin/codex/data-driven-miniapp-framework`。所有权威命令都必须在 Bash 中执行，并以 `set -euo pipefail` 开始；任一命令失败即停止，不得忽略退出码后继续发布。
+部署在 2C8G 服务器上串行执行，不同时运行全量测试、依赖同步、迁移和权威导入。以下假设服务器 checkout 为 `/home/ubuntu/MuseAI`，目标代码在 `origin/main`。所有权威命令都必须在 Bash 中执行，并以 `set -euo pipefail` 开始；任一命令失败即停止，不得忽略退出码后继续发布。
 
 1. 初始化本批次回退记录和固定恢复指针：
 
@@ -341,8 +341,8 @@ PY
    UV=/home/ubuntu/.local/bin/uv
    test -x "$UV"
    sudo install -d -o ubuntu -g ubuntu -m 0750 /home/ubuntu/museai-data/exhibit-images
-   git fetch origin codex/data-driven-miniapp-framework
-   TARGET_SHA="$(git rev-parse origin/codex/data-driven-miniapp-framework)"
+   git fetch origin main
+   TARGET_SHA="$(git rev-parse origin/main)"
    git cat-file -e "${TARGET_SHA}^{commit}"
    while IFS= read -r -d '' tracked_path; do
        case "$tracked_path" in

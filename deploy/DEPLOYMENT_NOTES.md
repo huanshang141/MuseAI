@@ -2,7 +2,7 @@
 
 本目录只提供生产运维资产及一次性安装、配置参考，不是日常发布步骤的第二份副本。本仓库不会自动部署。
 
-生产发布的唯一权威流程是 [`docs/miniapp-content-maintenance.md` 第 7 节](../docs/miniapp-content-maintenance.md#7-生产部署和验收)：先备份，再从精确来源 `origin/codex/data-driven-miniapp-framework` 记录并切换目标 SHA，随后按锁文件同步依赖、执行迁移、通过 systemd 启停并完成健康检查。禁止执行 `git pull origin main` 或任何其他 `pull main` 流程，禁止按进程名执行 `pkill`，禁止用 `nohup` 启动生产后端。
+生产发布的唯一权威流程是 [`docs/miniapp-content-maintenance.md` 第 7 节](../docs/miniapp-content-maintenance.md#7-生产部署和验收)：先备份，再从精确来源 `origin/main` 记录并切换目标 SHA，随后按锁文件同步依赖、执行迁移、通过 systemd 启停并完成健康检查。禁止用无条件 `git pull` 替代精确 SHA 发布，禁止按进程名执行 `pkill`，禁止用 `nohup` 启动生产后端。
 
 资产清单：
 

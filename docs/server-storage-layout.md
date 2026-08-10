@@ -3,7 +3,7 @@
 ## 已确认的最小方案
 
 服务器继续使用 `/home/ubuntu/MuseAI` 作为后端仓库和运行目录，直接从
-`origin/codex/data-driven-miniapp-framework` 获取精确提交后部署。本方案不迁移到
+`origin/main` 获取精确提交后部署。本方案不迁移到
 `/srv/museai`，不移动 Docker 根目录或命名卷，也不改变 Nginx 证书目录。
 
 微信小程序仍是独立仓库，不部署到该服务器；`/home/ubuntu/MuseAI/frontend` 是管理端源码。

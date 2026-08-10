@@ -25,11 +25,14 @@
 - 14 个 Bash 文档块与 2 个部署脚本语法通过；首次 WSL 启动器的中文网络提示存在终端编码噪声，随后改用 Git Bash 严格复核，文档 UTF-8 内容本身无损坏。
 - 正式模板 dry-run 验证 9 厅/0 展品，联调数据 dry-run 验证 9 厅/46 展品；两者均为 `validated`，未连接生产依赖。
 - 最终独立复查未发现 P0/P1；目标 tree 门禁同时覆盖受保护根路径本身和其子路径，避免目录名被强制提交为符号链接时漏检。
+- 边界提交 `875f5db9dd74a9676e296398fcc821dc10ee764f` 已推送到 `origin/codex/data-driven-miniapp-framework`，服务器已 detached checkout 同一精确 SHA，工作树干净。
+- 本批次没有运行时代码或依赖变化，因此未重启后端；同步前后 MainPID 相同，`.env` 哈希未变化，内网与公网 readiness 均 healthy。
+- 服务器根目录 85 字节的旧 `package-lock.json` 没有对应根 `package.json`、未被进程打开；已备份到 `/home/ubuntu/museai-config-backups/stale-root-package-lock_20260810T154408Z.json` 后从 checkout 删除。执行记录为 `/home/ubuntu/museai-config-backups/repository_boundary_20260810T154408Z.env`。
 
-## 当前步骤
+## 完成状态
 
-1. 提交并推送已验证的仓库边界调整。
-2. 让服务器按现有精确 SHA checkout 流程同步，并验证工作树与服务状态。
+1. 本地提交、origin 推送和服务器精确 SHA 同步已完成。
+2. 仓库、服务持久内容和后续真实数据更新边界已写入权威维护文档。
 
 ## 安全边界
 

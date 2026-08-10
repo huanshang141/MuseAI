@@ -4,7 +4,10 @@
 
 - 修复报告页前置会话同步 422：小程序九厅 `route_plan.steps` 已保存 `short`、`exhibitCount`、`exhibitCountKnown`，后端严格恢复模型此前未声明这三项，导致 9 厅产生 27 条 `extra_forbidden` 并在报告生成前被阻断。`TourRouteStep` 现只新增这三个受约束字段，未知字段仍拒绝，不放宽整体 schema，也不把展示计数作为 Agent 事实。
 - 回归契约改为完整九厅路线快照，覆盖九厅逐项 PATCH、GET 等值恢复、旧快照默认值、字段边界和未知字段仍返回 422；`test_tour_api.py` 66 项、完整后端 `1590 passed, 23 skipped, 9 warnings`、scoped Ruff 与 `git diff --check` 通过。小程序 16 组检查与 64 文件发布预检通过。
-- 完成服务器存储只读盘点并新增 `docs/server-storage-layout.md`。当前磁盘使用约 23%，本轮未移动或删除任何文件；后续按“回退基线→复制目标目录→原子切换后端/管理端→Compose 与备份分离→观察后清理”执行。
+- 服务器存储方案按审批反馈收敛为最小变化：继续以 `/home/ubuntu/MuseAI` 直接 fetch 精确提交并部署，不迁移 `/srv`、Docker 卷或证书目录。`docs/server-storage-layout.md` 改为 Git/服务器持久内容边界和直接 checkout 流程。
+- `.gitignore` 收窄全局 `dist/`、`var/` 与 `docs/reference/**` 规则，恢复所有 npm lockfile 和可公开参考资料的正常跟踪；新增 `.env.*`、证书/私钥、SQLite、备份、上传目录和本地导入文件规则，同时保留真实 museum CSV 可跟踪。移除全仓无引用、误入 Git 的 `test_alembic.db`。
+- 服务器直接 checkout 增加目标 tree 受保护路径门禁，并统一使用 `git switch --no-overwrite-ignore --detach`；目标提交若误跟踪 `.env`、`.venv`、日志、证书、上传目录或管理端生成物会在切换前失败，不能覆盖服务器本地内容。部署顺序继续强制先停服务，再同步依赖和迁移。
+- 验证通过：ignore 正反契约 18 项、配置/迁移定向回归 `27 passed`、后端全量 `1590 passed, 23 skipped, 9 warnings`、`uv lock --check`、`uv pip check`、scoped Ruff、14 个 Bash 文档块及 2 个部署脚本语法。正式模板 dry-run 为 9 厅/0 展品，联调快照为 9 厅/46 展品，均未连接生产依赖。
 - 后端功能提交 `f18a936`、方案提交 `bc2c6fc` 与小程序提交 `1fa24e4` 已分别推送；生产部署到 `bc2c6fc`，发布记录为 `/home/ubuntu/museai-config-backups/release_20260809T232004Z.env`。数据库备份 SHA-256 为 `4ac1cd102b7a4f8f6f9fa2fd0faedb18916296b9284d1158ff1a2fe678753941`，图片备份 SHA-256 为 `77d673e07aa7c5b512affec9facf471829e44a13e6a1df9acfcb8a9dc6267b19`；迁移保持 `20260809_trusted_hall_chat_history (head)`，内网与公网 readiness 均 healthy。
 - 公网独立游客会话实测九厅完整路线 PATCH 200、GET 200 且九步字段逐项恢复；未知字段仍返回 422，报告 POST 返回 200。服务工作树干净，发布后关键日志错误计数为 0；探针未输出 token。
 

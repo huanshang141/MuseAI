@@ -344,15 +344,27 @@ PY
    git fetch origin codex/data-driven-miniapp-framework
    TARGET_SHA="$(git rev-parse origin/codex/data-driven-miniapp-framework)"
    git cat-file -e "${TARGET_SHA}^{commit}"
+   while IFS= read -r -d '' tracked_path; do
+       case "$tracked_path" in
+           .env.example|*/.env.example)
+               ;;
+           .env|.env.*|*/.env|*/.env.*|\
+           .venv|logs|var|uploads|backup|backups|certs|secrets|deploy/ssl|\
+           frontend/dist|frontend/node_modules|\
+           .venv/*|logs/*|var/*|uploads/*|backup/*|backups/*|\
+           certs/*|secrets/*|deploy/ssl/*|frontend/dist/*|frontend/node_modules/*|\
+           *.pem|*.key|*.crt|*.cer|*.csr|*.p12|*.pfx|*.jks|*.keystore|\
+           *.db|*.sqlite|*.sqlite3|*.log|*.pid|*.sock|\
+           museai_*.sql.gz|*/museai_*.sql.gz|\
+           exhibit-images_*.tar.gz|*/exhibit-images_*.tar.gz)
+               printf 'target commit tracks protected server-local path: %s\n' "$tracked_path" >&2
+               exit 1
+               ;;
+       esac
+   done < <(git ls-tree -r --name-only -z "$TARGET_SHA")
    printf 'TARGET_SHA=%q\nDEPLOY_PHASE=%q\n' "$TARGET_SHA" target_resolved >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
 
-   git switch --detach "$TARGET_SHA"
-   test "$(git rev-parse HEAD)" = "$TARGET_SHA"
-   printf 'DEPLOY_PHASE=%q\n' checkout_complete >> "$RELEASE_RECORD"
-   sync "$RELEASE_RECORD"
-
-   "$UV" lock --check
    docker ps --format '{{.Names}}' | grep -Fx museai-postgres
    docker ps --format '{{.Names}}' | grep -Fx museai-redis
    docker ps --format '{{.Names}}' | grep -Fx museai-elasticsearch
@@ -368,6 +380,12 @@ PY
    printf 'DEPLOY_PHASE=%q\n' service_stopped >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
 
+   git switch --no-overwrite-ignore --detach "$TARGET_SHA"
+   test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+   printf 'DEPLOY_PHASE=%q\n' checkout_complete >> "$RELEASE_RECORD"
+   sync "$RELEASE_RECORD"
+
+   "$UV" lock --check
    "$UV" sync --frozen
    "$UV" pip check --python /home/ubuntu/MuseAI/.venv/bin/python
    printf 'DEPLOY_PHASE=%q\n' dependencies_ready >> "$RELEASE_RECORD"
@@ -443,7 +461,7 @@ fi
 .venv/bin/alembic downgrade 20260809_exhibit_images
 cp -p "$ENV_BACKUP" .env
 chmod 600 .env
-git switch --detach "$OLD_SHA"
+git switch --no-overwrite-ignore --detach "$OLD_SHA"
 test "$(git rev-parse HEAD)" = "$OLD_SHA"
 "$UV" lock --check
 "$UV" sync --frozen
@@ -599,7 +617,7 @@ UV=/home/ubuntu/.local/bin/uv
 test -x "$UV"
 cp -p "$ENV_BACKUP" .env
 chmod 600 .env
-git switch --detach "$OLD_SHA"
+git switch --no-overwrite-ignore --detach "$OLD_SHA"
 test "$(git rev-parse HEAD)" = "$OLD_SHA"
 "$UV" lock --check
 "$UV" sync --frozen

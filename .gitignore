@@ -1,6 +1,23 @@
-docs/reference/**
+# Private reference material must stay local. Public source notes and data
+# dictionaries under docs/reference remain trackable.
+/docs/reference/private/
+
+# Environment and credentials
 .env
-.env.backup.*
+.env.*
+!.env.example
+/certs/
+/secrets/
+/deploy/ssl/
+*.pem
+*.key
+*.crt
+*.cer
+*.csr
+*.p12
+*.pfx
+*.jks
+*.keystore
 
 # Python
 __pycache__/
@@ -10,7 +27,8 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+/dist/
+/frontend/dist/
 downloads/
 eggs/
 .eggs/
@@ -18,14 +36,13 @@ lib/
 lib64/
 parts/
 sdist/
-var/
+/var/
 # Local exhibit uploads (production should configure a persistent external path).
-var/exhibit-images/
+/var/exhibit-images/
 wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-package-lock.json
 
 # Virtual environments
 .venv/
@@ -60,7 +77,9 @@ htmlcov/
 .tox/
 .nox/
 .ruff_cache/
-test_alembic.db
+*.db
+*.sqlite
+*.sqlite3
 
 # MyPy
 .mypy_cache/
@@ -72,6 +91,7 @@ test_alembic.db
 logs/
 !docs/logs/
 !docs/logs/CHANGELOG.md
+*.log
 backend_uvicorn.log
 
 # Performance test reports (keep directory structure but ignore generated reports)
@@ -82,6 +102,20 @@ performance_reports/*.txt
 node_modules/
 frontend/node_modules/
 
+# Operator-local imports and server runtime artifacts. Versioned museum CSV
+# snapshots under data/museum_* remain trackable.
+/data/local-imports/
+~$*.xls
+~$*.xlsx
+~$*.csv
+/uploads/
+/backup/
+/backups/
+museai_*.sql.gz
+exhibit-images_*.tar.gz
+*.pid
+*.sock
+
 # claude
 .claude/
 .superpowers/
@@ -91,5 +125,3 @@ codex.md
 /AGENTS.md
 /docs/DESIGN.md
 /docs/CURRENT_TASK.md
-
-!docs/reference/展品.md

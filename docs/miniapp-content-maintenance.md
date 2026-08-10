@@ -282,7 +282,9 @@ PY
    : "${DEPLOY_STAMP:?missing DEPLOY_STAMP}"
    : "${OLD_SHA:?missing OLD_SHA}"
    : "${ENV_BACKUP:?missing ENV_BACKUP}"
-   printf 'DEPLOY_STAMP=%s\nDEPLOY_PHASE=%s\nRELEASE_RECORD=%s\n' "$DEPLOY_STAMP" "$DEPLOY_PHASE" "$RELEASE_RECORD"
+   EFFECTIVE_FINAL_SHA="${FINAL_SHA:-${DOCUMENTATION_SHA:-${TARGET_SHA:-}}}"
+   printf 'DEPLOY_STAMP=%s\nDEPLOY_PHASE=%s\nEFFECTIVE_FINAL_SHA=%s\nRELEASE_RECORD=%s\n' \
+       "$DEPLOY_STAMP" "$DEPLOY_PHASE" "$EFFECTIVE_FINAL_SHA" "$RELEASE_RECORD"
    ```
 
 3. 备份并校验 PostgreSQL；Compose 的数据库角色显式固定为 `museai`：
@@ -426,16 +428,57 @@ PY
    sync "$RELEASE_RECORD"
    ```
 
-7. 如本批次包含数据快照，先 dry-run，再执行权威导入；完成后抽样验证九厅名称/简介、展品数量、具体建议条、报告 `exploration_guidance` 和一次“上传→公开读取→删除”图片闭环。全部验收完成后才记录完成状态：
+7. 如本批次包含数据快照，先 dry-run，再执行权威导入；完成后抽样验证九厅名称/简介、展品数量、具体建议条、报告 `exploration_guidance` 和一次“上传→公开读取→删除”图片闭环。全部验收完成后，确认 checkout 仍是运行发布目标，再写入权威 `FINAL_SHA` 和完成状态：
 
    ```bash
    set -euo pipefail
    : "${RELEASE_RECORD:?run the recovery block first}"
-   printf 'DEPLOY_PHASE=%q\n' completed >> "$RELEASE_RECORD"
+   : "${TARGET_SHA:?release record has no TARGET_SHA}"
+   cd /home/ubuntu/MuseAI
+   test -z "$(git status --porcelain)"
+   FINAL_SHA="$(git rev-parse HEAD)"
+   test "$FINAL_SHA" = "$TARGET_SHA"
+   {
+       printf 'FINAL_SHA=%q\n' "$FINAL_SHA"
+       printf 'DEPLOY_PHASE=%q\n' final_sha_recorded
+       printf 'DEPLOY_PHASE=%q\n' completed
+   } >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
    ```
 
-## 8. 回退
+   `TARGET_SHA` 表示实际执行依赖同步、迁移、启动和 readiness 验证的运行发布提交；`FINAL_SHA` 表示关闭记录时服务器最终 checkout。旧记录读取时使用 `FINAL_SHA > DOCUMENTATION_SHA > TARGET_SHA` 的兼容优先级。三者都不存在时必须停止，不能猜测。
+
+8. 发布证据通常应在运行发布前写完。确需在验收后补充本批次 `STATE.md` 或 changelog 时，只允许同步纯文档后代，并同时更新 `DOCUMENTATION_SHA` 与 `FINAL_SHA`；出现任何运行文件差异都必须作为新发布重新执行本节：
+
+   ```bash
+   set -euo pipefail
+   : "${RELEASE_RECORD:?run the recovery block first}"
+   : "${TARGET_SHA:?release record has no TARGET_SHA}"
+   cd /home/ubuntu/MuseAI
+   test -z "$(git status --porcelain)"
+   git fetch origin main
+   DOCUMENTATION_SHA="$(git rev-parse origin/main)"
+   git cat-file -e "${DOCUMENTATION_SHA}^{commit}"
+   git merge-base --is-ancestor "$TARGET_SHA" "$DOCUMENTATION_SHA"
+   while IFS= read -r -d '' changed_path; do
+       case "$changed_path" in
+           docs/agent-runs/*/STATE.md|docs/logs/CHANGELOG.md) ;;
+           *) printf 'post-deploy commit changes runtime path: %s\n' "$changed_path" >&2; exit 1 ;;
+       esac
+   done < <(git diff --name-only -z "$TARGET_SHA" "$DOCUMENTATION_SHA")
+   git switch --no-overwrite-ignore --detach "$DOCUMENTATION_SHA"
+   FINAL_SHA="$(git rev-parse HEAD)"
+   test "$FINAL_SHA" = "$DOCUMENTATION_SHA"
+   {
+       printf 'DOCUMENTATION_SHA=%q\n' "$DOCUMENTATION_SHA"
+       printf 'FINAL_SHA=%q\n' "$FINAL_SHA"
+       printf 'DEPLOY_PHASE=%q\n' documentation_synced
+       printf 'DEPLOY_PHASE=%q\n' completed
+   } >> "$RELEASE_RECORD"
+   sync "$RELEASE_RECORD"
+   ```
+
+## 9. 回退
 
 回退前先保存当前失败现场、日志、数据库和图片目录。因为 systemd 启动前会执行当前 checkout 的 `alembic upgrade head`，旧 checkout 不认识新 revision；因此不得只切代码而保留数据库 head `20260809_trusted_hall_chat_history`。
 

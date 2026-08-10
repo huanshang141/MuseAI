@@ -1,0 +1,11 @@
+[Unit]
+Description=Run MuseAI PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+AccuracySec=1min
+Unit=museai-backup.service
+
+[Install]
+WantedBy=timers.target

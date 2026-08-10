@@ -1,5 +1,14 @@
 # 后端变更日志
 
+## 2026-08-11
+
+- 服务器维护口径纠正：应用 `app/auth/chat/document/infra` 文件日志本身已由 Loguru 每日轮转并保留 7 天，删除会造成二次轮转的旧 `deploy/logrotate-museai`，Nginx 日志继续使用系统 Logrotate。
+- PostgreSQL 备份脚本统一使用 `/home/ubuntu/museai-backups`，固定目录 `0700`、文件 `0600`；新增 systemd oneshot service 与每日 03:30、`Persistent=true` timer，替代从未安装的 cron 约定，并为权限契约增加 mock 回归。
+- Nginx 参考配置改为线上 API 实际证书路径；文档明确 API 手工证书与官网 Certbot 证书分别占用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录均在用，不能按重复目录删除。
+- 发布记录新增 `FINAL_SHA`：`TARGET_SHA` 保留为执行依赖/迁移/启动的运行目标，纯证据文档后代可另记 `DOCUMENTATION_SHA`，最终 checkout 统一由 `FINAL_SHA` 表达；旧记录按 `FINAL_SHA > DOCUMENTATION_SHA > TARGET_SHA` 兼容读取。
+- 新增 2 GiB 现有 Swap 文件的低换页配置 `vm.swappiness=10` 和可回退启用步骤，不重复创建磁盘文件。
+- 中英文 README 删除环境变量具体字段、服务地址、模型、密钥负责人和示例取值，只保留服务器受控配置、禁止提交和变更后 readiness 验证原则。
+
 ## 2026-08-10
 
 - 后端 `main` 从 `1310b995` 以 `--ff-only` 快进合并 `codex/data-driven-miniapp-framework` 的 20 个提交，合并树精确对应 `baea8f8`，main 无独有提交且未产生冲突或额外 merge commit。权威生产来源改为 `origin/main`，继续使用 fetch、精确 SHA、目标 tree 门禁和 detached checkout，禁止用无条件 `git pull` 替代受控发布。

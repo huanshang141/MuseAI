@@ -2,7 +2,7 @@
 # MuseAI PostgreSQL backup.
 #
 # Usage:
-#   BACKUP_DIR=/var/backups/museai bash ./pg_backup.sh
+#   BACKUP_DIR=/home/ubuntu/museai-backups bash ./pg_backup.sh
 #
 # Connection resolution order (no passwords are hardcoded here):
 #   1. PG_CONTAINER  — name of the docker compose PostgreSQL container;
@@ -13,7 +13,7 @@
 #   3. libpq env     — PGHOST/PGPORT/PGUSER/PGPASSWORD or ~/.pgpass.
 #
 # Env vars:
-#   BACKUP_DIR      target directory (default /var/backups/museai)
+#   BACKUP_DIR      target directory (default /home/ubuntu/museai-backups)
 #   RETENTION_DAYS  days to keep old dumps (default 7)
 #   DB_NAME         database name (default museai)
 #   PG_CONTAINER    optional docker container name
@@ -22,14 +22,16 @@
 # Exits non-zero on any failure; prints the backup file path on success.
 
 set -euo pipefail
+umask 077
 
-BACKUP_DIR="${BACKUP_DIR:-/var/backups/museai}"
+BACKUP_DIR="${BACKUP_DIR:-/home/ubuntu/museai-backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
 DB_NAME="${DB_NAME:-museai}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S_%N)"
 OUT_FILE="${BACKUP_DIR}/museai_${TIMESTAMP}.sql.gz"
 
 mkdir -p "$BACKUP_DIR"
+chmod 700 "$BACKUP_DIR"
 TMP_FILE="$(mktemp "${BACKUP_DIR}/.museai_${TIMESTAMP}.XXXXXX.sql.gz")"
 cleanup() {
     rm -f -- "${TMP_FILE:-}"
@@ -56,8 +58,9 @@ if [ ! -s "$TMP_FILE" ]; then
 fi
 gzip -t "$TMP_FILE"
 mv -- "$TMP_FILE" "$OUT_FILE"
+chmod 600 "$OUT_FILE"
 TMP_FILE=""
 trap - EXIT INT HUP TERM
 
-find "$BACKUP_DIR" -name 'museai_*.sql.gz' -mtime +"$RETENTION_DAYS" -delete
+find "$BACKUP_DIR" -maxdepth 1 -type f -name 'museai_*.sql.gz' -mtime +"$RETENTION_DAYS" -delete
 printf '%s\n' "$OUT_FILE"

@@ -9,19 +9,20 @@
 | 文件 | 用途 |
 | --- | --- |
 | `museai-backend.service` | systemd unit，托管 uvicorn 后端进程 |
-| `logrotate-museai` | 后端 `logs/*.log` 日志轮转规则 |
 | `pg_backup.sh` | PostgreSQL 每日备份脚本 |
 | `test_pg_backup.sh` | 不依赖 Docker/PostgreSQL 的备份成功/失败 mock 回归 |
+| `museai-backup.service` / `museai-backup.timer` | 每日 03:30 执行原子数据库备份 |
+| `museai-swap.conf` | 2 GiB Swap 缓冲的低换页倾向配置 |
 | `nginx.conf` | HTTPS 反代参考配置（已在线上使用，以线上实际为准） |
 
 以下命令均假设代码位于 `/home/ubuntu/MuseAI`，路径不同请先全局替换。
 
-HTTPS 证书约定放在 `/etc/nginx/ssl/museai/`：
+当前两个 HTTPS 站点使用不同证书来源：
 
-- `/etc/nginx/ssl/museai/fullchain.pem`
-- `/etc/nginx/ssl/museai/privkey.pem`
+- API：`/etc/nginx/ssl/museai/api.banpo-museai.xyz_bundle.crt` 与同目录 `.key`。
+- 官网：`/etc/letsencrypt/live/banpo-museai.xyz/fullchain.pem` 与 `privkey.pem`。
 
-上传到 `/tmp` 的证书文件不会自动生效；必须复制到 Nginx 配置读取的路径，并执行 `sudo nginx -t && sudo systemctl reload nginx`。
+两套目录都被生效的 Nginx server block 引用，不能因为并存而合并或删除。上传到 `/tmp` 的证书不会自动生效；替换前必须从 `sudo nginx -T` 核对当前引用，替换后执行 `sudo nginx -t && sudo systemctl reload nginx`。
 
 ---
 
@@ -80,40 +81,51 @@ journalctl -u museai-backend -f                      # 跟踪日志
 
 修改 unit 文件本身后需要：`sudo systemctl daemon-reload && sudo systemctl restart museai-backend`。
 
-## 3. 配置 logrotate
+## 3. 验证日志保留与证书职责
 
 ```bash
-sudo cp /home/ubuntu/MuseAI/deploy/logrotate-museai /etc/logrotate.d/museai
-sudo logrotate --debug /etc/logrotate.d/museai    # 干跑校验，不实际轮转
-sudo logrotate --force /etc/logrotate.d/museai    # 可选：立即执行一次验证
+set -euo pipefail
+cd /home/ubuntu/MuseAI
+test ! -e /etc/logrotate.d/museai
+test -f /etc/logrotate.d/nginx
+find logs -maxdepth 1 -type f -name '*.log' -printf '%f %s bytes %TY-%Tm-%Td %TH:%TM\n' | sort
+sudo nginx -T 2>/dev/null | grep -E 'server_name|ssl_certificate(_key)?'
 ```
 
-策略：每日轮转、保留 14 天、压缩、`copytruncate`（后端持有日志文件句柄，不支持信号重开）。
-Nginx 自带 `/etc/logrotate.d/nginx`，确认存在即可，无需重复配置。
+应用的五类 `logs/*.log` 由 Loguru 自身每日轮转并保留 7 天。不要安装 MuseAI 专用 Logrotate，否则活动文件和 Loguru 已轮转文件会被二次处理。Nginx 继续使用系统自带的 `/etc/logrotate.d/nginx`。
+
+API 手工证书与官网 Certbot 证书必须分别维护。官网只保留一套已验证的 Certbot renewal timer；切换 timer 前先用保留的 Certbot 执行 `renew --dry-run`。API 手工证书不受 Certbot 管理，必须在到期前单独替换，并核对公网证书指纹。
 
 ## 4. 配置每日数据库备份
 
 ```bash
 set -euo pipefail
-sudo mkdir -p /var/backups/museai
-sudo chown ubuntu:ubuntu /var/backups/museai
+sudo install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/museai-backups
+sudo install -o root -g root -m 0644 /home/ubuntu/MuseAI/deploy/museai-backup.service /etc/systemd/system/museai-backup.service
+sudo install -o root -g root -m 0644 /home/ubuntu/MuseAI/deploy/museai-backup.timer /etc/systemd/system/museai-backup.timer
+sudo systemd-analyze verify /etc/systemd/system/museai-backup.service /etc/systemd/system/museai-backup.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now museai-backup.timer
+sudo systemctl start museai-backup.service
+sudo systemctl is-enabled --quiet museai-backup.timer
+sudo systemctl is-active --quiet museai-backup.timer
+sudo systemctl list-timers museai-backup.timer --no-pager
+```
 
-# Compose 固定使用容器 museai-postgres、数据库角色 museai：
-docker ps --format '{{.Names}}' | grep -Fx museai-postgres
-BACKUP_FILE="$(PG_CONTAINER=museai-postgres PGUSER=museai DB_NAME=museai BACKUP_DIR=/var/backups/museai bash /home/ubuntu/MuseAI/deploy/pg_backup.sh)"
+手工运行成功后选择最新备份并校验；脚本固定目录权限为 `0700`、文件权限为 `0600`，默认保留 7 天：
+
+```bash
+set -euo pipefail
+BACKUP_FILE="$(find /home/ubuntu/museai-backups -maxdepth 1 -type f -name 'museai_*.sql.gz' -printf '%T@ %p\n' | sort -nr | awk 'NR == 1 {print $2}')"
+test -n "$BACKUP_FILE"
+test "$(stat -c '%a' /home/ubuntu/museai-backups)" = 700
+test "$(stat -c '%a' "$BACKUP_FILE")" = 600
 gzip -t "$BACKUP_FILE"
+test -n "$(gzip -dc "$BACKUP_FILE" | tail -n 20)"
 sha256sum "$BACKUP_FILE"
 ```
 
-成功后添加 cron（每日 03:30）：
-
-```bash
-crontab -e
-# 添加一行：
-30 3 * * * PG_CONTAINER=museai-postgres PGUSER=museai DB_NAME=museai BACKUP_DIR=/var/backups/museai bash /home/ubuntu/MuseAI/deploy/pg_backup.sh >> /var/backups/museai/backup.log 2>&1
-```
-
-脚本默认保留 7 天（`RETENTION_DAYS` 可调），不在任何位置硬编码密码。容器分支未显式传 `PGUSER` 时也默认 `museai`，但运维命令仍必须显式传入，避免复制到不同 Compose 环境后产生歧义。
+定时器使用 Compose 容器 `museai-postgres`、数据库角色和库名 `museai`，不硬编码密码。漏过的执行会由 `Persistent=true` 在开机后补跑；如果 Docker 已启动但 PostgreSQL 容器仍在恢复，oneshot 会以 60 秒间隔有限重试，失败从 `systemctl status museai-backup.service` 和 journal 查看。
 
 **上线前必须执行下列完整恢复演练**。它只创建带随机后缀的临时库；只有本流程成功创建的库才会由 trap 删除，绝不连接或删除生产 `museai`：
 
@@ -156,7 +168,7 @@ trap - EXIT
 printf 'restore drill passed: backup=%s sha256=%s revision=%s\n' "$BACKUP_FILE" "$BACKUP_SHA256" "$RESTORED_REVISION"
 ```
 
-任一 `gzip`、创建、恢复、schema 查询或临时库删除失败都会非零停止。只有最后出现 `restore drill passed` 才能把该备份视为可恢复。生产库和图片回退的保留旧状态、候选库验证及安全 tar 校验命令见[内容维护指南第 8 节](../docs/miniapp-content-maintenance.md#8-回退)。
+任一 `gzip`、创建、恢复、schema 查询或临时库删除失败都会非零停止。只有最后出现 `restore drill passed` 才能把该备份视为可恢复。生产库和图片回退的保留旧状态、候选库验证及安全 tar 校验命令见[内容维护指南第 9 节](../docs/miniapp-content-maintenance.md#9-回退)。
 
 ## 5. 验证 health 与 readiness
 
@@ -195,7 +207,32 @@ test -n "$PORT_8000_LISTENERS"
 
 4. 同时确认 5432/6379/9200（PostgreSQL/Redis/Elasticsearch）均未对公网开放。
 
-## 7. 安全提醒
+## 7. 启用现有 2 GiB Swap 缓冲
+
+只复用已经初始化为 Linux swap、权限为 `0600` 的 `/swapfile`；文件不存在或类型不对时停止，不在上线窗口临时创建：
+
+```bash
+set -euo pipefail
+test -f /swapfile
+test ! -L /swapfile
+test "$(stat -c '%U:%G:%a:%s' /swapfile)" = 'root:root:600:2147483648'
+test "$(sudo blkid -p -s TYPE -o value /swapfile)" = swap
+if ! swapon --noheadings --show=NAME | grep -Fx /swapfile >/dev/null; then
+    sudo swapon /swapfile
+fi
+if ! grep -Eq '^[[:space:]]*/swapfile[[:space:]]+none[[:space:]]+swap[[:space:]]+sw[[:space:]]+0[[:space:]]+0([[:space:]]*#.*)?$' /etc/fstab; then
+    printf '%s\n' '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+fi
+sudo install -o root -g root -m 0644 /home/ubuntu/MuseAI/deploy/museai-swap.conf /etc/sysctl.d/99-museai-swap.conf
+sudo sysctl --system >/dev/null
+test "$(sysctl -n vm.swappiness)" = 10
+swapon --show
+free -h
+```
+
+回退时先记录原 `vm.swappiness`，执行 `sudo swapoff /swapfile`，再删除 `/etc/fstab` 中的精确 `/swapfile none swap sw 0 0` 行和 `/etc/sysctl.d/99-museai-swap.conf`，最后执行 `sudo sysctl --system` 并确认已恢复原值；不要直接删除仍处于启用状态的文件。
+
+## 8. 安全提醒
 
 - `.env`、证书私钥、数据库密码永远不进 Git。
 - 改完 `.env` 后 `sudo systemctl restart museai-backend` 才生效。

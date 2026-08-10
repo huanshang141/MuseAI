@@ -37,10 +37,12 @@ Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本
 /home/ubuntu/.ssh/                          # 部署账号访问远端仓库所需配置
 /var/www/museai-admin/                     # 管理端线上构建产物
 /etc/systemd/system/museai-backend.service # 当前后端启动单元
-/etc/logrotate.d/museai                    # 安装后由系统管理的日志轮转配置
+/etc/systemd/system/museai-backup.*        # PostgreSQL 每日备份 service/timer
 /etc/nginx/conf.d/museai-*.conf            # 线上 Nginx 配置
-/etc/nginx/ssl/museai/                     # 证书和私钥
-/etc/letsencrypt/                          # Certbot 管理证书
+/etc/nginx/ssl/museai/                     # API 域名手工证书和私钥
+/etc/letsencrypt/                          # 官网域名的 Certbot 管理证书
+/swapfile                                  # 2 GiB 突发内存缓冲
+/etc/sysctl.d/99-museai-swap.conf          # Swap 使用倾向
 /var/lib/docker/volumes/museai_*_data/     # PostgreSQL/Redis/Elasticsearch
 ```
 
@@ -48,7 +50,7 @@ Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本
 
 - 后端与管理端源码、Alembic 迁移、部署脚本和测试。
 - `uv.lock`、`frontend/package-lock.json` 及以后实际 npm 项目的 lockfile。
-- `.env.example` 和去敏后的 systemd、Nginx、logrotate 模板。
+- `.env.example` 和去敏后的 systemd、Nginx、备份与 Swap 配置模板。
 - `data/museum_template` 的统一格式模板。
 - 获得提交授权、无个人信息的馆方正式 `halls.csv`、`exhibits.csv`、路线和地图元数据。
 - 人格、提示模板、建议条等可复现业务输入。
@@ -63,7 +65,7 @@ Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本
 - `/etc/nginx/ssl`、`/etc/letsencrypt` 下的证书和私钥。
 - Docker 数据卷中的数据库、Redis 状态和 Elasticsearch 索引/embedding。
 - `/home/ubuntu/museai-data/exhibit-images` 中由管理端上传的图片。
-- 应用、Nginx、journal 和 Docker 运行日志。
+- 应用、Nginx、journal 和 Docker 运行日志；应用文件日志由 Loguru 每日轮转并保留 7 天，不能再叠加外部 Logrotate。
 - 数据库、图片、配置和发布回退备份。
 - 管理员密码哈希、游客会话、对话、报告等数据库运行记录。
 - `.venv`、`node_modules`、`dist`、缓存、字节码和测试临时文件。
@@ -103,7 +105,7 @@ Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本
 
 ## 数据和证书更新
 
-证书更新只发生在 Nginx/Certbot 管理目录，并在 `nginx -t` 后 reload，不进入 Git。
+API 与官网当前分别使用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录均由生效的 Nginx server block 引用，不是重复副本。证书更新只发生在对应 Nginx/Certbot 管理目录，并在 `nginx -t` 后 reload，不进入 Git。
 
 正式数据更新采用：统一 CSV/XLSX → 本地校验 → 可公开权威 CSV 提交 → 服务器 fetch 精确提交
 → dry-run → 正式导入 → 索引校验。数据库和 Elasticsearch 中的结果是运行状态，不反向提交 Git。

@@ -1,0 +1,25 @@
+[Unit]
+Description=MuseAI PostgreSQL backup
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=15min
+StartLimitBurst=10
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/MuseAI
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PG_CONTAINER=museai-postgres
+Environment=PGUSER=museai
+Environment=DB_NAME=museai
+Environment=BACKUP_DIR=/home/ubuntu/museai-backups
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=30min
+Restart=on-failure
+RestartSec=60s
+ExecStart=/usr/bin/bash /home/ubuntu/MuseAI/deploy/pg_backup.sh

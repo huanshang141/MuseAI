@@ -59,7 +59,7 @@ Other items:
 - Official museum exhibit catalogue, images, map, positions, and spatial layout still need confirmation. The current data is not the final real museum data.
 - The LLM Qwen API is provided by Alex, while other API keys are provided by another teammate. Release needs explicit ownership, quota, billing, alerting, and rotation rules.
 - Current Qwen calls consume free or trial quota. Confirm quota, rate limits, and billing policy in the provider console before experience-version testing.
-- The production backend is managed by systemd. Log rotation and PostgreSQL backup assets live under `deploy/`; each release still records its actual backup, checksum, health checks, and rollback evidence.
+- The production backend is managed by systemd. Loguru rotates application files daily with seven-day retention, while the PostgreSQL backup service/timer lives under `deploy/`; each release still records its actual backup, checksum, health checks, and rollback evidence.
 - Experience-version upload, tester distribution, and a final full regression before upload are not complete.
 
 ## Tech Stack
@@ -129,52 +129,13 @@ Simply entering a hall is not enough. A hall is counted after the user sends a m
 
 ## Environment Variables
 
-Copy the sample file:
+Local development may derive a machine-local `.env` from the repository sample. This README does not enumerate concrete fields, service endpoints, models, key owners, or production values; production configuration remains only in the controlled server environment file.
 
 ```bash
 cp .env.example .env
 ```
 
-Important fields:
-
-```dotenv
-APP_ENV=development
-DATABASE_URL=postgresql+asyncpg://...
-REDIS_URL=redis://localhost:6379/0
-ELASTICSEARCH_URL=http://localhost:9200
-JWT_SECRET=
-
-LLM_PROVIDER=qwen
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_API_KEY=
-LLM_MODEL=qwen-flash
-LLM_TOUR_MODEL=qwen-flash
-LLM_REPORT_MODEL=qwen-plus
-LLM_HEADERS=
-LLM_TEMPERATURE=0.2
-LLM_MAX_TOKENS=800
-LLM_ENABLE_THINKING=false
-LLM_COMPAT_MODE=qwen
-
-RERANK_PROVIDER=siliconflow
-RERANK_API_KEY=
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-
-TTS_PROVIDER=xiaomi
-TTS_API_KEY=
-TTS_MODEL=mimo-v2.5-tts
-TTS_DEFAULT_VOICE=冰糖
-```
-
-Never commit `.env`. Restart the backend process after changing production `.env`.
-
-API-key ownership guidance:
-
-- `LLM_API_KEY` is currently maintained by Alex and is used mainly for Qwen/DashScope guide chat and report summaries.
-- `RERANK_API_KEY`, `TTS_API_KEY`, and future OCR or other service keys should each have an explicit owner.
-- The repository records config names only, never real key values.
-- Free quota must not be treated as the long-term production plan. Before experience-version testing, confirm billing, bill alerts, rate limits, and fallback model ids.
-- Prefer provider replacement through `.env` OpenAI-compatible settings. Do not change RAG or SSE contracts during the launch window.
+Never commit `.env`. After a production change, restart through the controlled release procedure and verify readiness. Quotas, billing alerts, and key rotation belong in private operations records.
 
 ## Local Development
 
@@ -226,9 +187,9 @@ Recommended for 2 CPU cores / 8 GB RAM:
 - RAG, rerank, and TTS rely on external services; control concurrency and timeouts to protect streaming guide latency.
 - If Elasticsearch, Redis, PostgreSQL, and the backend run on the same host, monitor memory continuously and split search or database services first as data grows.
 
-Production releases use systemd only. Back up PostgreSQL before switching code and include the persistent exhibit-image directory in the same release backup whenever uploaded images exist. The exact release source is `origin/codex/data-driven-miniapp-framework`; do not pull `main`, kill processes by name, or use `nohup` as a production launcher.
+Production releases use systemd only. Back up PostgreSQL before switching code and include the persistent exhibit-image directory in the same release backup whenever uploaded images exist. The exact release source is `origin/main`; fetch and check out its resolved SHA instead of using an unconditional pull, killing processes by name, or using `nohup` as a production launcher.
 
-The single authoritative procedure for backup, exact-SHA checkout, frozen dependency sync, migrations, systemd stop/start, health checks, and rollback is [Mini-program content maintenance: production deployment and acceptance](./docs/miniapp-content-maintenance.md#7-生产部署和验收). `deploy/DEPLOYMENT_NOTES.md` documents installation and configuration of systemd, Nginx, log rotation, and backup assets; it does not define a second release procedure.
+The single authoritative procedure for backup, exact-SHA checkout, frozen dependency sync, migrations, systemd stop/start, health checks, and rollback is [Mini-program content maintenance: production deployment and acceptance](./docs/miniapp-content-maintenance.md#7-生产部署和验收). `deploy/DEPLOYMENT_NOTES.md` documents systemd, Nginx, application-managed log retention, backup scheduling, and Swap configuration; it does not define a second release procedure.
 
 ## Launch Blockers
 

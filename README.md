@@ -58,7 +58,7 @@ HTTPS 状态拆分说明：
 - 官方馆方完整展品清单、展品图片、地图、点位和空间布局数据仍需确认；当前数据不是最终真实数据。
 - LLM Qwen API 由 Alex 提供，其他 API 由另一位同学提供；上线前必须明确 key 负责人、额度、付费、告警和轮换流程。
 - 当前 Qwen 调用消耗免费额度或试用额度；体验版前必须在服务商控制台确认额度、限流和账单策略。
-- 生产后端已由 systemd 托管；日志轮转和 PostgreSQL 备份资产位于 `deploy/`，发布批次仍需记录实际备份、校验和恢复演练结果。
+- 生产后端已由 systemd 托管；应用日志由 Loguru 每日轮转并保留 7 天，PostgreSQL 备份 service/timer 位于 `deploy/`，发布批次仍需记录实际备份、校验和恢复演练结果。
 - 体验版上传、测试成员分发和上传前完整回归尚未完成。
 
 ## 技术栈
@@ -141,56 +141,13 @@ backend/
 
 ## 环境变量
 
-复制示例配置：
+本地开发可从仓库的示例文件建立仅本机使用的 `.env`。README 不列出具体字段、服务地址、模型、密钥负责人或生产取值；生产配置只保存在服务器受控环境文件中。
 
 ```bash
 cp .env.example .env
 ```
 
-关键配置：
-
-```dotenv
-APP_ENV=development
-DATABASE_URL=postgresql+asyncpg://...
-REDIS_URL=redis://localhost:6379/0
-ELASTICSEARCH_URL=http://localhost:9200
-JWT_SECRET=
-
-LLM_PROVIDER=qwen
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-LLM_API_KEY=
-LLM_MODEL=qwen-flash
-LLM_TOUR_MODEL=qwen-flash
-LLM_REPORT_MODEL=qwen-plus
-LLM_HEADERS=
-LLM_TEMPERATURE=0.2
-LLM_MAX_TOKENS=800
-LLM_ENABLE_THINKING=false
-LLM_COMPAT_MODE=qwen
-
-RERANK_PROVIDER=siliconflow
-RERANK_API_KEY=
-RERANK_MODEL=BAAI/bge-reranker-v2-m3
-
-TTS_PROVIDER=xiaomi
-TTS_API_KEY=
-TTS_MODEL=mimo-v2.5-tts
-TTS_DEFAULT_VOICE=冰糖
-
-EXHIBIT_IMAGE_DIR=var/exhibit-images
-EXHIBIT_IMAGE_MAX_BYTES=5242880
-EXHIBIT_IMAGE_MAX_PIXELS=40000000
-```
-
-`.env` 不允许提交到仓库。线上修改 `.env` 后必须重启后端进程。
-
-API key 分工建议：
-
-- `LLM_API_KEY` 当前由 Alex 维护，主要用于 Qwen/DashScope 导览对话和报告摘要。
-- `RERANK_API_KEY`、`TTS_API_KEY`、未来 OCR 或其他服务 key 由对应同学维护。
-- 仓库只记录配置项名称，不记录真实 key。
-- 免费额度不能视为长期生产方案；体验版前必须确认是否转为付费、是否有账单告警、是否有备用 model id。
-- 替换供应商时优先通过 `.env` 切换 OpenAI-compatible provider，不在上线窗口大改 RAG 或 SSE 协议。
+`.env` 不允许提交到仓库。线上修改后必须按受控发布流程重启并验证 readiness；额度、账单告警和密钥轮换在私有运维记录中维护。
 
 ## 本地运行
 
@@ -244,7 +201,7 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 
 生产发布只使用 systemd 托管，并在切换代码前备份 PostgreSQL；有上传图片时还必须同批次备份持久图片目录。当前精确发布来源为 `origin/main`；必须先 fetch 并记录目标 SHA，不得使用无条件 `git pull`，也不得用进程名 `pkill` 或 `nohup` 启动替代受控发布。
 
-唯一权威的备份、精确 SHA 切换、依赖同步、迁移、systemd 启停、健康检查和回退流程见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、日志轮转和备份资产的安装与配置，不另行定义发布流程。
+唯一权威的备份、精确 SHA 切换、依赖同步、迁移、systemd 启停、健康检查和回退流程见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、应用日志保留、备份调度和 Swap 配置，不另行定义发布流程。
 
 服务器继续从 `/home/ubuntu/MuseAI` 直接获取精确提交并部署；Git 跟踪内容、服务器本地密钥/运行数据和真实数据更新边界见 [服务器直拉部署与存储边界](./docs/server-storage-layout.md)。禁止在生产 checkout 使用会删除 `.env`、`.venv` 和日志的全量 `git clean`。
 

@@ -51,6 +51,8 @@ case "$SUCCESS_FILE" in
         ;;
 esac
 test -f "$SUCCESS_FILE"
+test "$(stat -c '%a' "$SUCCESS_DIR")" = 700
+test "$(stat -c '%a' "$SUCCESS_FILE")" = 600
 gzip -t "$SUCCESS_FILE"
 test "$(gzip -dc "$SUCCESS_FILE")" = $'-- MuseAI backup fixture\nCREATE TABLE backup_probe (id integer);'
 test "$(cat "$SUCCESS_ARGS")" = $'exec\nmuseai-postgres\npg_dump\n--no-owner\n-U\nmuseai\nmuseai'

@@ -2,35 +2,27 @@
 
 ## 边界
 
-- 仅处理服务器审计已列出的六项：日志轮转、无效旧备份、仓库根旧日志与 pytest 缓存、证书目录判定、发布记录最终 SHA、Swap。
-- 后端仓库：`E:\Proj\Museum_agent\MuseAI\backend`，分支 `main`。
-- 生产 checkout：`/home/ubuntu/MuseAI`；不修改小程序或管理端功能。
-- 证书、备份和系统配置先验证引用与回退路径，不做未经验证的删除。
+- 仅处理服务器审计列出的六项：日志轮转、无效旧备份、仓库根旧日志与 pytest 缓存、证书目录判定、发布记录最终 SHA、Swap。
+- 后端仓库为 `E:\Proj\Museum_agent\MuseAI\backend` 的 `main`；生产 checkout 为 `/home/ubuntu/MuseAI`。小程序和管理端功能未改。
+- 所有服务器文件变更先验证引用并保留回退副本；未删除任何仍被 Nginx 或服务引用的证书和数据。
 
-## 已验证事实
+## 已完成变更
 
-- 本地 `main`、`origin/main` 与生产运行 checkout 均为 `63f6e75599a0d24a844388365289f6c99752ff1a`，本地工作树在本检查点创建前干净。
-- 后端由系统级 `museai-backend.service` 托管；服务 active/running，内外网 readiness 正常。
-- 应用五类日志已由 Loguru 每日轮转并保留 7 天；`deploy/logrotate-museai` 会二次轮转，属于应删除的过时资产。
-- 截图中的六项来自此前服务器只读审计；本轮必须重新以实时状态核验。
-- 两套证书目录都在使用：API 使用 `/etc/nginx/ssl/museai`，官网使用 `/etc/letsencrypt`；只能归档其中未被引用的旧手工网站证书。
-- 20 B 旧备份是空 gzip 流且无引用；另 8 个数据库备份有效。现无 MuseAI 定时备份任务。
-- `backend_uvicorn.log` 与 `.pytest_cache` 均未跟踪、已忽略、无打开句柄。
-- `/swapfile` 已存在且是完整的 2 GiB Linux swap，只是未启用、未写入 `/etc/fstab`；当前 `vm.swappiness=60`。
-- 当前发布记录有 `TARGET_SHA` 与纯文档 `DOCUMENTATION_SHA`，缺少统一的 `FINAL_SHA`。
+- 运行目标 `544e93786b8e2f61cb602a044df1009a1da823da` 已部署；应用由 systemd 托管，未用 `nohup` 或按进程名启停。
+- 应用五类日志继续由 Loguru 每日轮转并保留 7 天；删除会造成二次轮转的仓库旧规则，不创建 `/etc/logrotate.d/museai`。长期无新事件的 `auth.log`、`document.log` 虽修改时间较早，但仍是当前进程打开的活动文件，不属于过期轮转文件。
+- 每日 03:30 的 PostgreSQL systemd timer 已 enabled/active；备份目录和文件权限分别固定为 `0700/0600`。最新备份已恢复到临时库，关键表与迁移 `20260809_trusted_hall_chat_history` 验证通过，临时库残留为 0。
+- 20 B 空 gzip 旧备份已隔离，旧 `backend_uvicorn.log` 已压缩归档，`.pytest_cache` 已清理；原路径均不存在。
+- API 手工证书与官网 Let’s Encrypt 证书均在用，因此保留两套活动目录；只归档未引用的旧手工官网证书。API 证书与私钥权限为 `root:root 0644/0600`，磁盘指纹与公网指纹一致。
+- snap Certbot 续期 dry-run 成功并保持 timer enabled/active；重复的 apt timer 已 disabled/inactive，未卸载软件包。
+- 现有 2 GiB `/swapfile` 已启用并仅写入一条 `fstab` 记录，`vm.swappiness=10`。
+- 生产回退资产和操作证据位于 `/home/ubuntu/museai-config-backups/maintenance_20260810T173754Z`；本批次发布记录使用 `TARGET_SHA`、`DOCUMENTATION_SHA` 和 `FINAL_SHA` 区分运行目标与最终文档 checkout。
 
-## 本轮变更
+## 验证
 
-- 已创建 PostgreSQL backup service/timer 和 Swap sysctl 模板；备份脚本固定 `0700/0600` 权限。
-- 已删除过时的 MuseAI Logrotate 资产，并修正日志、证书路径、存储边界和发布记录文档。
-- 本地备份 mock、脚本语法、24 个文档 Bash 块通过；当前候选 service/timer 字节已由生产服务器 systemd 249 执行 `systemd-analyze verify` 通过。
-- 尚未修改生产配置、清理生产文件或切换生产 checkout。
-
-## 验证要求
-
-- 每项修复必须有对应 dry-run、引用检查或状态验证。
-- 结束前复核 systemd、Nginx 配置、数据库/缓存/检索 readiness、Swap、Git 与发布记录。
+- 本地：备份 mock、25 个相关 Markdown Bash 块、候选 systemd service/timer、配置/日志定向 pytest、Ruff/差异检查和 staged secret scan 均通过。
+- 生产：后端与 Nginx active，后端 NRestarts=0；loopback readiness、公网 readiness 和官网均为 HTTP 200，发布后 error journal 为 0。
+- 生产：备份 timer enabled/active 且手动执行成功；恢复演练通过；Swap、`fstab`、证书指纹/权限、Certbot timers、归档路径和干净 Git 工作树联合终检通过。
 
 ## 唯一下一步
 
-- 等待当前仓库 diff 的独立复核；通过后更新 changelog、提交并推送 `main`，再按精确 SHA 实施服务器修复。
+- 无。本任务六项均已收口。后续独立维护事项是 API 手工证书在 2026-12-21 到期前更新，建议不晚于 2026-11-21 执行。

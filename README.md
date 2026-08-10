@@ -33,16 +33,11 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
   - `exploration_guidance` 以一条明确的 `next_step` 为主，并保留 1 条兼容 `action`；根据最新提问、展品浏览和当前展厅给出下一步，不再因互动较少而返回拒绝型文案。
 - Reflection Engine：不新增数据库、不新增 API、不新增模型调用，基于 session/events/report 规则推断认知变化。
 - RAG 链路：query rewrite、Elasticsearch 检索、rerank、文档过滤、流式生成。
-- LLM 分层模型：
-  - `LLM_TOUR_MODEL` 用于普通导览对话。
-  - `LLM_REPORT_MODEL` 用于报告等总结任务。
-  - `LLM_MODEL` 保留为兼容兜底。
-- DeepSeek/Qwen OpenAI-compatible 调用兼容：
-  - DeepSeek 可关闭 thinking。
-  - Qwen/DashScope 可关闭 thinking。
+- 普通导览、报告总结和兼容兜底使用分离的模型角色；具体环境变量名、供应商、模型和取值不在 README 公开。
+- 支持 OpenAI-compatible 模型服务及按供应商能力控制推理模式，实际配置只保存在受控环境中。
 - 导览对话由服务端按展厅持久化可信历史并压缩用于连续追问；客户端恢复历史只负责界面显示，不进入模型 prompt 或检索改写。
 - Redis 或 Elasticsearch 不可用时进入 degraded 模式，避免直接阻断服务启动。
-- `/api/v1/tts/synthesize` TTS 合成接口，当前默认只保留“冰糖”声线，返回可供小程序播放的音频数据。
+- `/api/v1/tts/synthesize` TTS 合成接口返回可供小程序播放的音频数据；具体供应商和声线由受控环境配置决定。
 
 ## 尚未完成或仍需发布验收
 
@@ -56,8 +51,7 @@ HTTPS 状态拆分说明：
 
 - OCR 服务尚未购买或配置；OCR 识别当前主要在小程序端调用微信能力并回退到展品文字匹配，后端未新增 OCR API。
 - 官方馆方完整展品清单、展品图片、地图、点位和空间布局数据仍需确认；当前数据不是最终真实数据。
-- LLM Qwen API 由 Alex 提供，其他 API 由另一位同学提供；上线前必须明确 key 负责人、额度、付费、告警和轮换流程。
-- 当前 Qwen 调用消耗免费额度或试用额度；体验版前必须在服务商控制台确认额度、限流和账单策略。
+- 模型、语音等第三方服务的账号、凭据归属、额度、付费、告警、限流和轮换信息只在私有运维记录中维护；README 不记录这些具体配置。
 - 生产后端已由 systemd 托管；应用日志由 Loguru 每日轮转并保留 7 天，PostgreSQL 备份 service/timer 位于 `deploy/`，发布批次仍需记录实际备份、校验和恢复演练结果。
 - 体验版上传、测试成员分发和上传前完整回归尚未完成。
 
@@ -72,8 +66,8 @@ HTTPS 状态拆分说明：
 | 检索 | Elasticsearch |
 | RAG | LangChain, LangGraph, 自定义 retriever/filter |
 | LLM | OpenAI-compatible provider |
-| Rerank | SiliconFlow / OpenAI / Cohere / custom / mock |
-| TTS | Xiaomi MiMo 或 mock provider |
+| Rerank | 外部、自定义或 mock provider |
+| TTS | 外部或 mock provider |
 | 测试 | pytest, pytest-asyncio |
 
 ## 目录结构
@@ -141,7 +135,7 @@ backend/
 
 ## 环境变量
 
-本地开发可从仓库的示例文件建立仅本机使用的 `.env`。README 不列出具体字段、服务地址、模型、密钥负责人或生产取值；生产配置只保存在服务器受控环境文件中。
+本地开发可从仓库的示例文件建立仅本机使用的 `.env`。本节不列出具体字段、服务地址、模型、密钥负责人或生产取值；生产配置只保存在服务器受控环境文件中。
 
 ```bash
 cp .env.example .env
@@ -211,7 +205,7 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 - 前端 API 已从开发 IP 切到 HTTPS 域名。
 - 真实馆方展品、图片、地图/点位和空间数据已导入并抽样核验；九厅名称和简介沿用当前已确认口径。
 - OCR 上线策略已确定：购买并配置服务 ID，或隐藏 OCR 入口只保留文字搜索。
-- Qwen/DashScope 免费额度、付费开通、限流和账单告警已确认。
+- 第三方模型服务的额度、付费开通、限流和账单告警已在私有运维记录中确认。
 - API key 负责人和轮换流程已明确。
 - 重置曾暴露过的 AppSecret 和 API key。
 - 每批生产发布均记录并验证数据库/图片备份、校验和、systemd 健康检查和回退证据。

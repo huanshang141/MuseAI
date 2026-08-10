@@ -448,7 +448,7 @@ PY
 
    `TARGET_SHA` 表示实际执行依赖同步、迁移、启动和 readiness 验证的运行发布提交；`FINAL_SHA` 表示关闭记录时服务器最终 checkout。旧记录读取时使用 `FINAL_SHA > DOCUMENTATION_SHA > TARGET_SHA` 的兼容优先级。三者都不存在时必须停止，不能猜测。
 
-8. 发布证据通常应在运行发布前写完。确需在验收后补充本批次 `STATE.md` 或 changelog 时，只允许同步纯文档后代，并同时更新 `DOCUMENTATION_SHA` 与 `FINAL_SHA`；出现任何运行文件差异都必须作为新发布重新执行本节：
+8. 发布证据通常应在运行发布前写完。确需在验收后补充本批次 README、部署说明、维护指南、`STATE.md` 或 changelog 时，只允许同步下列纯 Markdown 文档后代，并同时更新 `DOCUMENTATION_SHA` 与 `FINAL_SHA`；出现任何其他文件差异都必须作为新发布重新执行本节：
 
    ```bash
    set -euo pipefail
@@ -462,7 +462,7 @@ PY
    git merge-base --is-ancestor "$TARGET_SHA" "$DOCUMENTATION_SHA"
    while IFS= read -r -d '' changed_path; do
        case "$changed_path" in
-           docs/agent-runs/*/STATE.md|docs/logs/CHANGELOG.md) ;;
+           README.md|README_EN.md|deploy/DEPLOYMENT_NOTES.md|docs/miniapp-content-maintenance.md|docs/agent-runs/*/STATE.md|docs/logs/CHANGELOG.md) ;;
            *) printf 'post-deploy commit changes runtime path: %s\n' "$changed_path" >&2; exit 1 ;;
        esac
    done < <(git diff --name-only -z "$TARGET_SHA" "$DOCUMENTATION_SHA")
@@ -557,7 +557,7 @@ test -z "$EXISTING_RESTORE_DBS"
 docker exec "$PG_CONTAINER" createdb -U "$PGUSER" "$CANDIDATE_DB"
 gzip -dc "$DB_BACKUP" | docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$CANDIDATE_DB"
 CANDIDATE_SCHEMA_OK="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$CANDIDATE_DB" -Atqc "SELECT (to_regclass('public.alembic_version') IS NOT NULL AND to_regclass('public.halls') IS NOT NULL)::text")"
-test "$CANDIDATE_SCHEMA_OK" = t
+test "$CANDIDATE_SCHEMA_OK" = true
 CANDIDATE_REVISION="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$CANDIDATE_DB" -Atqc 'SELECT version_num FROM alembic_version LIMIT 1')"
 test -n "$CANDIDATE_REVISION"
 printf 'DEPLOY_PHASE=%q\n' restore_candidate_verified >> "$RELEASE_RECORD"
@@ -575,7 +575,7 @@ docker exec "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d postgres -c 
 docker exec "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d postgres -c \
     "ALTER DATABASE \"$CANDIDATE_DB\" RENAME TO \"$DB_NAME\";"
 PRODUCTION_SCHEMA_OK="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$DB_NAME" -Atqc "SELECT (to_regclass('public.alembic_version') IS NOT NULL AND to_regclass('public.halls') IS NOT NULL)::text")"
-test "$PRODUCTION_SCHEMA_OK" = t
+test "$PRODUCTION_SCHEMA_OK" = true
 {
     printf 'RESTORED_DB_BACKUP=%q\n' "$DB_BACKUP"
     printf 'DEPLOY_PHASE=%q\n' database_restored

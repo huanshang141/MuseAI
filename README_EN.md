@@ -34,16 +34,11 @@ The backend is in the **data-driven mini-program framework validation stage**. T
   - `exploration_guidance` is led by one concise `next_step` and retains exactly one compatibility `action`; it no longer emits refusal copy for low interaction.
 - Reflection Engine without new database tables, new APIs, or new model calls.
 - RAG pipeline with query rewrite, Elasticsearch retrieval, rerank, document filtering, and streaming generation.
-- LLM model tiers:
-  - `LLM_TOUR_MODEL` for normal guide chat.
-  - `LLM_REPORT_MODEL` for report summaries.
-  - `LLM_MODEL` as compatibility fallback.
-- OpenAI-compatible DeepSeek/Qwen calling:
-  - DeepSeek thinking can be disabled.
-  - Qwen/DashScope thinking can be disabled.
+- Guide chat, report summaries, and compatibility fallback use separate model roles. Concrete environment-variable names, providers, models, and values are not published in this README.
+- OpenAI-compatible model services and provider-specific reasoning controls are supported; actual configuration remains only in the controlled environment.
 - Server-persisted trusted history is compressed per hall for follow-ups. Client-restored display history and client-supplied `conversation_history` never enter model prompts, retrieval rewrites, or grounding.
 - Degraded startup if Redis or Elasticsearch is unavailable.
-- TTS synthesis API at `/api/v1/tts/synthesize`, currently defaulting to the "冰糖" voice and returning audio data playable by the mini-program.
+- The TTS synthesis API at `/api/v1/tts/synthesize` returns audio playable by the mini-program; the provider and voice are controlled environment configuration.
 
 ## Not Complete Or Still Needs Release Acceptance
 
@@ -57,8 +52,7 @@ Other items:
 
 - OCR service has not been purchased or configured; OCR recognition is currently handled mainly by the mini-program side with exhibit text matching fallback; no backend OCR API was added.
 - Official museum exhibit catalogue, images, map, positions, and spatial layout still need confirmation. The current data is not the final real museum data.
-- The LLM Qwen API is provided by Alex, while other API keys are provided by another teammate. Release needs explicit ownership, quota, billing, alerting, and rotation rules.
-- Current Qwen calls consume free or trial quota. Confirm quota, rate limits, and billing policy in the provider console before experience-version testing.
+- Account ownership, credentials, quota, billing, alerting, rate limits, and rotation details for model and speech services belong only in private operations records; this README does not publish them.
 - The production backend is managed by systemd. Loguru rotates application files daily with seven-day retention, while the PostgreSQL backup service/timer lives under `deploy/`; each release still records its actual backup, checksum, health checks, and rollback evidence.
 - Experience-version upload, tester distribution, and a final full regression before upload are not complete.
 
@@ -73,8 +67,8 @@ Other items:
 | Search | Elasticsearch |
 | RAG | LangChain, LangGraph, custom retriever/filtering |
 | LLM | OpenAI-compatible provider |
-| Rerank | SiliconFlow / OpenAI / Cohere / custom / mock |
-| TTS | Xiaomi MiMo or mock provider |
+| Rerank | external, custom, or mock provider |
+| TTS | external or mock provider |
 | Tests | pytest, pytest-asyncio |
 
 ## Directory Layout
@@ -129,7 +123,7 @@ Simply entering a hall is not enough. A hall is counted after the user sends a m
 
 ## Environment Variables
 
-Local development may derive a machine-local `.env` from the repository sample. This README does not enumerate concrete fields, service endpoints, models, key owners, or production values; production configuration remains only in the controlled server environment file.
+Local development may derive a machine-local `.env` from the repository sample. This section does not enumerate concrete fields, service endpoints, models, key owners, or production values; production configuration remains only in the controlled server environment file.
 
 ```bash
 cp .env.example .env
@@ -197,7 +191,7 @@ The single authoritative procedure for backup, exact-SHA checkout, frozen depend
 - Frontend API endpoints have been switched from the temporary development HTTP endpoint to `https://api.banpo-museai.xyz/api/v1`.
 - Import and sample-check official museum exhibit, hall, image, and spatial data.
 - Decide the OCR release strategy: buy/configure OCR service ID, or hide OCR and keep text search only.
-- Confirm Qwen/DashScope free quota, paid activation, rate limits, and bill alerts.
+- Confirm third-party model-service quota, paid activation, rate limits, and bill alerts in private operations records.
 - Define API-key owners and rotation process.
 - Rotate any AppSecret or API keys that were exposed during testing.
 - Record and verify the backup, checksum, systemd health checks, and rollback evidence for each production release.

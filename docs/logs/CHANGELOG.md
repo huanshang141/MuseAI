@@ -7,7 +7,12 @@
 - Nginx 参考配置改为线上 API 实际证书路径；文档明确 API 手工证书与官网 Certbot 证书分别占用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录均在用，不能按重复目录删除。
 - 发布记录新增 `FINAL_SHA`：`TARGET_SHA` 保留为执行依赖/迁移/启动的运行目标，纯证据文档后代可另记 `DOCUMENTATION_SHA`，最终 checkout 统一由 `FINAL_SHA` 表达；旧记录按 `FINAL_SHA > DOCUMENTATION_SHA > TARGET_SHA` 兼容读取。
 - 新增 2 GiB 现有 Swap 文件的低换页配置 `vm.swappiness=10` 和可回退启用步骤，不重复创建磁盘文件。
-- 中英文 README 删除环境变量具体字段、服务地址、模型、密钥负责人和示例取值，只保留服务器受控配置、禁止提交和变更后 readiness 验证原则。
+- 中英文 README 删除环境变量具体字段、模型变量名、供应商/声线细节、凭据负责人和示例取值，只保留服务器受控配置、禁止提交和变更后 readiness 验证原则。
+- 运维提交 `544e937` 已作为运行目标部署：后端与 Nginx active，内外网 readiness 和官网均为 HTTP 200，后端重启计数与发布后 error journal 均为 0。
+- `/home/ubuntu/museai-config-backups/maintenance_20260810T173754Z` 保存本轮可回退资产。20 B 空备份、旧根日志、pytest 缓存和未引用的旧手工网站证书已从原路径隔离或归档；有效生产证书路径均保留，API 证书/私钥权限收敛为 `0644/0600`。
+- PostgreSQL 定时备份已实际执行并恢复到临时数据库验证，关键 schema 与迁移版本正确且临时库残留为 0；2 GiB Swap 已启用并写入 `fstab`，`vm.swappiness=10`。
+- 官网证书由 snap Certbot 模拟续期成功后，重复的 apt `certbot.timer` 已停用；snap timer 保持 enabled/active。API 手工证书仍需在到期前按独立维护流程更新。
+- 恢复演练文档修正 PostgreSQL 显式 `::text` 布尔输出断言：应比较 `true`，不能比较原生布尔显示形式 `t`。
 
 ## 2026-08-10
 

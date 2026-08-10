@@ -159,7 +159,7 @@ docker exec "$PG_CONTAINER" createdb -U "$PGUSER" "$RESTORE_DB"
 RESTORE_CREATED=true
 gzip -dc "$BACKUP_FILE" | docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -U "$PGUSER" -d "$RESTORE_DB"
 RESTORE_SCHEMA_OK="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$RESTORE_DB" -Atqc "SELECT (to_regclass('public.alembic_version') IS NOT NULL AND to_regclass('public.halls') IS NOT NULL)::text")"
-test "$RESTORE_SCHEMA_OK" = t
+test "$RESTORE_SCHEMA_OK" = true
 RESTORED_REVISION="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$RESTORE_DB" -Atqc 'SELECT version_num FROM alembic_version LIMIT 1')"
 test -n "$RESTORED_REVISION"
 docker exec "$PG_CONTAINER" dropdb -U "$PGUSER" "$RESTORE_DB"

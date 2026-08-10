@@ -4,6 +4,7 @@
 
 - 后端 `main` 从 `1310b995` 以 `--ff-only` 快进合并 `codex/data-driven-miniapp-framework` 的 20 个提交，合并树精确对应 `baea8f8`，main 无独有提交且未产生冲突或额外 merge commit。权威生产来源改为 `origin/main`，继续使用 fetch、精确 SHA、目标 tree 门禁和 detached checkout，禁止用无条件 `git pull` 替代受控发布。
 - main 合并候选在仓库外全新虚拟环境验证：依赖锁定与导入正常、变更范围 65 个 Python 文件 Ruff 通过、Alembic 单 head、两套数据 dry-run 通过，完整后端 `1590 passed, 23 skipped, 9 warnings`。全仓 Ruff 另有 27 项早于本分支且不在合并 diff 中的历史格式问题，本次不扩大范围修改。
+- `origin/main` 已普通快进推送并以精确提交 `b05c211` 同步生产。服务器原 checkout `baea8f8` 与目标仅有发布文档差异，因此不重启业务进程；MainPID 保持 `1312984`、NRestarts 为 0，迁移保持 `20260809_trusted_hall_chat_history (head)`，依赖、端口、容器和内外网 readiness 均通过。新发布记录为 `/home/ubuntu/museai-config-backups/release_20260810T160618Z.env`；数据库备份 SHA-256 为 `c63c99492e91c8f5a2fdec6a085901bf2a155ff0aa3cc7aa1bf80d4e8ef4a0a4`，图片备份 SHA-256 为 `77d673e07aa7c5b512affec9facf471829e44a13e6a1df9acfcb8a9dc6267b19`。首次日志检查的 ISO 时间格式不被 `journalctl` 接受，已用服务器本地时间严格重查并写回同一记录，错误计数为 0。
 - 修复报告页前置会话同步 422：小程序九厅 `route_plan.steps` 已保存 `short`、`exhibitCount`、`exhibitCountKnown`，后端严格恢复模型此前未声明这三项，导致 9 厅产生 27 条 `extra_forbidden` 并在报告生成前被阻断。`TourRouteStep` 现只新增这三个受约束字段，未知字段仍拒绝，不放宽整体 schema，也不把展示计数作为 Agent 事实。
 - 回归契约改为完整九厅路线快照，覆盖九厅逐项 PATCH、GET 等值恢复、旧快照默认值、字段边界和未知字段仍返回 422；`test_tour_api.py` 66 项、完整后端 `1590 passed, 23 skipped, 9 warnings`、scoped Ruff 与 `git diff --check` 通过。小程序 16 组检查与 64 文件发布预检通过。
 - 服务器存储方案按审批反馈收敛为最小变化：继续以 `/home/ubuntu/MuseAI` 直接 fetch 精确提交并部署，不迁移 `/srv`、Docker 卷或证书目录。`docs/server-storage-layout.md` 改为 Git/服务器持久内容边界和直接 checkout 流程。

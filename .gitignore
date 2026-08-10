@@ -116,12 +116,15 @@ exhibit-images_*.tar.gz
 *.pid
 *.sock
 
-# claude
-.claude/
-.superpowers/
-
-# codex
-codex.md
+# Local AI-assistant and collaboration state
+/CLAUDE.md
 /AGENTS.md
+/.agents/
+.claude/
+/.codex/
+/.serena/
+.superpowers/
+codex.md
 /docs/DESIGN.md
 /docs/CURRENT_TASK.md
+/docs/agent-runs/

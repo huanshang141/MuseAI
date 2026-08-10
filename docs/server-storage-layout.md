@@ -8,9 +8,11 @@
 
 微信小程序仍是独立仓库，不部署到该服务器；`/home/ubuntu/MuseAI/frontend` 是管理端源码。
 
-`.gitignore` 只控制未跟踪文件能否进入 Git，不是服务器端的部署过滤器。只要文件已经被
-Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本化数据仍会随仓库存在于服务器。
-这部分体积很小，保留完整 checkout 比新增部署分支或制品系统更符合当前最小变化目标。
+`.gitignore` 只控制未跟踪文件能否进入 Git，不是服务器端的部署过滤器。仅供本机 AI
+协作使用的 `AGENTS.md`、`CLAUDE.md`、`docs/DESIGN.md`、`docs/CURRENT_TASK.md` 和
+`docs/agent-runs/` 不进入版本库；稳定维护文档、测试、锁文件和版本化数据仍随仓库存在于服务器。
+这些可复现资产合计只有数 MiB，保留完整 checkout 比新增部署分支、sparse-checkout 或制品系统
+更符合当前最小变化目标，也避免发布时缺少测试、迁移或回退依据。
 
 ## 服务器路径保持不变
 
@@ -81,6 +83,7 @@ Git 跟踪，服务器 checkout 就会得到它；因此测试、文档和版本
 - `data/local-imports` 和 Excel 临时锁文件忽略；版本化 museum CSV 不忽略。
 - `package-lock.json` 不做全局忽略，保证 npm 构建可复现。
 - `docs/reference/private` 保持私密；可公开来源说明和数据字典允许跟踪。
+- 本机 AI 协作文件和运行检查点忽略；`docs/logs/CHANGELOG.md`、部署指南和稳定设计记录继续跟踪。
 - 已经被 Git 跟踪的生成物必须通过提交移除，仅新增 ignore 规则不会自动取消跟踪。
 
 禁止在生产 checkout 执行 `git clean -fdx` 或 `git clean -fdX`。这些命令会删除被有意保留的

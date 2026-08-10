@@ -462,7 +462,7 @@ PY
    git merge-base --is-ancestor "$TARGET_SHA" "$DOCUMENTATION_SHA"
    while IFS= read -r -d '' changed_path; do
        case "$changed_path" in
-           README.md|README_EN.md|deploy/DEPLOYMENT_NOTES.md|docs/miniapp-content-maintenance.md|docs/agent-runs/*/STATE.md|docs/logs/CHANGELOG.md) ;;
+           README.md|README_EN.md|deploy/DEPLOYMENT_NOTES.md|docs/miniapp-content-maintenance.md|docs/logs/CHANGELOG.md) ;;
            *) printf 'post-deploy commit changes runtime path: %s\n' "$changed_path" >&2; exit 1 ;;
        esac
    done < <(git diff --name-only -z "$TARGET_SHA" "$DOCUMENTATION_SHA")

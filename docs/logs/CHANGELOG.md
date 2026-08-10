@@ -2,6 +2,9 @@
 
 ## 2026-08-11
 
+- 仓库协作边界收紧：`CLAUDE.md` 与 `docs/agent-runs/` 改为本机保留并取消 Git 跟踪；`.gitignore` 同步覆盖常见 AI 工具状态目录，`AGENTS.md`、`DESIGN.md`、`CURRENT_TASK.md` 和运行检查点不再进入服务器 checkout。稳定维护文档、测试、锁文件、迁移及部署脚本继续版本化，不把源码仓库削成不可验证的运行目录。
+- 部署文档移除 `docs/agent-runs/*/STATE.md` 的部署后纯文档同步例外；服务器仍使用 `origin/main` 的精确 SHA 直接部署，不退回无条件 `git pull`，也不因数 MiB 文档/测试引入 sparse-checkout 或双分支发布复杂度。
+- 仓库边界验证通过：11 个本机协作路径均被忽略，7 个稳定运行/维护路径继续可跟踪，`CLAUDE.md` 与 7 份本地 STATE 文件内容和校验和保持不变；`uv lock --check` 及配置回归 `23 passed`。
 - 服务器维护口径纠正：应用 `app/auth/chat/document/infra` 文件日志本身已由 Loguru 每日轮转并保留 7 天，删除会造成二次轮转的旧 `deploy/logrotate-museai`，Nginx 日志继续使用系统 Logrotate。
 - PostgreSQL 备份脚本统一使用 `/home/ubuntu/museai-backups`，固定目录 `0700`、文件 `0600`；新增 systemd oneshot service 与每日 03:30、`Persistent=true` timer，替代从未安装的 cron 约定，并为权限契约增加 mock 回归。
 - Nginx 参考配置改为线上 API 实际证书路径；文档明确 API 手工证书与官网 Certbot 证书分别占用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录均在用，不能按重复目录删除。

@@ -42,7 +42,7 @@
 /etc/systemd/system/museai-backup.*        # PostgreSQL 每日备份 service/timer
 /etc/nginx/conf.d/museai-*.conf            # 线上 Nginx 配置
 /etc/nginx/ssl/museai/                     # API 域名手工证书和私钥
-/etc/letsencrypt/                          # 官网域名的 Certbot 管理证书
+/etc/letsencrypt/                          # MuseAI 官网域名的 Certbot 管理证书
 /swapfile                                  # 2 GiB 突发内存缓冲
 /etc/sysctl.d/99-museai-swap.conf          # Swap 使用倾向
 /var/lib/docker/volumes/museai_*_data/     # PostgreSQL/Redis/Elasticsearch
@@ -108,7 +108,9 @@
 
 ## 数据和证书更新
 
-API 与官网当前分别使用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录均由生效的 Nginx server block 引用，不是重复副本。证书更新只发生在对应 Nginx/Certbot 管理目录，并在 `nginx -t` 后 reload，不进入 Git。
+2026-08-11 实时核对确认：本项目 API 与 MuseAI 官网分别使用 `/etc/nginx/ssl/museai` 和 `/etc/letsencrypt`，两套目录仍由生效的 Nginx server block 引用；根域名与 `www` 仍解析到本服务器，公网响应仍来自 Nginx。两套证书不是重复副本，必须按各自方式维护。
+
+证书更新只发生在对应 Nginx/Certbot 管理目录，不进入 Git；服务器侧变更后必须执行 `nginx -t` 再 reload。删除或移动证书前仍要核对 `nginx -T`、timer 和其他引用，不能把证书清理混入普通 API 代码发布。
 
 正式数据更新采用：统一 CSV/XLSX → 本地校验 → 可公开权威 CSV 提交 → 服务器 fetch 精确提交
 → dry-run → 正式导入 → 索引校验。数据库和 Elasticsearch 中的结果是运行状态，不反向提交 Git。

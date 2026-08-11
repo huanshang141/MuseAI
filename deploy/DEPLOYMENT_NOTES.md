@@ -2,7 +2,7 @@
 
 本目录只提供生产运维资产及一次性安装、配置参考，不是日常发布步骤的第二份副本。本仓库不会自动部署。
 
-生产发布的唯一权威流程是 [`docs/miniapp-content-maintenance.md` 第 7 节](../docs/miniapp-content-maintenance.md#7-生产部署和验收)：先备份，再从精确来源 `origin/main` 记录并切换目标 SHA，随后按锁文件同步依赖、执行迁移、通过 systemd 启停并完成健康检查。禁止用无条件 `git pull` 替代精确 SHA 发布，禁止按进程名执行 `pkill`，禁止用 `nohup` 启动生产后端。
+生产发布的唯一权威流程是 [`docs/miniapp-content-maintenance.md` 第 7 节](../docs/miniapp-content-maintenance.md#7-生产部署和验收)：先备份，再从精确来源 `origin/main` 记录并切换目标 SHA，随后按锁文件同步依赖、执行迁移、通过 systemd 启停并完成健康检查。正式上线前、上线当天和上线后观察使用[第 8 节](../docs/miniapp-content-maintenance.md#8-正式上线前上线当天和上线后)，故障回退使用[第 9 节](../docs/miniapp-content-maintenance.md#9-回退)。禁止用无条件 `git pull` 替代精确 SHA 发布，禁止按进程名执行 `pkill`，禁止用 `nohup` 启动生产后端。
 
 资产清单：
 
@@ -17,18 +17,18 @@
 
 以下命令均假设代码位于 `/home/ubuntu/MuseAI`，路径不同请先全局替换。
 
-当前两个 HTTPS 站点使用不同证书来源：
+2026-08-11 实时核对确认，本项目两个 HTTPS 站点仍使用不同证书来源：
 
 - API：`/etc/nginx/ssl/museai/api.banpo-museai.xyz_bundle.crt` 与同目录 `.key`。
-- 官网：`/etc/letsencrypt/live/banpo-museai.xyz/fullchain.pem` 与 `privkey.pem`。
+- MuseAI 官网：`/etc/letsencrypt/live/banpo-museai.xyz/fullchain.pem` 与 `privkey.pem`。
 
-两套目录都被生效的 Nginx server block 引用，不能因为并存而合并或删除。上传到 `/tmp` 的证书不会自动生效；替换前必须从 `sudo nginx -T` 核对当前引用，替换后执行 `sudo nginx -t && sudo systemctl reload nginx`。
+根域名和 `www` 仍解析到本服务器，公网响应来自 Nginx，两套目录也都被生效的 Nginx server block 引用，不能因为并存而合并或删除。上传到 `/tmp` 的 API 证书不会自动生效；替换前必须核对当前引用，替换后执行 `sudo nginx -t && sudo systemctl reload nginx`。
 
 ---
 
 ## 0. 发布流程唯一入口
 
-不要从本文件拼接或简化发布命令。每个发布批次都必须完整执行[小程序内容维护指南中的生产部署和验收流程](../docs/miniapp-content-maintenance.md#7-生产部署和验收)，并保留其中的数据库备份、配置备份、目标 SHA、迁移 head 和健康检查证据。本文件后续章节只用于首次安装或维护部署资产。
+不要从本文件拼接或简化发布命令。每个发布批次都必须完整执行[小程序内容维护指南中的生产部署和验收流程](../docs/miniapp-content-maintenance.md#7-生产部署和验收)，并保留其中的数据库备份、配置备份、目标 SHA、迁移 head 和健康检查证据；正式上线再按[第 8 节](../docs/miniapp-content-maintenance.md#8-正式上线前上线当天和上线后)完成内容、平台、观察期和运维门禁。本文件后续章节只用于首次安装或维护部署资产。
 
 报告接口 `POST /api/v1/tour/sessions/:id/report` 和 `GET /api/v1/tour/sessions/:id/report` 同时返回 500，且其他 tour/chat/exhibits 接口正常时，优先检查是否漏跑了迁移。当前报告摘要功能需要 `tour_reports.record_summary` 字段；如果数据库仍是旧 schema，ORM 读写报告表会直接触发 500。
 
@@ -94,7 +94,7 @@ sudo nginx -T 2>/dev/null | grep -E 'server_name|ssl_certificate(_key)?'
 
 应用的五类 `logs/*.log` 由 Loguru 自身每日轮转并保留 7 天。不要安装 MuseAI 专用 Logrotate，否则活动文件和 Loguru 已轮转文件会被二次处理。Nginx 继续使用系统自带的 `/etc/logrotate.d/nginx`。
 
-API 手工证书与官网 Certbot 证书必须分别维护。官网只保留一套已验证的 Certbot renewal timer；切换 timer 前先用保留的 Certbot 执行 `renew --dry-run`。API 手工证书不受 Certbot 管理，必须在到期前单独替换，并核对公网证书指纹。
+API 手工证书与 MuseAI 官网 Certbot 证书必须分别维护。官网只保留一套已验证的 Certbot renewal timer；切换 timer 前先用保留的 Certbot 执行 `renew --dry-run`。API 手工证书不受 Certbot 管理，必须在到期前单独替换，并核对公网证书指纹。
 
 ## 4. 配置每日数据库备份
 

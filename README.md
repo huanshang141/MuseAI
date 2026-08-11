@@ -6,7 +6,7 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
 
 ## 当前阶段
 
-当前处于 **数据驱动小程序框架验证阶段**。九个展厅的名称和简介为已确认内容；当前展品、图片和地图/路线仍是测试数据或待接入项。后端已提供统一 CSV/XLSX 导入、具体建议条、报告探索指引和展品图片管理能力；部署、实机回归和真实馆方数据验收仍需按发布批次执行。数据与图片维护见 [小程序内容维护指南](./docs/miniapp-content-maintenance.md)。
+当前处于 **体验版与真实数据上线准备阶段**。九个展厅的名称和简介为已确认内容；当前展品、图片和地图/路线仍是测试数据或待接入项。后端已提供统一 CSV/XLSX 导入、具体建议条、报告记录摘要、兼容性探索指引和展品图片管理能力；现有生产服务及当前小程序候选已完成公网与真机回归。后续精确部署、内容维护、正式上线前后观察和回退统一使用 [小程序内容维护指南](./docs/miniapp-content-maintenance.md)。
 
 ## 已实现能力
 
@@ -30,7 +30,7 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
   - 问题统计按用户发送消息数统计：`exhibit_question` 每条计一次，不对相同文本去重。
   - 展品浏览单独统计：点进展品详情页记录 `exhibit_view`，同一展品重复查看只计一次。
   - 记录摘要按展厅聚合用户问题与 AI 回答，优先使用报告模型生成凝练摘要，失败时回退规则式摘要。
-  - `exploration_guidance` 以一条明确的 `next_step` 为主，并保留 1 条兼容 `action`；根据最新提问、展品浏览和当前展厅给出下一步，不再因互动较少而返回拒绝型文案。
+  - 当前小程序以 `record_notes` 和“保存本次记录”为游客可见能力；`exploration_guidance.next_step` 与单条 `action` 仅为旧客户端保持兼容，不再作为当前报告页主功能。
 - Reflection Engine：不新增数据库、不新增 API、不新增模型调用，基于 session/events/report 规则推断认知变化。
 - RAG 链路：query rewrite、Elasticsearch 检索、rerank、文档过滤、流式生成。
 - 普通导览、报告总结和兼容兜底使用分离的模型角色；具体环境变量名、供应商、模型和取值不在 README 公开。
@@ -43,7 +43,7 @@ MuseAI 后端是面向西安半坡博物馆微信小程序的 FastAPI 服务，�
 
 HTTPS 状态拆分说明：
 
-- 已完成：`banpo-museai.xyz` ICP 备案已通过；`api.banpo-museai.xyz` DNS、SSL 证书、Nginx 443 反代已配置，`https://api.banpo-museai.xyz/api/v1/health` 已返回 healthy。
+- 已完成：`banpo-museai.xyz` ICP 备案已通过；`api.banpo-museai.xyz` DNS、SSL 证书、Nginx 443 反代已配置，`https://api.banpo-museai.xyz/api/v1/ready` 已验证 PostgreSQL、Redis 和 Elasticsearch healthy。
 - 当前开发状态：小程序前端统一使用 `https://api.banpo-museai.xyz/api/v1`；旧公网 HTTP 调试入口已经停用，不再作为 fallback 或排查路径。
 - 已完成（微信侧）：微信公众平台 request 合法域名已配置，刷新开发者工具域名信息后，关闭合法域名豁免已通过真机测试。
 
@@ -53,7 +53,7 @@ HTTPS 状态拆分说明：
 - 官方馆方完整展品清单、展品图片、地图、点位和空间布局数据仍需确认；当前数据不是最终真实数据。
 - 模型、语音等第三方服务的账号、凭据归属、额度、付费、告警、限流和轮换信息只在私有运维记录中维护；README 不记录这些具体配置。
 - 生产后端已由 systemd 托管；应用日志由 Loguru 每日轮转并保留 7 天，PostgreSQL 备份 service/timer 位于 `deploy/`，发布批次仍需记录实际备份、校验和恢复演练结果。
-- 体验版上传、测试成员分发和上传前完整回归尚未完成。
+- 当前候选的关闭合法域名豁免真机回归已完成；体验版上传和测试成员分发尚未完成。
 
 ## 技术栈
 
@@ -129,7 +129,7 @@ backend/
 - `highlights`：问题数、展品数等本次导览亮点，不包含到访展厅数量。
 - `reflection`：Reflection Engine 规则推断出的认知变化。
 - `record_notes`：按展厅合并用户问题和 AI 回答后的记录摘要，供前端直接渲染。
-- `exploration_guidance`：以单句 `next_step` 为主，并保留恰好 1 条兼容 `action`；该 action 包含 `title`、`description`、`question`，有可信关联时另带 `hall_id` / `exhibit_id`。
+- `exploration_guidance`：旧客户端兼容字段，以单句 `next_step` 和恰好 1 条 `action` 保持原契约；当前小程序不渲染该区域。
 
 报告生成不新增数据库表、不新增 API，也不改变 SSE 协议。`record_notes` 会优先调用报告模型生成不超过约 300 字的凝练记录摘要；模型不可用或生成失败时回退到规则式摘要，避免报告不可用。
 
@@ -195,7 +195,7 @@ uv run --extra dev pytest -q --basetemp .pytest-tmp
 
 生产发布只使用 systemd 托管，并在切换代码前备份 PostgreSQL；有上传图片时还必须同批次备份持久图片目录。当前精确发布来源为 `origin/main`；必须先 fetch 并记录目标 SHA，不得使用无条件 `git pull`，也不得用进程名 `pkill` 或 `nohup` 启动替代受控发布。
 
-唯一权威的备份、精确 SHA 切换、依赖同步、迁移、systemd 启停、健康检查和回退流程见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、应用日志保留、备份调度和 Swap 配置，不另行定义发布流程。
+唯一权威的备份、精确 SHA 切换、依赖同步、迁移和 systemd 健康检查见 [小程序内容维护指南：生产部署和验收](./docs/miniapp-content-maintenance.md#7-生产部署和验收)；正式上线前、上线当天和上线后观察见[第 8 节](./docs/miniapp-content-maintenance.md#8-正式上线前上线当天和上线后)，故障回退见[第 9 节](./docs/miniapp-content-maintenance.md#9-回退)。`deploy/DEPLOYMENT_NOTES.md` 仅说明 systemd、Nginx、应用日志保留、备份调度和 Swap 配置，不另行定义发布流程。
 
 服务器继续从 `/home/ubuntu/MuseAI` 直接获取精确提交并部署；Git 跟踪内容、服务器本地密钥/运行数据和真实数据更新边界见 [服务器直拉部署与存储边界](./docs/server-storage-layout.md)。禁止在生产 checkout 使用会删除 `.env`、`.venv` 和日志的全量 `git clean`。
 

@@ -6,7 +6,7 @@ MuseAI backend is the FastAPI service for the Banpo Museum WeChat mini-program. 
 
 ## Current Stage
 
-The backend is in the **data-driven mini-program framework validation stage**. The names and introductions of the nine halls are confirmed; current exhibits and images are test data or pending replacement, while maps, routes, and spatial points still await museum data. The backend now provides one CSV/XLSX import contract, deterministic content-specific suggestions, report `next_step` guidance, and exhibit-image management. Production uses systemd, while each release still requires its own backup, migration, health-check, rollback, and real-data acceptance evidence. See [Mini-program content maintenance](./docs/miniapp-content-maintenance.md) for the authoritative maintenance and deployment procedure.
+The backend is in the **experience-build and real-data launch-preparation stage**. The names and introductions of the nine halls are confirmed; current exhibits and images are test data or pending replacement, while maps, routes, and spatial points still await museum data. The backend provides one CSV/XLSX import contract, deterministic content-specific suggestions, report summaries, compatibility guidance, and exhibit-image management. The production service and current mini-program candidate have completed public-probe and real-device regression. Use [Mini-program content maintenance](./docs/miniapp-content-maintenance.md) for exact deployment, content operations, pre/post-launch checks, and rollback.
 
 
 ## Implemented Capabilities
@@ -31,7 +31,7 @@ The backend is in the **data-driven mini-program framework validation stage**. T
   - Question totals count user-sent messages: every `exhibit_question` counts once, without deduplicating repeated question text.
   - Exhibit views are counted separately from hall visits and deduped by exhibit.
   - Record notes are grouped by hall from user questions and AI answers, using the report model first and falling back to a rule-based summary if generation fails.
-  - `exploration_guidance` is led by one concise `next_step` and retains exactly one compatibility `action`; it no longer emits refusal copy for low interaction.
+  - The current mini-program exposes `record_notes` through its save-record action. `exploration_guidance.next_step` and its single `action` remain compatibility fields for older clients rather than the primary report UI.
 - Reflection Engine without new database tables, new APIs, or new model calls.
 - RAG pipeline with query rewrite, Elasticsearch retrieval, rerank, document filtering, and streaming generation.
 - Guide chat, report summaries, and compatibility fallback use separate model roles. Concrete environment-variable names, providers, models, and values are not published in this README.
@@ -44,7 +44,7 @@ The backend is in the **data-driven mini-program framework validation stage**. T
 
 HTTPS status, split in two parts:
 
-- Done: ICP filing for `banpo-museai.xyz` has passed; `api.banpo-museai.xyz` DNS, SSL certificate, and Nginx 443 reverse proxy are configured; `https://api.banpo-museai.xyz/api/v1/health` returns healthy.
+- Done: ICP filing for `banpo-museai.xyz` has passed; `api.banpo-museai.xyz` DNS, SSL certificate, and Nginx 443 reverse proxy are configured; `https://api.banpo-museai.xyz/api/v1/ready` has verified PostgreSQL, Redis, and Elasticsearch as healthy.
 - Current development state: the mini-program uses `https://api.banpo-museai.xyz/api/v1` exclusively; the legacy public HTTP development endpoint is disabled and is no longer a fallback or debugging path.
 - Done (WeChat side): the WeChat request legal domain is configured, DevTools domain settings were refreshed, and real-device testing passed with the legal-domain exemption turned off.
 
@@ -54,7 +54,7 @@ Other items:
 - Official museum exhibit catalogue, images, map, positions, and spatial layout still need confirmation. The current data is not the final real museum data.
 - Account ownership, credentials, quota, billing, alerting, rate limits, and rotation details for model and speech services belong only in private operations records; this README does not publish them.
 - The production backend is managed by systemd. Loguru rotates application files daily with seven-day retention, while the PostgreSQL backup service/timer lives under `deploy/`; each release still records its actual backup, checksum, health checks, and rollback evidence.
-- Experience-version upload, tester distribution, and a final full regression before upload are not complete.
+- Candidate real-device regression with legal-domain checks enabled is complete; experience-version upload and tester distribution are not complete.
 
 ## Tech Stack
 
@@ -113,13 +113,14 @@ backend/
 
 Report statistics depend on `tour_events`. Frontend events should use one of the nine canonical hall slugs, or the matching Chinese hall name. Legacy hall slugs are no longer mapped; hall values that cannot be normalized to the nine-hall contract are dropped.
 
-Visited halls are counted from:
+Visited halls are counted from non-clarification events of these types:
 
 - `exhibit_question`
 - `exhibit_view`
-- `assistant_answer`
 
 Simply entering a hall is not enough. A hall is counted after the user sends a message in that hall, or opens any exhibit detail page from that hall. `halls_visited` is deduped by canonical hall slug. Question totals are counted from `exhibit_question`, one per user-sent message, without deduplicating repeated text. Exhibit detail entry records `exhibit_view` and affects exhibit stats separately, deduped by exhibit.
+
+The current report UI consumes `record_notes` for its concise hall-level summary and provides a save-record action. `exploration_guidance` remains a backward-compatible `next_step` plus one `action`, but the current mini-program does not render that region.
 
 ## Environment Variables
 
@@ -183,7 +184,7 @@ Recommended for 2 CPU cores / 8 GB RAM:
 
 Production releases use systemd only. Back up PostgreSQL before switching code and include the persistent exhibit-image directory in the same release backup whenever uploaded images exist. The exact release source is `origin/main`; fetch and check out its resolved SHA instead of using an unconditional pull, killing processes by name, or using `nohup` as a production launcher.
 
-The single authoritative procedure for backup, exact-SHA checkout, frozen dependency sync, migrations, systemd stop/start, health checks, and rollback is [Mini-program content maintenance: production deployment and acceptance](./docs/miniapp-content-maintenance.md#7-生产部署和验收). `deploy/DEPLOYMENT_NOTES.md` documents systemd, Nginx, application-managed log retention, backup scheduling, and Swap configuration; it does not define a second release procedure.
+The authoritative backup, exact-SHA checkout, frozen dependency sync, migrations, systemd lifecycle, and health gates are in [Mini-program content maintenance: production deployment and acceptance](./docs/miniapp-content-maintenance.md#7-生产部署和验收). The same guide's [section 8](./docs/miniapp-content-maintenance.md#8-正式上线前上线当天和上线后) covers pre-launch, launch-day, and post-launch operations, while [section 9](./docs/miniapp-content-maintenance.md#9-回退) covers rollback. `deploy/DEPLOYMENT_NOTES.md` documents installation assets only and does not define a second release procedure.
 
 ## Launch Blockers
 

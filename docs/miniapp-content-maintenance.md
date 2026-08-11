@@ -428,7 +428,7 @@ PY
    sync "$RELEASE_RECORD"
    ```
 
-7. 如本批次包含数据快照，先 dry-run，再执行权威导入；完成后抽样验证九厅名称/简介、展品数量、具体建议条、报告 `exploration_guidance` 和一次“上传→公开读取→删除”图片闭环。全部验收完成后，确认 checkout 仍是运行发布目标，再写入权威 `FINAL_SHA` 和完成状态：
+7. 如本批次包含数据快照，先 dry-run，再执行权威导入；完成后抽样验证九厅名称/简介、展品数量、具体建议条、报告统计与 `record_notes` 记录摘要，以及一次“上传→公开读取→删除”图片闭环。当前小程序还应验证“保存本次记录”的复制结果；`exploration_guidance` 只做旧客户端兼容契约检查，不作为当前页面验收重点。全部验收完成后，确认 checkout 仍是运行发布目标，再写入权威 `FINAL_SHA` 和完成状态：
 
    ```bash
    set -euo pipefail
@@ -462,7 +462,7 @@ PY
    git merge-base --is-ancestor "$TARGET_SHA" "$DOCUMENTATION_SHA"
    while IFS= read -r -d '' changed_path; do
        case "$changed_path" in
-           README.md|README_EN.md|deploy/DEPLOYMENT_NOTES.md|docs/miniapp-content-maintenance.md|docs/logs/CHANGELOG.md) ;;
+          README.md|README_EN.md|deploy/DEPLOYMENT_NOTES.md|docs/miniapp-content-maintenance.md|docs/server-storage-layout.md|docs/logs/CHANGELOG.md) ;;
            *) printf 'post-deploy commit changes runtime path: %s\n' "$changed_path" >&2; exit 1 ;;
        esac
    done < <(git diff --name-only -z "$TARGET_SHA" "$DOCUMENTATION_SHA")
@@ -477,6 +477,102 @@ PY
    } >> "$RELEASE_RECORD"
    sync "$RELEASE_RECORD"
    ```
+
+## 8. 正式上线前、上线当天和上线后
+
+本节定义发布节奏和验收责任。代码切换仍完整执行第 7 节，数据库/图片/代码回退仍完整执行第 9 节；不要从本节摘取部分命令替代它们。
+
+### 8.1 先判断变更类型
+
+| 变更 | 发布要求 |
+| --- | --- |
+| 仅小程序前端，后端契约不变 | 不部署、不重启后端；只验证公网 readiness 和旧接口可用 |
+| 后端代码或依赖 | 完整执行第 7 节精确 SHA 发布；前端仍在审核时必须保持向后兼容 |
+| Alembic 迁移 | 与代码作为同一批次备份和发布；迁移失败立即停止，不启动错误 schema |
+| 真实展厅/展品 CSV/XLSX | 先 dry-run，再以稳定 `source-name` 导入；完整快照才允许 `--authoritative` |
+| 管理员上传图片 | 数据库记录和持久图片目录作为同一回退批次维护 |
+| 仅 `.env` 中受控配置 | 先备份配置，重启 systemd，并重新验证 health、readiness 和对应业务探针 |
+
+破坏性接口、真实数据全量替换、模型切换和微信正式审核不要挤在同一窗口。优先拆成“后端兼容发布 → 数据发布 → 小程序发布”三个可单独回退的阶段。
+
+### 8.2 正式上线前门禁
+
+以下检查必须有可保存的结果；任何关键项不明确时停止上线，而不是在生产服务器临时试错：
+
+1. **版本和验证**
+   - 本地/CI 已验证目标 `origin/main` 的精确 SHA、锁文件、迁移单 head、相关 pytest 和数据 dry-run。
+   - 前端候选版本已记录精确 SHA，并通过关闭合法域名豁免后的真机闭环；若涉及布局、媒体或权限，完成 iOS/Android 抽样。
+   - 生产服务器不运行全量测试；2C8G 上依赖同步、迁移、导入和重启必须串行。
+2. **内容和平台**
+   - 九厅名称、简介和开放状态经过确认；真实展品、来源、所属展厅、图片授权和建议条完成抽样。
+   - `【测试】` 或其他联调标记不会作为馆方真实内容发布；地图/点位/路线未接入时不伪造定位能力。
+   - OCR 已明确为“购买配置并验收”或“隐藏入口、保留文字搜索”之一。
+   - 微信隐私政策、用户协议、相机/语音权限和 AI 内容说明与实际功能一致。
+3. **生产服务和安全**
+   - `test@test.com` 是唯一管理员；不创建小程序普通用户账号。
+   - 第三方模型和语音服务的负责人、额度、付费、限流、告警和轮换只记录在私有运维资料中；曾暴露的凭据已轮换。
+   - `.env`、证书、数据库、上传图片、日志和备份均留在 Git 工作树外或受保护的服务器本地路径。
+   - `sudo nginx -t`、证书引用/到期时间、systemd、Docker 依赖、端口和公网 `/api/v1/ready` 均正常；旧 3000 端口保持关闭。
+4. **备份和回退**
+   - 每日备份 timer 为 enabled/active，最近备份通过 `gzip -t` 和校验和检查。
+   - 正式上线前至少完成一次 `deploy/DEPLOYMENT_NOTES.md` 第 4 节的临时库恢复演练。
+   - 本批次已明确代码回退 SHA、数据库备份、图片备份、配置备份和负责人。
+
+### 8.3 上线当天顺序
+
+1. 冻结后端 SHA、前端 SHA、数据来源版本和图片批次，建立发布记录。
+2. 如需后端变更，先完整执行第 7 节并让旧小程序完成 session、展厅目录、SSE、TTS 和报告探针。
+3. 如需真实数据更新，在后端稳定后单独执行 dry-run 和导入；抽查九厅、展品数量、停用计划、图片和 Elasticsearch 索引状态。
+4. 如需图片更新，串行上传并抽查公开 URL；不要同时并发替换同一展品图片。
+5. 后端、数据和图片稳定后，才提交或发布小程序候选版本。
+6. 记录实际完成时间、最终 SHA、迁移 head、数据来源、备份路径/校验和、前端版本和验证结果。
+
+如果某阶段失败，停止后续阶段并保留现场。不要为了赶窗口跳过第 7 节的备份、精确 checkout、迁移或 readiness 门禁。
+
+### 8.4 发布后 30 分钟和首个 24 小时
+
+发布后立即从正式入口完成一次冷启动闭环，并在服务器检查：
+
+```bash
+set -euo pipefail
+sudo systemctl is-active --quiet museai-backend
+sudo systemctl show museai-backend -p MainPID -p NRestarts --no-pager
+curl -fsS http://127.0.0.1:8000/api/v1/health
+curl -fsS http://127.0.0.1:8000/api/v1/ready
+curl -fsS https://api.banpo-museai.xyz/api/v1/ready
+sudo journalctl -u museai-backend --since '30 minutes ago' --no-pager
+df -h /
+free -h
+docker ps --format 'table {{.Names}}\t{{.Status}}'
+```
+
+验收内容：
+
+- 创建游客 session、加载九厅和展品目录、完成一次 SSE 回答、TTS 和报告。
+- 抽查真实展品名称/简介/所属展厅、建议条和图片；确认没有测试标记或跨厅内容。
+- 检查 5xx、报告失败、SSE 中断、TTS 认证/限流、数据库/Redis/Elasticsearch readiness 和 systemd 重启。
+- 不在共享记录中粘贴 token、游客原始对话、密码或第三方凭据；只记录聚合计数和脱敏错误。
+- 首个 24 小时确认每日数据库备份成功；有真实上传图片时确认图片也有同批次可恢复资产。
+
+### 8.5 稳定运行后的维护节奏
+
+- 每日：公网 readiness、关键错误、systemd 重启次数、磁盘/内存、第三方服务额度和最近数据库备份。
+- 每周：抽样完整导览和真实数据；校验一份备份并定期执行临时库恢复演练；检查图片备份、磁盘增长和证书到期时间。
+- 每次数据更新：保留 dry-run、来源名、权威/增量模式、数量变化、停用计划和抽样结果。
+- 每次配置更新：备份 `.env`，记录变更目的但不记录取值，重启并验证对应业务能力。
+- 每次代码发布：重新执行第 7 节，不因“仅文档之外的一点小改动”跳过精确 SHA 和回退记录。
+
+### 8.6 停止发布或回退的触发条件
+
+出现下列任一情况，应停止继续发布、保存日志与批次记录，并评估第 9 节回退：
+
+- 内网或公网 `/api/v1/ready` 非 healthy，依赖持续失败或 systemd 反复重启。
+- session、SSE、TTS、展厅目录或报告主链路持续 5xx/超时，且无法通过受控配置立即恢复。
+- 导入数量、停用计划、展厅归属或图片批次与审批结果不一致。
+- 测试数据冒充馆方内容、跨厅回答、管理员数量异常、鉴权绕过或敏感信息暴露。
+- 数据库迁移失败、schema 与代码不匹配，或备份/恢复证据缺失。
+
+内容错误但服务健康时，优先停止错误来源的后续导入并按同一数据批次恢复；代码/迁移错误使用第 9 节的精确回退。不得通过清空游客本地缓存、放宽 schema 或临时打开旧 3000 端口掩盖生产故障。
 
 ## 9. 回退
 
